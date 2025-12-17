@@ -8,7 +8,7 @@ use wasmparser::{
     ComponentStartFunction, ComponentType, ComponentTypeDeclaration, CoreType, Encoding, Instance,
     Parser, Payload,
 };
-
+use crate::encode::component::encode;
 use crate::error::Error;
 use crate::ir::helpers::{
     print_alias, print_component_export, print_component_import, print_component_type,
@@ -506,8 +506,9 @@ impl<'a> Component<'a> {
     /// let mut comp = Component::parse(&buff, false, false).unwrap();
     /// let result = comp.encode();
     /// ```
-    pub fn encode(&mut self) -> Vec<u8> {
-        self.encode_comp().finish()
+    pub fn encode(&self) -> Vec<u8> {
+        // self.encode_comp().finish()
+        encode(&self)
     }
 
     fn encode_comp(&mut self) -> wasm_encoder::Component {

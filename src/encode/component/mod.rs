@@ -1,3 +1,8 @@
+use crate::Component;
+use crate::encode::component::assign::assign_indices;
+use crate::encode::component::collect::CollectCtx;
+use crate::encode::component::encode::encode_internal;
+
 mod collect;
 mod assign;
 mod encode;
@@ -14,18 +19,18 @@ mod encode;
 /// 3. Encoding phase
 ///  - Emit bytes using indices
 ///  - No recursion needed, all references are guaranteed to be valid
-pub fn encode() {
-    // // Phase 1: Collect
-    // let mut ctx = CollectCtx { plan: EncodePlan::default(), seen: Seen::default() };
-    // for func in &component.funcs {
-    //     ctx.collect_func(func, &all_funcs);
-    // }
-    // let plan = ctx.plan;
-    //
-    // // Phase 2: Assign indices
-    // let indices = assign_indices(&plan);
-    //
-    // // Phase 3: Encode
-    // let bytes = encode(&plan, &indices);
-    // println!("{}", String::from_utf8(bytes).unwrap());
+pub fn encode(comp: &Component) -> Vec<u8> {
+    // Phase 1: Collect
+    let mut ctx = CollectCtx::default();
+    comp.collect_root(&mut ctx);
+    let mut plan = ctx.plan;
+
+    // Phase 2: Assign indices
+    let (indices, map) = assign_indices(&mut plan);
+
+    // Phase 3: Encode (pass in the root-level component's plan, assigned indices, and original->new index map)
+    let bytes = encode_internal(&plan, &indices, &map);
+    println!("{bytes:?}");
+
+    bytes.finish()
 }
