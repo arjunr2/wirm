@@ -6,6 +6,7 @@ use crate::encode::component::encode::encode_internal;
 mod collect;
 mod assign;
 mod encode;
+mod idx_spaces;
 
 /// Encoding a component gets split into 3 phases (the first two are for planning, the final
 /// phase is to actually perform the encoding)

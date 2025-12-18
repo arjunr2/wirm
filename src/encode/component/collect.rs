@@ -2,7 +2,8 @@ use std::collections::HashMap;
 use std::process::id;
 use wasmparser::{CanonicalFunction, CanonicalOption, ComponentType, CoreType};
 use crate::Component;
-use crate::encode::component::assign::{IndexMap, Indices};
+use crate::encode::component::assign::Indices;
+use crate::encode::component::idx_spaces::IndexSpaces;
 use crate::ir::types::CustomSection;
 
 /// `ComponentItem` stores raw pointers to IR nodes (e.g., `CanonicalFunction`, `Module`, `Component`)
@@ -52,7 +53,7 @@ pub(crate) enum ComponentItem<'a> {
         plan: ComponentPlan<'a>,
         original_id: u32,
         indices: Indices<'a>,
-        map: IndexMap, // store nested component’s IndexMap
+        idx_spaces: IndexSpaces, // store nested component’s IndexMap
     },
 
     // Type(&'a TypeDef),
@@ -65,8 +66,8 @@ pub(crate) enum ComponentItem<'a> {
     // ... add others as needed
 }
 impl<'a> ComponentItem<'a> {
-    pub fn update_comp_metadata(&mut self, new_indices: Indices<'a>, new_map: IndexMap,) {
-        if let Self::Component { indices, map, .. } = self {
+    pub fn update_comp_metadata(&mut self, new_indices: Indices<'a>, new_map: IndexSpaces,) {
+        if let Self::Component { indices, idx_spaces: map, .. } = self {
             *indices = new_indices;
             *map = new_map;
         } else {
@@ -119,11 +120,40 @@ impl<'a> Collect<'a> for Component<'a> {
         }
 
         // Collect dependencies first
-        // TODO: for these "dependency" collection logics -- deconstruct the node (guarantees the compiler to catch new fields I need to traverse on updating to new wasmparser versions)
+        
+        // -- the modules
+        for (id, m) in self.modules.iter().enumerate() {
+            todo!()
+        }
 
-        // -- the types
+        // -- the aliases
+        for (id, a) in self.alias.iter().enumerate() {
+            todo!()
+        }
+
+        // -- the core types
         for (id, t) in self.core_types.iter().enumerate() {
             t.collect(id as u32, ctx, &self);
+        }
+
+        // -- the comp types
+        for (id, t) in self.component_types.iter().enumerate() {
+            todo!()
+        }
+
+        // -- the imports
+        for (id, i) in self.imports.iter().enumerate() {
+            todo!()
+        }
+
+        // -- the instances
+        for (id, i) in self.instances.iter().enumerate() {
+            todo!()
+        }
+
+        // -- the comp instances
+        for (id, i) in self.component_instance.iter().enumerate() {
+            todo!()
         }
 
         // -- the canonical functions
@@ -141,7 +171,7 @@ impl<'a> Collect<'a> for Component<'a> {
                 plan: subctx.plan,
                 original_id: id as u32,
                 indices: Indices::default(),
-                map: IndexMap::default()
+                idx_spaces: IndexSpaces::default()
             })
         }
 
@@ -182,7 +212,20 @@ impl<'a> Collect<'a> for CanonicalFunction {
                     opt.collect(id as u32, ctx, comp);
                 }
             }
-            _ => todo!()
+            CanonicalFunction::Lower { func_index, options } => {
+                comp.canons[*func_index as usize].collect(*func_index, ctx, comp);
+
+                for (id, opt) in options.iter().enumerate() {
+                    opt.collect(id as u32, ctx, comp);
+                }
+            }
+            CanonicalFunction::ResourceNew { resource } => {
+                comp.component_types[*resource as usize].collect(*resource, ctx, comp);
+            }
+            CanonicalFunction::ResourceDrop { resource } => {
+                comp.component_types[*resource as usize].collect(*resource, ctx, comp);
+            }
+            _ => todo!("Haven't implemented this yet: {self:?}"),
         }
 
         // assign a temporary index during collection
