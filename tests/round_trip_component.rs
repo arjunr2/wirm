@@ -1,7 +1,7 @@
-use wirm::ir::r#mod::Component;
 
 mod common;
 use common::{write_to_file, WASM_OUTPUT_DIR};
+use wirm::Component;
 
 fn round_trip_component(testname: &str, folder: &str) {
     let filename = format!(

@@ -106,7 +106,7 @@ impl<'b> Inject<'b> for ComponentIterator<'_, 'b> {
     /// # Example
     /// ```no_run
     /// use std::collections::HashMap;
-    /// use wirm::ir::r#mod::Component;
+    /// use wirm::ir::component::Component;
     /// use wirm::iterator::component_iterator::ComponentIterator;
     /// use wasmparser::Operator;
     /// use wirm::ir::types::{Location};

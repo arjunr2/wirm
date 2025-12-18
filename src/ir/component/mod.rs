@@ -1,7 +1,6 @@
 #![allow(clippy::mut_range_bound)] // see https://github.com/rust-lang/rust-clippy/issues/6072
 //! Intermediate Representation of a wasm component.
 
-use wasm_encoder::reencode::{Reencode, ReencodeComponent};
 use wasmparser::{CanonicalFunction, ComponentAlias, ComponentExport, ComponentFuncType, ComponentImport, ComponentInstance, ComponentStartFunction, ComponentType, CoreType, Encoding, Instance, InstanceTypeDeclaration, Parser, Payload};
 use crate::encode::component::encode;
 use crate::error::Error;

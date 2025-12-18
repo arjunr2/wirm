@@ -25,17 +25,17 @@ pub(crate) struct IdxSpaces {
     pub core_tag: IdxSpace,
 
     // General trackers for indices of item vectors (used during encoding to see where i've been)
-    // last_processed_module: usize,
-    // last_processed_alias: usize,
-    // last_processed_core_ty: usize,
-    // last_processed_comp_ty: usize,
-    // last_processed_imp: usize,
-    // last_processed_exp: usize,
-    // last_processed_core_inst: usize,
-    // last_processed_comp_inst: usize,
-    // last_processed_canon: usize,
-    // last_processed_component: usize,
-    // last_processed_custom: usize,
+    last_processed_module: usize,
+    last_processed_alias: usize,
+    last_processed_core_ty: usize,
+    last_processed_comp_ty: usize,
+    last_processed_imp: usize,
+    last_processed_exp: usize,
+    last_processed_core_inst: usize,
+    last_processed_comp_inst: usize,
+    last_processed_canon: usize,
+    last_processed_component: usize,
+    last_processed_custom: usize,
 }
 impl IdxSpaces {
     pub fn new() -> Self {
@@ -132,27 +132,26 @@ impl IdxSpaces {
         panic!("[{:?}::{:?}] Can't find assumed id {assumed_id} in id-tracker", outer, inner);
     }
 
-    /// This is used during encoding...maybe I don't need it?
-    // pub fn visit_section(&mut self, section: &ComponentSection, num: usize) -> usize {
-    //     let tracker = match section {
-    //         ComponentSection::Module => &mut self.last_processed_module,
-    //         ComponentSection::Alias => &mut self.last_processed_alias,
-    //         ComponentSection::CoreType => &mut self.last_processed_core_ty,
-    //         ComponentSection::ComponentType => &mut self.last_processed_comp_ty,
-    //         ComponentSection::ComponentImport => &mut self.last_processed_imp,
-    //         ComponentSection::ComponentExport => &mut self.last_processed_exp,
-    //         ComponentSection::CoreInstance => &mut self.last_processed_core_inst,
-    //         ComponentSection::ComponentInstance => &mut self.last_processed_comp_inst,
-    //         ComponentSection::Canon => &mut self.last_processed_canon,
-    //         ComponentSection::CustomSection => &mut self.last_processed_custom,
-    //         ComponentSection::Component => &mut self.last_processed_component,
-    //         ComponentSection::ComponentStartSection => panic!("No need to call this function for the start section!")
-    //     };
-    //
-    //     let curr = *tracker;
-    //     *tracker += num;
-    //     curr
-    // }
+    pub fn visit_section(&mut self, section: &ComponentSection, num: usize) -> usize {
+        let tracker = match section {
+            ComponentSection::Module => &mut self.last_processed_module,
+            ComponentSection::Alias => &mut self.last_processed_alias,
+            ComponentSection::CoreType => &mut self.last_processed_core_ty,
+            ComponentSection::ComponentType => &mut self.last_processed_comp_ty,
+            ComponentSection::ComponentImport => &mut self.last_processed_imp,
+            ComponentSection::ComponentExport => &mut self.last_processed_exp,
+            ComponentSection::CoreInstance => &mut self.last_processed_core_inst,
+            ComponentSection::ComponentInstance => &mut self.last_processed_comp_inst,
+            ComponentSection::Canon => &mut self.last_processed_canon,
+            ComponentSection::CustomSection => &mut self.last_processed_custom,
+            ComponentSection::Component => &mut self.last_processed_component,
+            ComponentSection::ComponentStartSection => panic!("No need to call this function for the start section!")
+        };
+
+        let curr = *tracker;
+        *tracker += num;
+        curr
+    }
 
     pub fn reset_ids(&mut self) {
         self.comp_func.reset_ids();
@@ -510,12 +509,12 @@ impl From<&ComponentAlias<'_>> for ExternalItemKind {
             ComponentAlias::InstanceExport { kind, .. } => match kind {
                 ComponentExternalKind::Module => Self::Module,
                 ComponentExternalKind::Func => {
-                    println!("Assigned to comp-func");
+                    // println!("Assigned to comp-func");
                     Self::CompFunc
                 },
                 ComponentExternalKind::Value => Self::CompVal,
                 ComponentExternalKind::Type => {
-                    println!("Assigned to comp-type");
+                    // println!("Assigned to comp-type");
                     Self::CompType
                 },
                 ComponentExternalKind::Instance => Self::CompInst,
@@ -530,7 +529,7 @@ impl From<&ComponentAlias<'_>> for ExternalItemKind {
             ComponentAlias::CoreInstanceExport { kind, .. } => {
                 match kind {
                     ExternalKind::Func => {
-                        println!("[CoreInstanceExport] Assigned to core-func");
+                        // println!("[CoreInstanceExport] Assigned to core-func");
                         Self::CoreFunc
                     },
                     ExternalKind::Table => Self::CoreTable,
@@ -545,6 +544,132 @@ impl From<&ComponentAlias<'_>> for ExternalItemKind {
                     //     Self::CoreType
                     // },
                 }
+            }
+        }
+    }
+}
+/// # Safety and Soundness of Matching on `*const CanonicalFunction`
+///
+/// This encoder stores references to IR nodes as raw pointers
+/// (`*const CanonicalFunction`) and later pattern-matches on the
+/// pointed-to value during encoding.
+///
+/// Although dereferencing a raw pointer is `unsafe`, this usage is
+/// sound due to the following invariants, which are upheld by the
+/// construction of the encode plan and the lifetime of the IR.
+///
+/// ## Invariants
+///
+/// 1. **The pointed-to IR nodes outlive the encode plan**
+///
+///    All `*const CanonicalFunction` pointers stored in the encode plan
+///    originate from references to nodes within the IR owned by the
+///    enclosing `Component`. The encode plan does not outlive the IR,
+///    and encoding occurs while the IR is still alive. Therefore,
+///    dereferencing these pointers never observes freed memory.
+///
+/// 2. **Pointers are never mutated or aliased mutably**
+///
+///    The IR is treated as immutable for the duration of encoding.
+///    No mutable references to IR nodes exist while encoding is in
+///    progress. This ensures that dereferencing a `*const T` does not
+///    violate Rust’s aliasing rules.
+///
+/// 3. **Pointers are only dereferenced for read-only access**
+///
+///    The encoder only reads from the IR nodes in order to serialize
+///    them. No mutation occurs through these raw pointers, and no
+///    interior mutability is relied upon.
+///
+/// 4. **All pointers refer to valid instances of `CanonicalFunction`**
+///
+///    Every pointer stored in the encode plan is created from a
+///    `&CanonicalFunction` reference and is never cast from an
+///    unrelated type. As a result, pattern matching on the pointee’s
+///    enum variants is well-defined and cannot observe invalid data.
+///
+/// ## Why raw pointers are used
+///
+/// Raw pointers are used instead of references to:
+///
+/// - Avoid complex lifetime propagation through the encode plan
+/// - Allow stable identity comparison of IR nodes
+/// - Decouple the traversal (`collect`) phase from the encoding phase
+///
+/// This is a common pattern in compiler and IR implementations where
+/// nodes are owned by an arena or tree structure and referenced
+/// indirectly during later phases.
+///
+/// ## Safety boundary
+///
+/// The `unsafe` block required to dereference the raw pointer marks the
+/// boundary where these invariants are relied upon. As long as the
+/// invariants above are maintained, matching on the pointed-to
+/// `CanonicalFunction` value is safe.
+///
+/// Any change that allows IR nodes to be dropped, moved, or mutably
+/// aliased during encoding would invalidate these assumptions and must
+/// be carefully reviewed.
+///
+/// ## Summary
+///
+/// - The raw pointer always refers to a live, immutable IR node
+/// - The pointer is only used for identity and read-only access
+/// - Enum variant matching is safe because the pointee is valid
+///
+/// Therefore, dereferencing and pattern matching on
+/// `*const CanonicalFunction` in this context is sound.
+impl From<*const CanonicalFunction> for ExternalItemKind {
+    fn from(value: *const CanonicalFunction) -> Self {
+        unsafe {
+            match &*value {
+                CanonicalFunction::Lift { .. } => Self::CompFunc,
+                CanonicalFunction::Lower { .. } |
+                CanonicalFunction::ResourceNew { .. } |
+                CanonicalFunction::ResourceDrop { .. } |
+                CanonicalFunction::ResourceDropAsync { .. } |
+                CanonicalFunction::ResourceRep { .. } |
+                CanonicalFunction::ThreadSpawnRef { .. } |
+                CanonicalFunction::ThreadSpawnIndirect { .. } |
+                CanonicalFunction::ThreadAvailableParallelism |
+                CanonicalFunction::BackpressureSet |
+                CanonicalFunction::TaskReturn { .. } |
+                CanonicalFunction::TaskCancel |
+                CanonicalFunction::ContextGet(_) |
+                CanonicalFunction::ContextSet(_) |
+                CanonicalFunction::SubtaskDrop |
+                CanonicalFunction::SubtaskCancel { .. } |
+                CanonicalFunction::StreamNew { .. } |
+                CanonicalFunction::StreamRead { .. } |
+                CanonicalFunction::StreamWrite { .. } |
+                CanonicalFunction::StreamCancelRead { .. } |
+                CanonicalFunction::StreamCancelWrite { .. } |
+                CanonicalFunction::StreamDropReadable { .. } |
+                CanonicalFunction::StreamDropWritable { .. } |
+                CanonicalFunction::FutureNew { .. } |
+                CanonicalFunction::FutureRead { .. } |
+                CanonicalFunction::FutureWrite { .. } |
+                CanonicalFunction::FutureCancelRead { .. } |
+                CanonicalFunction::FutureCancelWrite { .. } |
+                CanonicalFunction::FutureDropReadable { .. } |
+                CanonicalFunction::FutureDropWritable { .. } |
+                CanonicalFunction::ErrorContextNew { .. } |
+                CanonicalFunction::ErrorContextDebugMessage { .. } |
+                CanonicalFunction::ErrorContextDrop |
+                CanonicalFunction::WaitableSetNew |
+                CanonicalFunction::WaitableSetWait { .. } |
+                CanonicalFunction::WaitableSetPoll { .. } |
+                CanonicalFunction::WaitableSetDrop |
+                CanonicalFunction::WaitableJoin => Self::CoreFunc,
+                CanonicalFunction::BackpressureInc |
+                CanonicalFunction::BackpressureDec |
+                CanonicalFunction::ThreadYield { .. } |
+                CanonicalFunction::ThreadIndex |
+                CanonicalFunction::ThreadNewIndirect { .. } |
+                CanonicalFunction::ThreadSwitchTo { .. } |
+                CanonicalFunction::ThreadSuspend { .. } |
+                CanonicalFunction::ThreadResumeLater |
+                CanonicalFunction::ThreadYieldTo { .. } => todo!()
             }
         }
     }

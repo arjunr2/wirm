@@ -2,7 +2,6 @@ use log::{debug, trace};
 use std::collections::{HashMap, HashSet};
 use wasmparser::Operator;
 use wirm::Component;
-use wirm::ir::r#mod::Component;
 use wirm::ir::id::{FunctionID, ModuleID};
 use wirm::ir::module::Module;
 use wirm::ir::types::Location;

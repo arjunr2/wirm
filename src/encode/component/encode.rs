@@ -1,11 +1,12 @@
 // Phase 3
 
-use wasm_encoder::NestedComponentSection;
+use wasm_encoder::{ModuleSection, NestedComponentSection};
 use wasm_encoder::reencode::{Reencode, ReencodeComponent, RoundtripReencoder};
-use wasmparser::{CanonicalFunction, CanonicalOption, ComponentType, CoreType};
-use crate::Component;
+use wasmparser::{CanonicalFunction, ComponentType, CoreType};
+use crate::{Component, Module};
 use crate::encode::component::collect::{ComponentItem, ComponentPlan};
-use crate::ir::component::idx_spaces::IdxSpaces;
+use crate::ir::component::idx_spaces::{ExternalItemKind, IdxSpaces};
+use crate::ir::section::ComponentSection;
 use crate::ir::wrappers::{convert_module_type_declaration, do_reencode};
 
 /// Encodes all items in the plan into the output buffer.
@@ -16,14 +17,6 @@ use crate::ir::wrappers::{convert_module_type_declaration, do_reencode};
 /// - The IR is immutable and never deallocated during encoding.
 /// - Collection and index assignment phases guarantee that all references exist and are topologically ordered.
 /// - Unsafe blocks are minimal, scoped only to dereference pointers; all other logic is fully safe.
-///
-/// # Example
-///
-/// ```rust
-/// let bytes = encode(&plan, &indices);
-/// ```
-///
-/// Here, `plan` is a linear `EncodePlan<'a>` of IR nodes, and `indices` maps nodes to assigned IDs.
 pub(crate) fn encode_internal<'a>(comp: &Component, plan: &ComponentPlan<'a>, indices: &IdxSpaces) -> wasm_encoder::Component {
     let mut component = wasm_encoder::Component::new();
     let mut reencode = RoundtripReencoder;
@@ -46,6 +39,10 @@ pub(crate) fn encode_internal<'a>(comp: &Component, plan: &ComponentPlan<'a>, in
             },
             ComponentItem::CompType { node, .. } => unsafe {
                 let t: &ComponentType = &**node;
+                t.do_encode(&mut component, indices, &mut reencode);
+            },
+            ComponentItem::Module { node, .. } => unsafe {
+                let t: &Module = &**node;
                 t.do_encode(&mut component, indices, &mut reencode);
             },
             i => todo!("Not implemented yet: {i:?}"),
@@ -93,6 +90,7 @@ impl Encode for CanonicalFunction {
         // let idx_space = spaces.get_space(&self.idx_space());
         // out.push(idx as u8); // pretend the "encoding" is just the index
         // encode body etc.
+        let kind = ExternalItemKind::from(self);
         match self {
             CanonicalFunction::Lift {
                 core_func_index: core_func_index_orig,
@@ -114,6 +112,7 @@ impl Encode for CanonicalFunction {
                 //         )
                 //     }),
                 // );
+                todo!()
             }
             CanonicalFunction::Lower {
                 func_index: fid_orig,
@@ -138,7 +137,7 @@ impl Encode for CanonicalFunction {
                 //             let new_tid = spaces.core_type.get(opt_tid_orig).unwrap();
                 //             CanonicalOption::CoreType(*new_tid)
                 //         }
-                // 
+                //
                 //         // TODO -- handle remapping of map ids!
                 //         CanonicalOption::Memory(_mid) => opt.clone(),
                 //         CanonicalOption::UTF8 |
@@ -162,22 +161,29 @@ impl Encode for CanonicalFunction {
                 //         )
                 //     }),
                 // );
+                todo!()
             }
             CanonicalFunction::ResourceNew { resource: rsc_orig } => {
                 // let new_rsc = spaces.comp_type.get(rsc_orig).unwrap();
                 // canon_sec.resource_new(*new_rsc);
+                todo!()
             }
             CanonicalFunction::ResourceDrop { resource: rsc_orig } => {
                 // let new_rsc = spaces.comp_type.get(rsc_orig).unwrap();
                 // canon_sec.resource_drop(*new_rsc);
+                let new_id = indices.lookup_actual_id_or_panic(&ComponentSection::ComponentType, &kind, *rsc_orig as usize);
+                println!("[{kind:?}] {rsc_orig} -> {new_id}");
+                canon_sec.resource_drop(new_id as u32);
             }
             CanonicalFunction::ResourceRep { resource: rsc_orig } => {
                 // let new_rsc = spaces.comp_type.get(rsc_orig).unwrap();
                 // canon_sec.resource_rep(*new_rsc);
+                todo!()
             }
             CanonicalFunction::ResourceDropAsync { resource: rsc_orig } => {
                 // let new_rsc = spaces.comp_type.get(rsc_orig).unwrap();
                 // canon_sec.resource_drop_async(*new_rsc);
+                todo!()
             }
             CanonicalFunction::ThreadAvailableParallelism => {
                 canon_sec.thread_available_parallelism();
@@ -428,6 +434,7 @@ impl Encode for CanonicalFunction {
                         })
                         .collect::<Vec<wasm_encoder::CanonicalOption>>(),
                 );
+                todo!()
             }
             CanonicalFunction::ErrorContextDebugMessage { options } => {
                 // TODO: This needs to be fixed
@@ -444,6 +451,7 @@ impl Encode for CanonicalFunction {
                         })
                         .collect::<Vec<wasm_encoder::CanonicalOption>>(),
                 );
+                todo!()
             }
             CanonicalFunction::ErrorContextDrop => {
                 canon_sec.error_context_drop();
@@ -823,5 +831,13 @@ impl Encode for Component<'_> {
         let mut component = wasm_encoder::Component::new();
         let mut reencode = RoundtripReencoder;
         todo!()
+    }
+}
+
+impl Encode for Module<'_> {
+    fn do_encode<'a>(&self, component: &mut wasm_encoder::Component, _indices: &IdxSpaces, _reencode: &mut RoundtripReencoder) {
+        component.section(&ModuleSection(
+            &self.encode_internal(false).0,
+        ));
     }
 }

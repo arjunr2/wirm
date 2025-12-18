@@ -1,8 +1,8 @@
 use std::collections::HashMap;
-use std::process::id;
-use wasmparser::{CanonicalFunction, CanonicalOption, ComponentType, CoreType};
-use crate::Component;
-use crate::ir::component::idx_spaces::IdxSpaces;
+use wasmparser::{CanonicalFunction, CanonicalOption, ComponentAlias, ComponentExport, ComponentImport, ComponentInstance, ComponentType, CoreType, Instance};
+use crate::{Component, Module};
+use crate::ir::component::idx_spaces::{ExternalItemKind, IdxSpaces, SpaceSubtype};
+use crate::ir::section::ComponentSection;
 use crate::ir::types::CustomSection;
 
 /// `ComponentItem` stores raw pointers to IR nodes (e.g., `CanonicalFunction`, `Module`, `Component`)
@@ -33,16 +33,6 @@ use crate::ir::types::CustomSection;
 /// By storing raw pointers instead of `&'a T`, we avoid lifetime and variance conflicts that would
 /// occur if `EncodePlan<'a>` were mutably borrowed while simultaneously pushing `&'a T` references.
 ///
-/// # Example
-///
-/// ```rust
-/// let ptr: *const CanonicalFunction = func as *const _;
-/// unsafe {
-///     let func_ref: &CanonicalFunction = &*ptr;
-///     func_ref.encode(&indices, &mut out);
-/// }
-/// ```
-///
 /// The `'a` lifetime ensures the underlying IR node lives long enough, making this `unsafe`
 /// dereference sound.
 #[derive(Debug)]
@@ -54,12 +44,17 @@ pub(crate) enum ComponentItem<'a> {
         // indices: Indices<'a>,
         indices: IdxSpaces, // store nested component’s IndexMap
     },
-
-    // Type(&'a TypeDef),
-    CanonicalFunc { node: *const CanonicalFunction, idx: usize },
-    CoreType { node: *const CoreType<'a>, idx: usize },
+    Module {node: *const Module<'a>, idx: usize },
     CompType { node: *const ComponentType<'a>, idx: usize },
+    CompInst { node: *const ComponentInstance<'a>, idx: usize },
+    CanonicalFunc { node: *const CanonicalFunction, idx: usize },
 
+    Alias { node: *const ComponentAlias<'a>, idx: usize },
+    Import { node: *const ComponentImport<'a>, idx: usize },
+    Export { node: *const ComponentExport<'a>, idx: usize },
+
+    CoreType { node: *const CoreType<'a>, idx: usize },
+    Inst { node: *const Instance<'a>, idx: usize },
 
     CustomSection { node: *const CustomSection<'a>, idx: usize },
     // ... add others as needed
@@ -85,6 +80,7 @@ struct Seen<'a> {
     /// Points to a TEMPORARY ID -- this is just for bookkeeping, not the final ID
     /// The final ID is assigned during the "Assign" phase.
     components: HashMap<*const Component<'a>, usize>,
+    modules: HashMap<*const Module<'a>, usize>,
     core_types: HashMap<*const CoreType<'a>, usize>,
     comp_types: HashMap<*const ComponentType<'a>, usize>,
     canon_funcs: HashMap<*const CanonicalFunction, usize>,
@@ -121,85 +117,85 @@ impl Component<'_> {
 }
 
 impl<'a> Collect<'a> for Component<'a> {
-    fn collect(&'a self, idx: usize, ctx: &mut CollectCtx<'a>, comp: &'a Component<'a>) {
+    fn collect(&'a self, _idx: usize, ctx: &mut CollectCtx<'a>, _comp: &'a Component<'a>) {
         let ptr = self as *const _;
         if ctx.seen.components.contains_key(&ptr) {
             return;
         }
 
-        // Collect dependencies first
+        // Collect dependencies first (in the order of the sections)
 
-        // -- the modules
-        for (idx, m) in self.modules.iter().enumerate() {
-            todo!()
+        // Create a clone of the original sections to allow iterating over them (borrow issues)
+        // TODO: Can I avoid this clone?
+        let orig_sections = self.sections.clone();
+        for (num, section) in orig_sections.iter() {
+            let start_idx = ctx.indices.visit_section(section, *num as usize);
+
+            match section {
+                ComponentSection::Module => {
+                    collect_vec(start_idx, *num as usize, &self.modules, ctx, &self);
+                }
+                ComponentSection::CoreType => {
+                    collect_vec(start_idx, *num as usize, &self.core_types, ctx, &self);
+                }
+                ComponentSection::ComponentType => {
+                    collect_vec(start_idx, *num as usize, &self.component_types.items, ctx, &self);
+                }
+                ComponentSection::ComponentImport => {
+                    // collect_vec(start_idx, *num as usize, &self.imports, ctx, &self);
+                    todo!();
+                }
+                ComponentSection::ComponentExport => {
+                    todo!();
+                }
+                ComponentSection::ComponentInstance => {
+                    todo!();
+                }
+                ComponentSection::CoreInstance => {
+                    todo!();
+                }
+                ComponentSection::Alias => {
+                    todo!();
+                }
+                ComponentSection::Canon => {
+                    collect_vec(start_idx, *num as usize, &self.canons.items, ctx, &self);
+                }
+                ComponentSection::ComponentStartSection => {
+                    todo!();
+                }
+                ComponentSection::CustomSection => {
+                    todo!();
+                }
+                ComponentSection::Component => {
+                    assert!(start_idx + *num as usize <= self.components.len());
+
+                    for i in 0..*num {
+                        let idx = start_idx + i as usize;
+                        let c = &self.components[idx];
+
+                        let ptr = self as *const _;
+                        // Check if i've seen this subcomponent before during MY visitation
+                        if ctx.seen.components.contains_key(&ptr) {
+                            return;
+                        }
+
+                        let mut subctx = CollectCtx::new(c);
+                        c.collect(idx, &mut subctx, &self);
+
+                        // I want to add this subcomponent to MY plan (not the subplan)
+                        ctx.plan.items.push(ComponentItem::Component {
+                            node: c as *const _,
+                            plan: subctx.plan,
+                            idx,
+                            indices: subctx.indices
+                        });
+
+                        // Remember that I've seen this component before in MY plan
+                        ctx.seen.components.insert(ptr, idx);
+                    }
+                }
+            }
         }
-
-        // -- the aliases
-        for (idx, a) in self.alias.items.iter().enumerate() {
-            todo!()
-        }
-
-        // -- the core types
-        for (idx, t) in self.core_types.iter().enumerate() {
-            t.collect(idx, ctx, &self);
-        }
-
-        // -- the comp types
-        for (idx, t) in self.component_types.items.iter().enumerate() {
-            todo!()
-        }
-
-        // -- the imports
-        for (idx, i) in self.imports.iter().enumerate() {
-            todo!()
-        }
-
-        // -- the instances
-        for (idx, i) in self.instances.iter().enumerate() {
-            todo!()
-        }
-
-        // -- the comp instances
-        for (idx, i) in self.component_instance.iter().enumerate() {
-            todo!()
-        }
-
-        // -- the canonical functions
-        for (idx, f) in self.canons.items.iter().enumerate() {
-            f.collect(idx, ctx, &self);
-        }
-
-        // -- the nested components
-        for (idx, c) in self.components.iter().enumerate() {
-            let mut subctx = CollectCtx::new(c);
-            c.collect(idx, &mut subctx, &self);
-
-            // TODO -- do i need a guard here?
-            ctx.plan.items.push(ComponentItem::Component {
-                node: c as *const _,
-                plan: subctx.plan,
-                idx,
-                indices: subctx.indices
-            })
-        }
-
-        // -- the custom sections
-        for (idx, s) in self.custom_sections.iter().enumerate() {
-            s.collect(idx, ctx, &self);
-            panic!()
-        }
-
-
-        // TODO -- finish collecting dependencies
-
-        // assign a temporary index during collection
-        // let idx = ctx.plan.items.len() as u32;
-        ctx.seen.components.insert(ptr, idx);
-
-        // TODO: I don't think I need this since everything I need is inside
-        //       the ctx.plan
-        // push to ordered plan
-        // ctx.plan.items.push(Com::Component(ptr));
     }
 }
 
@@ -210,28 +206,41 @@ impl<'a> Collect<'a> for CanonicalFunction {
             return;
         }
 
+        // let kind = ExternalItemKind::from(self);
         // Collect dependencies first
         match &self {
             CanonicalFunction::Lift { core_func_index, type_index, options } => {
-                comp.canons.items[*core_func_index as usize].collect(*core_func_index as usize, ctx, comp);
-                comp.component_types.items[*type_index as usize].collect(*type_index as usize, ctx, comp);
+                let (ty, canon_idx) = ctx.indices.index_from_assumed_id(&ComponentSection::Canon, &ExternalItemKind::CoreFunc, *core_func_index as usize);
+                assert!(matches!(ty, SpaceSubtype::Main));
+                let (ty, ty_idx) = ctx.indices.index_from_assumed_id(&ComponentSection::ComponentType, &ExternalItemKind::NA, *type_index as usize);
+                assert!(matches!(ty, SpaceSubtype::Main));
+
+                comp.canons.items[canon_idx].collect(canon_idx, ctx, comp);
+                comp.component_types.items[ty_idx].collect(ty_idx, ctx, comp);
 
                 for (idx, opt) in options.iter().enumerate() {
                     opt.collect(idx, ctx, comp);
                 }
             }
             CanonicalFunction::Lower { func_index, options } => {
-                comp.canons.items[*func_index as usize].collect(*func_index as usize, ctx, comp);
+                let (ty, canon_idx) = ctx.indices.index_from_assumed_id(&ComponentSection::Canon, &ExternalItemKind::CompFunc, *func_index as usize);
+                assert!(matches!(ty, SpaceSubtype::Main));
+                comp.canons.items[canon_idx].collect(canon_idx, ctx, comp);
 
                 for (idx, opt) in options.iter().enumerate() {
                     opt.collect(idx, ctx, comp);
                 }
             }
             CanonicalFunction::ResourceNew { resource } => {
-                comp.component_types.items[*resource as usize].collect(*resource as usize, ctx, comp);
+                let (ty, ty_idx) = ctx.indices.index_from_assumed_id(&ComponentSection::ComponentType, &ExternalItemKind::NA, *resource as usize);
+                assert!(matches!(ty, SpaceSubtype::Main));
+
+                comp.component_types.items[ty_idx].collect(ty_idx, ctx, comp);
             }
             CanonicalFunction::ResourceDrop { resource } => {
-                comp.component_types.items[*resource as usize].collect(*resource as usize, ctx, comp);
+                let (ty, ty_idx) = ctx.indices.index_from_assumed_id(&ComponentSection::ComponentType, &ExternalItemKind::NA, *resource as usize);
+                assert!(matches!(ty, SpaceSubtype::Main));
+                comp.component_types.items[ty_idx].collect(ty_idx, ctx, comp);
             }
             _ => todo!("Haven't implemented this yet: {self:?}"),
         }
@@ -302,5 +311,32 @@ impl<'a> Collect<'a> for CustomSection<'a> {
 
         // push to ordered plan
         ctx.plan.items.push(ComponentItem::CustomSection { node: ptr, idx });
+    }
+}
+
+
+impl<'a> Collect<'a> for Module<'a> {
+    fn collect(&'a self, idx: usize, ctx: &mut CollectCtx<'a>, comp: &'a Component<'a>) {
+        let ptr = self as *const _;
+        if ctx.seen.modules.contains_key(&ptr) {
+            return;
+        }
+
+        // TODO: Collect dependencies first
+
+        // assign a temporary index during collection
+        // let idx = ctx.plan.items.len() as u32;
+        ctx.seen.modules.insert(ptr, idx);
+
+        // push to ordered plan
+        ctx.plan.items.push(ComponentItem::Module { node: ptr, idx });
+    }
+}
+
+fn collect_vec<'a, T: Collect<'a> + 'a>(start: usize, num: usize, all: &'a Vec<T>, ctx: &mut CollectCtx<'a>, comp: &'a Component<'a>) {
+    assert!(start + num <= all.len());
+    for i in 0..num {
+        let idx = start + i;
+        all[idx].collect(idx, ctx, comp);
     }
 }

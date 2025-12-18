@@ -20,6 +20,7 @@ mod encode;
 ///  - Emit bytes using indices
 ///  - No recursion needed, all references are guaranteed to be valid
 pub fn encode(comp: &Component) -> Vec<u8> {
+
     // Phase 1: Collect
     let mut ctx = CollectCtx::new(comp);
     comp.collect_root(&mut ctx);
@@ -27,6 +28,7 @@ pub fn encode(comp: &Component) -> Vec<u8> {
     let mut indices = ctx.indices;
 
     // Phase 2: Assign indices
+    indices.reset_ids();
     assign_indices(&mut plan, &mut indices);
 
     // Phase 3: Encode (pass in the root-level component's plan, assigned indices, and original->new index map)
