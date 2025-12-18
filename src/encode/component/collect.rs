@@ -3,6 +3,7 @@ use std::process::id;
 use wasmparser::{CanonicalFunction, CanonicalOption, ComponentType, CoreType};
 use crate::Component;
 use crate::encode::component::assign::{IndexMap, Indices};
+use crate::ir::types::CustomSection;
 
 /// `ComponentItem` stores raw pointers to IR nodes (e.g., `CanonicalFunction`, `Module`, `Component`)
 /// rather than `&T` references directly.
@@ -58,6 +59,9 @@ pub(crate) enum ComponentItem<'a> {
     CanonicalFunc { node: *const CanonicalFunction, original_id: u32 },
     CoreType { node: *const CoreType<'a>, original_id: u32 },
     CompType { node: *const ComponentType<'a>, original_id: u32 },
+
+
+    CustomSection { node: *const CustomSection<'a>, original_id: u32 },
     // ... add others as needed
 }
 impl<'a> ComponentItem<'a> {
@@ -84,6 +88,8 @@ struct Seen<'a> {
     core_types: HashMap<*const CoreType<'a>, u32>,
     comp_types: HashMap<*const ComponentType<'a>, u32>,
     canon_funcs: HashMap<*const CanonicalFunction, u32>,
+
+    custom_sections: HashMap<*const CustomSection<'a>, u32>
 }
 
 #[derive(Default)]
@@ -138,6 +144,13 @@ impl<'a> Collect<'a> for Component<'a> {
                 map: IndexMap::default()
             })
         }
+
+        // -- the custom sections
+        for (id, s) in self.custom_sections.iter().enumerate() {
+            s.collect(id as u32, ctx, &self);
+            panic!()
+        }
+
 
         // TODO -- finish collecting dependencies
 
@@ -220,5 +233,23 @@ impl<'a> Collect<'a> for ComponentType<'a> {
 
         // push to ordered plan
         ctx.plan.items.push(ComponentItem::CompType { node: ptr, original_id });
+    }
+}
+
+impl<'a> Collect<'a> for CustomSection<'a> {
+    fn collect(&'a self, original_id: u32, ctx: &mut CollectCtx<'a>, comp: &'a Component<'a>) {
+        let ptr = self as *const _;
+        if ctx.seen.custom_sections.contains_key(&ptr) {
+            return;
+        }
+
+        // TODO: collect dependencies first
+
+        // assign a temporary index during collection
+        let idx = ctx.plan.items.len() as u32;
+        ctx.seen.custom_sections.insert(ptr, idx);
+
+        // push to ordered plan
+        ctx.plan.items.push(ComponentItem::CustomSection { node: ptr, original_id });
     }
 }

@@ -460,6 +460,7 @@ impl<'a> Component<'a> {
                 _ => {}
             }
         }
+
         let num_modules = modules.len();
         Ok(Component {
             modules,
@@ -506,7 +507,7 @@ impl<'a> Component<'a> {
     /// let mut comp = Component::parse(&buff, false, false).unwrap();
     /// let result = comp.encode();
     /// ```
-    pub fn encode(&self) -> Vec<u8> {
+    pub fn encode(&mut self) -> Vec<u8> {
         // self.encode_comp().finish()
         encode(&self)
     }

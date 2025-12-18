@@ -29,7 +29,7 @@ pub fn encode(comp: &Component) -> Vec<u8> {
     let (indices, map) = assign_indices(&mut plan);
 
     // Phase 3: Encode (pass in the root-level component's plan, assigned indices, and original->new index map)
-    let bytes = encode_internal(&plan, &indices, &map);
+    let bytes = encode_internal(&comp, &plan, &indices, &map);
     println!("{bytes:?}");
 
     bytes.finish()

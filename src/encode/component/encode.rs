@@ -6,6 +6,7 @@ use wasmparser::{CanonicalFunction, CoreType};
 use crate::Component;
 use crate::encode::component::assign::{IndexMap, Indices};
 use crate::encode::component::collect::{ComponentItem, ComponentPlan};
+use crate::ir::wrappers::convert_module_type_declaration;
 
 /// Encodes all items in the plan into the output buffer.
 ///
@@ -23,15 +24,16 @@ use crate::encode::component::collect::{ComponentItem, ComponentPlan};
 /// ```
 ///
 /// Here, `plan` is a linear `EncodePlan<'a>` of IR nodes, and `indices` maps nodes to assigned IDs.
-pub(crate) fn encode_internal<'a>(plan: &ComponentPlan<'a>, indices: &Indices, map: &IndexMap) -> wasm_encoder::Component {
+pub(crate) fn encode_internal<'a>(comp: &Component, plan: &ComponentPlan<'a>, indices: &Indices, map: &IndexMap) -> wasm_encoder::Component {
     let mut component = wasm_encoder::Component::new();
     let mut reencode = RoundtripReencoder;
 
     for item in &plan.items {
         match item {
-            ComponentItem::Component { plan: subplan, indices, map, .. } => unsafe {
+            ComponentItem::Component { node, plan: subplan, indices, map, .. } => unsafe {
+                let subcomp: &Component = &**node;
                 component.section(&NestedComponentSection(
-                    &encode_internal(subplan, indices, map)
+                    &encode_internal(subcomp, subplan, indices, map)
                 ));
             },
             ComponentItem::CanonicalFunc { node, .. } => unsafe {
@@ -45,7 +47,31 @@ pub(crate) fn encode_internal<'a>(plan: &ComponentPlan<'a>, indices: &Indices, m
             i => todo!("Not implemented yet: {i:?}"),
         }
     }
+    
+    // Name section
+    let mut name_sec = wasm_encoder::ComponentNameSection::new();
 
+    if let Some(comp_name) = &comp.component_name {
+        name_sec.component(comp_name);
+    }
+
+    name_sec.core_funcs(&comp.core_func_names);
+    name_sec.core_tables(&comp.table_names);
+    name_sec.core_memories(&comp.memory_names);
+    name_sec.core_tags(&comp.tag_names);
+    name_sec.core_globals(&comp.global_names);
+    name_sec.core_types(&comp.core_type_names);
+    name_sec.core_modules(&comp.module_names);
+    name_sec.core_instances(&comp.core_instances_names);
+    name_sec.funcs(&comp.func_names);
+    name_sec.values(&comp.value_names);
+    name_sec.types(&comp.type_names);
+    name_sec.components(&comp.components_names);
+    name_sec.instances(&comp.instance_names);
+
+    // Add the name section back to the component
+    component.section(&name_sec);
+    
     component
 }
 
@@ -94,9 +120,8 @@ impl Encode for CoreType<'_> {
             }
             CoreType::Module(module) => {
                 // TODO: This *might* need to be fixed, but I'm unsure
-                // let enc = type_section.ty();
-                // convert_module_type_declaration(module, enc, reencode);
-                todo!()
+                let enc = type_section.ty();
+                convert_module_type_declaration(module, enc, reencode);
             }
         }
         component.section(&type_section);
