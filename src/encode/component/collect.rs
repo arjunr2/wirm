@@ -81,9 +81,16 @@ struct Seen<'a> {
     /// The final ID is assigned during the "Assign" phase.
     components: HashMap<*const Component<'a>, usize>,
     modules: HashMap<*const Module<'a>, usize>,
-    core_types: HashMap<*const CoreType<'a>, usize>,
     comp_types: HashMap<*const ComponentType<'a>, usize>,
+    comp_instances: HashMap<*const ComponentInstance<'a>, usize>,
     canon_funcs: HashMap<*const CanonicalFunction, usize>,
+
+    aliases: HashMap<*const ComponentAlias<'a>, usize>,
+    imports: HashMap<*const ComponentImport<'a>, usize>,
+    exports: HashMap<*const ComponentExport<'a>, usize>,
+
+    core_types: HashMap<*const CoreType<'a>, usize>,
+    instances: HashMap<*const Instance<'a>, usize>,
 
     custom_sections: HashMap<*const CustomSection<'a>, usize>
 }
@@ -142,29 +149,28 @@ impl<'a> Collect<'a> for Component<'a> {
                     collect_vec(start_idx, *num as usize, &self.component_types.items, ctx, &self);
                 }
                 ComponentSection::ComponentImport => {
-                    // collect_vec(start_idx, *num as usize, &self.imports, ctx, &self);
-                    todo!();
+                    collect_vec(start_idx, *num as usize, &self.imports, ctx, &self);
                 }
                 ComponentSection::ComponentExport => {
-                    todo!();
+                    collect_vec(start_idx, *num as usize, &self.exports, ctx, &self);
                 }
                 ComponentSection::ComponentInstance => {
-                    todo!();
+                    collect_vec(start_idx, *num as usize, &self.component_instance, ctx, &self);
                 }
                 ComponentSection::CoreInstance => {
-                    todo!();
+                    collect_vec(start_idx, *num as usize, &self.instances, ctx, &self);
                 }
                 ComponentSection::Alias => {
-                    todo!();
+                    collect_vec(start_idx, *num as usize, &self.alias.items, ctx, &self);
                 }
                 ComponentSection::Canon => {
                     collect_vec(start_idx, *num as usize, &self.canons.items, ctx, &self);
                 }
                 ComponentSection::ComponentStartSection => {
-                    todo!();
+                    todo!()
                 }
                 ComponentSection::CustomSection => {
-                    todo!();
+                    collect_vec(start_idx, *num as usize, &self.custom_sections.custom_sections, ctx, &self);
                 }
                 ComponentSection::Component => {
                     assert!(start_idx + *num as usize <= self.components.len());
@@ -196,6 +202,60 @@ impl<'a> Collect<'a> for Component<'a> {
                 }
             }
         }
+    }
+}
+
+impl<'a> Collect<'a> for Module<'a> {
+    fn collect(&'a self, idx: usize, ctx: &mut CollectCtx<'a>, _comp: &'a Component<'a>) {
+        let ptr = self as *const _;
+        if ctx.seen.modules.contains_key(&ptr) {
+            return;
+        }
+
+        // TODO: Collect dependencies first
+
+        // assign a temporary index during collection
+        // let idx = ctx.plan.items.len() as u32;
+        ctx.seen.modules.insert(ptr, idx);
+
+        // push to ordered plan
+        ctx.plan.items.push(ComponentItem::Module { node: ptr, idx });
+    }
+}
+
+impl<'a> Collect<'a> for ComponentType<'a> {
+    fn collect(&'a self, idx: usize, ctx: &mut CollectCtx<'a>, _comp: &'a Component<'a>) {
+        let ptr = self as *const _;
+        if ctx.seen.comp_types.contains_key(&ptr) {
+            return;
+        }
+
+        // TODO: collect dependencies first
+
+        // assign a temporary index during collection
+        // let idx = ctx.plan.items.len() as u32;
+        ctx.seen.comp_types.insert(ptr, idx);
+
+        // push to ordered plan
+        ctx.plan.items.push(ComponentItem::CompType { node: ptr, idx });
+    }
+}
+
+impl<'a> Collect<'a> for ComponentInstance<'a> {
+    fn collect(&'a self, idx: usize, ctx: &mut CollectCtx<'a>, _comp: &'a Component<'a>) {
+        let ptr = self as *const _;
+        if ctx.seen.comp_instances.contains_key(&ptr) {
+            return;
+        }
+
+        // TODO: Collect dependencies first
+
+        // assign a temporary index during collection
+        // let idx = ctx.plan.items.len() as u32;
+        ctx.seen.comp_instances.insert(ptr, idx);
+
+        // push to ordered plan
+        ctx.plan.items.push(ComponentItem::CompInst { node: ptr, idx });
     }
 }
 
@@ -254,8 +314,62 @@ impl<'a> Collect<'a> for CanonicalFunction {
     }
 }
 
+impl<'a> Collect<'a> for ComponentAlias<'a> {
+    fn collect(&'a self, idx: usize, ctx: &mut CollectCtx<'a>, _comp: &'a Component<'a>) {
+        let ptr = self as *const _;
+        if ctx.seen.aliases.contains_key(&ptr) {
+            return;
+        }
+
+        // TODO: Collect dependencies first
+
+        // assign a temporary index during collection
+        // let idx = ctx.plan.items.len() as u32;
+        ctx.seen.aliases.insert(ptr, idx);
+
+        // push to ordered plan
+        ctx.plan.items.push(ComponentItem::Alias { node: ptr, idx });
+    }
+}
+
+impl<'a> Collect<'a> for ComponentImport<'a> {
+    fn collect(&'a self, idx: usize, ctx: &mut CollectCtx<'a>, _comp: &'a Component<'a>) {
+        let ptr = self as *const _;
+        if ctx.seen.imports.contains_key(&ptr) {
+            return;
+        }
+
+        // TODO: Collect dependencies first
+
+        // assign a temporary index during collection
+        // let idx = ctx.plan.items.len() as u32;
+        ctx.seen.imports.insert(ptr, idx);
+
+        // push to ordered plan
+        ctx.plan.items.push(ComponentItem::Import { node: ptr, idx });
+    }
+}
+
+impl<'a> Collect<'a> for ComponentExport<'a> {
+    fn collect(&'a self, idx: usize, ctx: &mut CollectCtx<'a>, _comp: &'a Component<'a>) {
+        let ptr = self as *const _;
+        if ctx.seen.exports.contains_key(&ptr) {
+            return;
+        }
+
+        // TODO: Collect dependencies first
+
+        // assign a temporary index during collection
+        // let idx = ctx.plan.items.len() as u32;
+        ctx.seen.exports.insert(ptr, idx);
+
+        // push to ordered plan
+        ctx.plan.items.push(ComponentItem::Export { node: ptr, idx });
+    }
+}
+
 impl<'a> Collect<'a> for CoreType<'a> {
-    fn collect(&'a self, idx: usize, ctx: &mut CollectCtx<'a>, comp: &'a Component<'a>) {
+    fn collect(&'a self, idx: usize, ctx: &mut CollectCtx<'a>, _comp: &'a Component<'a>) {
         let ptr = self as *const _;
         if ctx.seen.core_types.contains_key(&ptr) {
             return;
@@ -272,32 +386,26 @@ impl<'a> Collect<'a> for CoreType<'a> {
     }
 }
 
-impl<'a> Collect<'a> for CanonicalOption {
-    fn collect(&'a self, idx: usize, ctx: &mut CollectCtx<'a>, comp: &'a Component<'a>) {
-        todo!()
-    }
-}
-
-impl<'a> Collect<'a> for ComponentType<'a> {
-    fn collect(&'a self, idx: usize, ctx: &mut CollectCtx<'a>, comp: &'a Component<'a>) {
+impl<'a> Collect<'a> for Instance<'a> {
+    fn collect(&'a self, idx: usize, ctx: &mut CollectCtx<'a>, _comp: &'a Component<'a>) {
         let ptr = self as *const _;
-        if ctx.seen.comp_types.contains_key(&ptr) {
+        if ctx.seen.instances.contains_key(&ptr) {
             return;
         }
 
-        // TODO: collect dependencies first
+        // TODO: Collect dependencies first
 
         // assign a temporary index during collection
         // let idx = ctx.plan.items.len() as u32;
-        ctx.seen.comp_types.insert(ptr, idx);
+        ctx.seen.instances.insert(ptr, idx);
 
         // push to ordered plan
-        ctx.plan.items.push(ComponentItem::CompType { node: ptr, idx });
+        ctx.plan.items.push(ComponentItem::Inst { node: ptr, idx });
     }
 }
 
 impl<'a> Collect<'a> for CustomSection<'a> {
-    fn collect(&'a self, idx: usize, ctx: &mut CollectCtx<'a>, comp: &'a Component<'a>) {
+    fn collect(&'a self, idx: usize, ctx: &mut CollectCtx<'a>, _comp: &'a Component<'a>) {
         let ptr = self as *const _;
         if ctx.seen.custom_sections.contains_key(&ptr) {
             return;
@@ -314,22 +422,9 @@ impl<'a> Collect<'a> for CustomSection<'a> {
     }
 }
 
-
-impl<'a> Collect<'a> for Module<'a> {
-    fn collect(&'a self, idx: usize, ctx: &mut CollectCtx<'a>, comp: &'a Component<'a>) {
-        let ptr = self as *const _;
-        if ctx.seen.modules.contains_key(&ptr) {
-            return;
-        }
-
-        // TODO: Collect dependencies first
-
-        // assign a temporary index during collection
-        // let idx = ctx.plan.items.len() as u32;
-        ctx.seen.modules.insert(ptr, idx);
-
-        // push to ordered plan
-        ctx.plan.items.push(ComponentItem::Module { node: ptr, idx });
+impl<'a> Collect<'a> for CanonicalOption {
+    fn collect(&'a self, _idx: usize, _ctx: &mut CollectCtx<'a>, _comp: &'a Component<'a>) {
+        todo!()
     }
 }
 

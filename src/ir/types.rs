@@ -1991,7 +1991,7 @@ impl From<BlockType> for wasmparser::BlockType {
 /// Intermediate Representation of Custom Sections
 #[derive(Clone, Debug, Default)]
 pub struct CustomSections<'a> {
-    custom_sections: Vec<CustomSection<'a>>,
+    pub(crate) custom_sections: Vec<CustomSection<'a>>,
 }
 
 impl<'a> CustomSections<'a> {

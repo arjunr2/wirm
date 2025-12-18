@@ -420,7 +420,7 @@ impl IdxSpace {
         //     panic!("[{}] Can't find id {} in id-tracker...current: {}", self.name, id, self.current);
         // }
         let res = self.actual_ids.get(&id);
-        println!("[{}] actual id for {}?? --> {:?}", self.name, id, res);
+        // println!("[{}] actual id for {}?? --> {:?}", self.name, id, res);
 
         res
     }
@@ -544,132 +544,6 @@ impl From<&ComponentAlias<'_>> for ExternalItemKind {
                     //     Self::CoreType
                     // },
                 }
-            }
-        }
-    }
-}
-/// # Safety and Soundness of Matching on `*const CanonicalFunction`
-///
-/// This encoder stores references to IR nodes as raw pointers
-/// (`*const CanonicalFunction`) and later pattern-matches on the
-/// pointed-to value during encoding.
-///
-/// Although dereferencing a raw pointer is `unsafe`, this usage is
-/// sound due to the following invariants, which are upheld by the
-/// construction of the encode plan and the lifetime of the IR.
-///
-/// ## Invariants
-///
-/// 1. **The pointed-to IR nodes outlive the encode plan**
-///
-///    All `*const CanonicalFunction` pointers stored in the encode plan
-///    originate from references to nodes within the IR owned by the
-///    enclosing `Component`. The encode plan does not outlive the IR,
-///    and encoding occurs while the IR is still alive. Therefore,
-///    dereferencing these pointers never observes freed memory.
-///
-/// 2. **Pointers are never mutated or aliased mutably**
-///
-///    The IR is treated as immutable for the duration of encoding.
-///    No mutable references to IR nodes exist while encoding is in
-///    progress. This ensures that dereferencing a `*const T` does not
-///    violate Rust’s aliasing rules.
-///
-/// 3. **Pointers are only dereferenced for read-only access**
-///
-///    The encoder only reads from the IR nodes in order to serialize
-///    them. No mutation occurs through these raw pointers, and no
-///    interior mutability is relied upon.
-///
-/// 4. **All pointers refer to valid instances of `CanonicalFunction`**
-///
-///    Every pointer stored in the encode plan is created from a
-///    `&CanonicalFunction` reference and is never cast from an
-///    unrelated type. As a result, pattern matching on the pointee’s
-///    enum variants is well-defined and cannot observe invalid data.
-///
-/// ## Why raw pointers are used
-///
-/// Raw pointers are used instead of references to:
-///
-/// - Avoid complex lifetime propagation through the encode plan
-/// - Allow stable identity comparison of IR nodes
-/// - Decouple the traversal (`collect`) phase from the encoding phase
-///
-/// This is a common pattern in compiler and IR implementations where
-/// nodes are owned by an arena or tree structure and referenced
-/// indirectly during later phases.
-///
-/// ## Safety boundary
-///
-/// The `unsafe` block required to dereference the raw pointer marks the
-/// boundary where these invariants are relied upon. As long as the
-/// invariants above are maintained, matching on the pointed-to
-/// `CanonicalFunction` value is safe.
-///
-/// Any change that allows IR nodes to be dropped, moved, or mutably
-/// aliased during encoding would invalidate these assumptions and must
-/// be carefully reviewed.
-///
-/// ## Summary
-///
-/// - The raw pointer always refers to a live, immutable IR node
-/// - The pointer is only used for identity and read-only access
-/// - Enum variant matching is safe because the pointee is valid
-///
-/// Therefore, dereferencing and pattern matching on
-/// `*const CanonicalFunction` in this context is sound.
-impl From<*const CanonicalFunction> for ExternalItemKind {
-    fn from(value: *const CanonicalFunction) -> Self {
-        unsafe {
-            match &*value {
-                CanonicalFunction::Lift { .. } => Self::CompFunc,
-                CanonicalFunction::Lower { .. } |
-                CanonicalFunction::ResourceNew { .. } |
-                CanonicalFunction::ResourceDrop { .. } |
-                CanonicalFunction::ResourceDropAsync { .. } |
-                CanonicalFunction::ResourceRep { .. } |
-                CanonicalFunction::ThreadSpawnRef { .. } |
-                CanonicalFunction::ThreadSpawnIndirect { .. } |
-                CanonicalFunction::ThreadAvailableParallelism |
-                CanonicalFunction::BackpressureSet |
-                CanonicalFunction::TaskReturn { .. } |
-                CanonicalFunction::TaskCancel |
-                CanonicalFunction::ContextGet(_) |
-                CanonicalFunction::ContextSet(_) |
-                CanonicalFunction::SubtaskDrop |
-                CanonicalFunction::SubtaskCancel { .. } |
-                CanonicalFunction::StreamNew { .. } |
-                CanonicalFunction::StreamRead { .. } |
-                CanonicalFunction::StreamWrite { .. } |
-                CanonicalFunction::StreamCancelRead { .. } |
-                CanonicalFunction::StreamCancelWrite { .. } |
-                CanonicalFunction::StreamDropReadable { .. } |
-                CanonicalFunction::StreamDropWritable { .. } |
-                CanonicalFunction::FutureNew { .. } |
-                CanonicalFunction::FutureRead { .. } |
-                CanonicalFunction::FutureWrite { .. } |
-                CanonicalFunction::FutureCancelRead { .. } |
-                CanonicalFunction::FutureCancelWrite { .. } |
-                CanonicalFunction::FutureDropReadable { .. } |
-                CanonicalFunction::FutureDropWritable { .. } |
-                CanonicalFunction::ErrorContextNew { .. } |
-                CanonicalFunction::ErrorContextDebugMessage { .. } |
-                CanonicalFunction::ErrorContextDrop |
-                CanonicalFunction::WaitableSetNew |
-                CanonicalFunction::WaitableSetWait { .. } |
-                CanonicalFunction::WaitableSetPoll { .. } |
-                CanonicalFunction::WaitableSetDrop |
-                CanonicalFunction::WaitableJoin => Self::CoreFunc,
-                CanonicalFunction::BackpressureInc |
-                CanonicalFunction::BackpressureDec |
-                CanonicalFunction::ThreadYield { .. } |
-                CanonicalFunction::ThreadIndex |
-                CanonicalFunction::ThreadNewIndirect { .. } |
-                CanonicalFunction::ThreadSwitchTo { .. } |
-                CanonicalFunction::ThreadSuspend { .. } |
-                CanonicalFunction::ThreadResumeLater |
-                CanonicalFunction::ThreadYieldTo { .. } => todo!()
             }
         }
     }
