@@ -4,9 +4,8 @@ use wasm_encoder::NestedComponentSection;
 use wasm_encoder::reencode::{Reencode, ReencodeComponent, RoundtripReencoder};
 use wasmparser::{CanonicalFunction, CanonicalOption, ComponentType, CoreType};
 use crate::Component;
-use crate::encode::component::assign::Indices;
 use crate::encode::component::collect::{ComponentItem, ComponentPlan};
-use crate::encode::component::idx_spaces::{IdxSpace, IndexSpaces};
+use crate::ir::component::idx_spaces::IdxSpaces;
 use crate::ir::wrappers::{convert_module_type_declaration, do_reencode};
 
 /// Encodes all items in the plan into the output buffer.
@@ -25,29 +24,29 @@ use crate::ir::wrappers::{convert_module_type_declaration, do_reencode};
 /// ```
 ///
 /// Here, `plan` is a linear `EncodePlan<'a>` of IR nodes, and `indices` maps nodes to assigned IDs.
-pub(crate) fn encode_internal<'a>(comp: &Component, plan: &ComponentPlan<'a>, indices: &Indices, map: &IndexSpaces) -> wasm_encoder::Component {
+pub(crate) fn encode_internal<'a>(comp: &Component, plan: &ComponentPlan<'a>, indices: &IdxSpaces) -> wasm_encoder::Component {
     let mut component = wasm_encoder::Component::new();
     let mut reencode = RoundtripReencoder;
 
     for item in &plan.items {
         match item {
-            ComponentItem::Component { node, plan: subplan, indices, idx_spaces: map, .. } => unsafe {
+            ComponentItem::Component { node, plan: subplan, indices: subindices, .. } => unsafe {
                 let subcomp: &Component = &**node;
                 component.section(&NestedComponentSection(
-                    &encode_internal(subcomp, subplan, indices, map)
+                    &encode_internal(subcomp, subplan, subindices)
                 ));
             },
             ComponentItem::CanonicalFunc { node, .. } => unsafe {
                 let f: &CanonicalFunction = &**node;
-                f.do_encode(&mut component, indices, map, &mut reencode);
+                f.do_encode(&mut component, indices, &mut reencode);
             },
             ComponentItem::CoreType { node, .. } => unsafe {
                 let t: &CoreType = &**node;
-                t.do_encode(&mut component, indices, map, &mut reencode)
+                t.do_encode(&mut component, indices, &mut reencode);
             },
             ComponentItem::CompType { node, .. } => unsafe {
                 let t: &ComponentType = &**node;
-                t.do_encode(&mut component, indices, map, &mut reencode)
+                t.do_encode(&mut component, indices, &mut reencode);
             },
             i => todo!("Not implemented yet: {i:?}"),
         }
@@ -82,15 +81,15 @@ pub(crate) fn encode_internal<'a>(comp: &Component, plan: &ComponentPlan<'a>, in
 
 
 trait Encode {
-    fn do_encode<'a>(&self, component: &mut wasm_encoder::Component, indices: &Indices, spaces: &IndexSpaces, reencode: &mut RoundtripReencoder);
+    fn do_encode<'a>(&self, component: &mut wasm_encoder::Component, indices: &IdxSpaces, reencode: &mut RoundtripReencoder);
 }
 
 impl Encode for CanonicalFunction {
-    fn do_encode<'a>(&self, component: &mut wasm_encoder::Component, indices: &Indices, spaces: &IndexSpaces, reencode: &mut RoundtripReencoder) {
+    fn do_encode<'a>(&self, component: &mut wasm_encoder::Component, indices: &IdxSpaces, reencode: &mut RoundtripReencoder) {
         let mut canon_sec = wasm_encoder::CanonicalFunctionSection::new();
 
         // TODO: This is where I'm going to look up the indices that should be assigned at this point for any dependencies of this item
-        let idx = indices.canonical_func[&(&*self as *const _)];
+        // let idx = indices.canonical_func[&(&*self as *const _)];
         // let idx_space = spaces.get_space(&self.idx_space());
         // out.push(idx as u8); // pretend the "encoding" is just the index
         // encode body etc.
@@ -100,85 +99,85 @@ impl Encode for CanonicalFunction {
                 type_index: type_idx_orig,
                 options: options_orig,
             } => {
-                // a lift would need to reference a CORE function
-                let new_fid = spaces.core_func.get(core_func_index_orig).unwrap();
-                let new_tid = spaces.comp_type.get(type_idx_orig).unwrap();
-                canon_sec.lift(
-                    *new_fid,
-                    *new_tid,
-                    options_orig.iter().map(|canon| {
-                        do_reencode(
-                            *canon,
-                            RoundtripReencoder::canonical_option,
-                            reencode,
-                            "canonical option",
-                        )
-                    }),
-                );
+                // // a lift would need to reference a CORE function
+                // let new_fid = spaces.core_func.get(core_func_index_orig).unwrap();
+                // let new_tid = spaces.comp_type.get(type_idx_orig).unwrap();
+                // canon_sec.lift(
+                //     *new_fid,
+                //     *new_tid,
+                //     options_orig.iter().map(|canon| {
+                //         do_reencode(
+                //             *canon,
+                //             RoundtripReencoder::canonical_option,
+                //             reencode,
+                //             "canonical option",
+                //         )
+                //     }),
+                // );
             }
             CanonicalFunction::Lower {
                 func_index: fid_orig,
                 options: options_orig
             } => {
                 // TODO -- need to fix options!!!
-                let mut fixed_options = vec![];
-                for opt in options_orig.iter() {
-                    let fixed = match opt {
-                        CanonicalOption::Realloc(opt_fid_orig) |
-                        CanonicalOption::PostReturn(opt_fid_orig) |
-                        CanonicalOption::Callback(opt_fid_orig) => {
-                            let new_fid = spaces.core_func.get(opt_fid_orig).unwrap();
-                            match opt {
-                                CanonicalOption::Realloc(_) => CanonicalOption::Realloc(*new_fid),
-                                CanonicalOption::PostReturn(_) => CanonicalOption::PostReturn(*new_fid),
-                                CanonicalOption::Callback(_) => CanonicalOption::Callback(*new_fid),
-                                _ => unreachable!()
-                            }
-                        }
-                        CanonicalOption::CoreType(opt_tid_orig) => {
-                            let new_tid = spaces.core_type.get(opt_tid_orig).unwrap();
-                            CanonicalOption::CoreType(*new_tid)
-                        }
+                // let mut fixed_options = vec![];
+                // for opt in options_orig.iter() {
+                //     let fixed = match opt {
+                //         CanonicalOption::Realloc(opt_fid_orig) |
+                //         CanonicalOption::PostReturn(opt_fid_orig) |
+                //         CanonicalOption::Callback(opt_fid_orig) => {
+                //             let new_fid = spaces.core_func.get(opt_fid_orig).unwrap();
+                //             match opt {
+                //                 CanonicalOption::Realloc(_) => CanonicalOption::Realloc(*new_fid),
+                //                 CanonicalOption::PostReturn(_) => CanonicalOption::PostReturn(*new_fid),
+                //                 CanonicalOption::Callback(_) => CanonicalOption::Callback(*new_fid),
+                //                 _ => unreachable!()
+                //             }
+                //         }
+                //         CanonicalOption::CoreType(opt_tid_orig) => {
+                //             let new_tid = spaces.core_type.get(opt_tid_orig).unwrap();
+                //             CanonicalOption::CoreType(*new_tid)
+                //         }
+                // 
+                //         // TODO -- handle remapping of map ids!
+                //         CanonicalOption::Memory(_mid) => opt.clone(),
+                //         CanonicalOption::UTF8 |
+                //         CanonicalOption::UTF16 |
+                //         CanonicalOption::CompactUTF16 |
+                //         CanonicalOption::Async |
+                //         CanonicalOption::Gc => opt.clone(),
+                //     };
+                //     fixed_options.push(fixed);
+                // }
 
-                        // TODO -- handle remapping of map ids!
-                        CanonicalOption::Memory(_mid) => opt.clone(),
-                        CanonicalOption::UTF8 |
-                        CanonicalOption::UTF16 |
-                        CanonicalOption::CompactUTF16 |
-                        CanonicalOption::Async |
-                        CanonicalOption::Gc => opt.clone(),
-                    };
-                    fixed_options.push(fixed);
-                }
-
-                let new_fid = spaces.comp_func.get(fid_orig).unwrap();
-                canon_sec.lower(
-                    *new_fid,
-                    fixed_options.iter().map(|canon| {
-                        do_reencode(
-                            *canon,
-                            RoundtripReencoder::canonical_option,
-                            reencode,
-                            "canonical option",
-                        )
-                    }),
-                );
+                // let new_fid = spaces.comp_func.get(fid_orig).unwrap();
+                // canon_sec.lower(
+                //     *new_fid,
+                //     fixed_options.iter().map(|canon| {
+                //         do_reencode(
+                //             *canon,
+                //             RoundtripReencoder::canonical_option,
+                //             reencode,
+                //             "canonical option",
+                //         )
+                //     }),
+                // );
             }
             CanonicalFunction::ResourceNew { resource: rsc_orig } => {
-                let new_rsc = spaces.comp_type.get(rsc_orig).unwrap();
-                canon_sec.resource_new(*new_rsc);
+                // let new_rsc = spaces.comp_type.get(rsc_orig).unwrap();
+                // canon_sec.resource_new(*new_rsc);
             }
             CanonicalFunction::ResourceDrop { resource: rsc_orig } => {
-                let new_rsc = spaces.comp_type.get(rsc_orig).unwrap();
-                canon_sec.resource_drop(*new_rsc);
+                // let new_rsc = spaces.comp_type.get(rsc_orig).unwrap();
+                // canon_sec.resource_drop(*new_rsc);
             }
             CanonicalFunction::ResourceRep { resource: rsc_orig } => {
-                let new_rsc = spaces.comp_type.get(rsc_orig).unwrap();
-                canon_sec.resource_rep(*new_rsc);
+                // let new_rsc = spaces.comp_type.get(rsc_orig).unwrap();
+                // canon_sec.resource_rep(*new_rsc);
             }
             CanonicalFunction::ResourceDropAsync { resource: rsc_orig } => {
-                let new_rsc = spaces.comp_type.get(rsc_orig).unwrap();
-                canon_sec.resource_drop_async(*new_rsc);
+                // let new_rsc = spaces.comp_type.get(rsc_orig).unwrap();
+                // canon_sec.resource_drop_async(*new_rsc);
             }
             CanonicalFunction::ThreadAvailableParallelism => {
                 canon_sec.thread_available_parallelism();
@@ -556,11 +555,11 @@ impl Encode for CanonicalFunction {
 }
 
 impl Encode for CoreType<'_> {
-    fn do_encode<'a>(&self, component: &mut wasm_encoder::Component, indices: &Indices, spaces: &IndexSpaces, reencode: &mut RoundtripReencoder) {
+    fn do_encode<'a>(&self, component: &mut wasm_encoder::Component, indices: &IdxSpaces, reencode: &mut RoundtripReencoder) {
         let mut type_section = wasm_encoder::CoreTypeSection::new();
 
         // TODO: This is where I'm going to look up the indices that should be assigned at this point for any dependencies of this item
-        let idx = indices.core_type[&(&*self as *const _)];
+        // let idx = indices.core_type[&(&*self as *const _)];
         // out.push(idx as u8); // pretend the "encoding" is just the index
         // encode body etc.
         match &self {
@@ -594,11 +593,11 @@ impl Encode for CoreType<'_> {
 }
 
 impl Encode for ComponentType<'_> {
-    fn do_encode<'a>(&self, component: &mut wasm_encoder::Component, indices: &Indices, spaces: &IndexSpaces, reencode: &mut RoundtripReencoder) {
+    fn do_encode<'a>(&self, component: &mut wasm_encoder::Component, indices: &IdxSpaces, reencode: &mut RoundtripReencoder) {
         let mut component_ty_section = wasm_encoder::ComponentTypeSection::new();
 
         // TODO: This is where I'm going to look up the indices that should be assigned at this point for any dependencies of this item
-        let idx = indices.comp_type[&(&*self as *const _)];
+        // let idx = indices.comp_type[&(&*self as *const _)];
 
         match &self {
             // ComponentType::Defined(comp_ty) => {
@@ -819,7 +818,7 @@ impl Encode for ComponentType<'_> {
 }
 
 impl Encode for Component<'_> {
-    fn do_encode<'a>(&self, component: &mut wasm_encoder::Component, indices: &Indices, spaces: &IndexSpaces, reencode: &mut RoundtripReencoder) {
+    fn do_encode<'a>(&self, component: &mut wasm_encoder::Component, indices: &IdxSpaces, reencode: &mut RoundtripReencoder) {
         println!("\n\n==========================\n==== ENCODE COMPONENT ====\n==========================");
         let mut component = wasm_encoder::Component::new();
         let mut reencode = RoundtripReencoder;

@@ -2,8 +2,7 @@ use std::collections::HashMap;
 use std::process::id;
 use wasmparser::{CanonicalFunction, CanonicalOption, ComponentType, CoreType};
 use crate::Component;
-use crate::encode::component::assign::Indices;
-use crate::encode::component::idx_spaces::IndexSpaces;
+use crate::ir::component::idx_spaces::IdxSpaces;
 use crate::ir::types::CustomSection;
 
 /// `ComponentItem` stores raw pointers to IR nodes (e.g., `CanonicalFunction`, `Module`, `Component`)
@@ -51,30 +50,30 @@ pub(crate) enum ComponentItem<'a> {
     Component {
         node: *const Component<'a>,
         plan: ComponentPlan<'a>,
-        original_id: u32,
-        indices: Indices<'a>,
-        idx_spaces: IndexSpaces, // store nested component’s IndexMap
+        idx: usize,                 // TODO: I don't think I need idx here!
+        // indices: Indices<'a>,
+        indices: IdxSpaces, // store nested component’s IndexMap
     },
 
     // Type(&'a TypeDef),
-    CanonicalFunc { node: *const CanonicalFunction, original_id: u32 },
-    CoreType { node: *const CoreType<'a>, original_id: u32 },
-    CompType { node: *const ComponentType<'a>, original_id: u32 },
+    CanonicalFunc { node: *const CanonicalFunction, idx: usize },
+    CoreType { node: *const CoreType<'a>, idx: usize },
+    CompType { node: *const ComponentType<'a>, idx: usize },
 
 
-    CustomSection { node: *const CustomSection<'a>, original_id: u32 },
+    CustomSection { node: *const CustomSection<'a>, idx: usize },
     // ... add others as needed
 }
-impl<'a> ComponentItem<'a> {
-    pub fn update_comp_metadata(&mut self, new_indices: Indices<'a>, new_map: IndexSpaces,) {
-        if let Self::Component { indices, idx_spaces: map, .. } = self {
-            *indices = new_indices;
-            *map = new_map;
-        } else {
-            panic!()
-        }
-    }
-}
+// impl<'a> ComponentItem<'a> {
+//     pub fn update_comp_metadata(&mut self, new_indices: Indices<'a>, new_map: IdxSpaces) {
+//         if let Self::Component { indices, idx_spaces: map, .. } = self {
+//             *indices = new_indices;
+//             *map = new_map;
+//         } else {
+//             panic!()
+//         }
+//     }
+// }
 
 #[derive(Debug, Default)]
 pub(crate) struct ComponentPlan<'a> {
@@ -85,24 +84,33 @@ pub(crate) struct ComponentPlan<'a> {
 struct Seen<'a> {
     /// Points to a TEMPORARY ID -- this is just for bookkeeping, not the final ID
     /// The final ID is assigned during the "Assign" phase.
-    components: HashMap<*const Component<'a>, u32>,
-    core_types: HashMap<*const CoreType<'a>, u32>,
-    comp_types: HashMap<*const ComponentType<'a>, u32>,
-    canon_funcs: HashMap<*const CanonicalFunction, u32>,
+    components: HashMap<*const Component<'a>, usize>,
+    core_types: HashMap<*const CoreType<'a>, usize>,
+    comp_types: HashMap<*const ComponentType<'a>, usize>,
+    canon_funcs: HashMap<*const CanonicalFunction, usize>,
 
-    custom_sections: HashMap<*const CustomSection<'a>, u32>
+    custom_sections: HashMap<*const CustomSection<'a>, usize>
 }
 
 #[derive(Default)]
 pub(crate) struct CollectCtx<'a> {
     pub(crate) plan: ComponentPlan<'a>,
+    pub(crate) indices: IdxSpaces,
     seen: Seen<'a>,
+}
+impl CollectCtx<'_> {
+    pub fn new(comp: &Component) -> Self {
+        Self {
+            indices: comp.indices.clone(),
+            ..Default::default()
+        }
+    }
 }
 
 /// A trait for each IR node to implement --> The node knows how to `collect` itself.
 /// Passes the collection context AND a pointer to the containing Component
 trait Collect<'a> {
-    fn collect(&'a self, original_id: u32, ctx: &mut CollectCtx<'a>, comp: &'a Component<'a>);
+    fn collect(&'a self, idx: usize, ctx: &mut CollectCtx<'a>, comp: &'a Component<'a>);
 }
 
 impl Component<'_> {
@@ -113,71 +121,71 @@ impl Component<'_> {
 }
 
 impl<'a> Collect<'a> for Component<'a> {
-    fn collect(&'a self, original_id: u32, ctx: &mut CollectCtx<'a>, comp: &'a Component<'a>) {
+    fn collect(&'a self, idx: usize, ctx: &mut CollectCtx<'a>, comp: &'a Component<'a>) {
         let ptr = self as *const _;
         if ctx.seen.components.contains_key(&ptr) {
             return;
         }
 
         // Collect dependencies first
-        
+
         // -- the modules
-        for (id, m) in self.modules.iter().enumerate() {
+        for (idx, m) in self.modules.iter().enumerate() {
             todo!()
         }
 
         // -- the aliases
-        for (id, a) in self.alias.iter().enumerate() {
+        for (idx, a) in self.alias.items.iter().enumerate() {
             todo!()
         }
 
         // -- the core types
-        for (id, t) in self.core_types.iter().enumerate() {
-            t.collect(id as u32, ctx, &self);
+        for (idx, t) in self.core_types.iter().enumerate() {
+            t.collect(idx, ctx, &self);
         }
 
         // -- the comp types
-        for (id, t) in self.component_types.iter().enumerate() {
+        for (idx, t) in self.component_types.items.iter().enumerate() {
             todo!()
         }
 
         // -- the imports
-        for (id, i) in self.imports.iter().enumerate() {
+        for (idx, i) in self.imports.iter().enumerate() {
             todo!()
         }
 
         // -- the instances
-        for (id, i) in self.instances.iter().enumerate() {
+        for (idx, i) in self.instances.iter().enumerate() {
             todo!()
         }
 
         // -- the comp instances
-        for (id, i) in self.component_instance.iter().enumerate() {
+        for (idx, i) in self.component_instance.iter().enumerate() {
             todo!()
         }
 
         // -- the canonical functions
-        for (id, f) in self.canons.iter().enumerate() {
-            f.collect(id as u32, ctx, &self);
+        for (idx, f) in self.canons.items.iter().enumerate() {
+            f.collect(idx, ctx, &self);
         }
 
         // -- the nested components
-        for (id, c) in self.components.iter().enumerate() {
-            let mut subctx = CollectCtx::default();
-            c.collect(id as u32, &mut subctx, &self);
+        for (idx, c) in self.components.iter().enumerate() {
+            let mut subctx = CollectCtx::new(c);
+            c.collect(idx, &mut subctx, &self);
 
+            // TODO -- do i need a guard here?
             ctx.plan.items.push(ComponentItem::Component {
                 node: c as *const _,
                 plan: subctx.plan,
-                original_id: id as u32,
-                indices: Indices::default(),
-                idx_spaces: IndexSpaces::default()
+                idx,
+                indices: subctx.indices
             })
         }
 
         // -- the custom sections
-        for (id, s) in self.custom_sections.iter().enumerate() {
-            s.collect(id as u32, ctx, &self);
+        for (idx, s) in self.custom_sections.iter().enumerate() {
+            s.collect(idx, ctx, &self);
             panic!()
         }
 
@@ -185,7 +193,7 @@ impl<'a> Collect<'a> for Component<'a> {
         // TODO -- finish collecting dependencies
 
         // assign a temporary index during collection
-        let idx = ctx.plan.items.len() as u32;
+        // let idx = ctx.plan.items.len() as u32;
         ctx.seen.components.insert(ptr, idx);
 
         // TODO: I don't think I need this since everything I need is inside
@@ -196,7 +204,7 @@ impl<'a> Collect<'a> for Component<'a> {
 }
 
 impl<'a> Collect<'a> for CanonicalFunction {
-    fn collect(&'a self, original_id: u32, ctx: &mut CollectCtx<'a>, comp: &'a Component<'a>) {
+    fn collect(&'a self, idx: usize, ctx: &mut CollectCtx<'a>, comp: &'a Component<'a>) {
         let ptr = self as *const _;
         if ctx.seen.canon_funcs.contains_key(&ptr) {
             return;
@@ -205,40 +213,40 @@ impl<'a> Collect<'a> for CanonicalFunction {
         // Collect dependencies first
         match &self {
             CanonicalFunction::Lift { core_func_index, type_index, options } => {
-                comp.canons[*core_func_index as usize].collect(*core_func_index, ctx, comp);
-                comp.component_types[*type_index as usize].collect(*type_index, ctx, comp);
+                comp.canons.items[*core_func_index as usize].collect(*core_func_index as usize, ctx, comp);
+                comp.component_types.items[*type_index as usize].collect(*type_index as usize, ctx, comp);
 
-                for (id, opt) in options.iter().enumerate() {
-                    opt.collect(id as u32, ctx, comp);
+                for (idx, opt) in options.iter().enumerate() {
+                    opt.collect(idx, ctx, comp);
                 }
             }
             CanonicalFunction::Lower { func_index, options } => {
-                comp.canons[*func_index as usize].collect(*func_index, ctx, comp);
+                comp.canons.items[*func_index as usize].collect(*func_index as usize, ctx, comp);
 
-                for (id, opt) in options.iter().enumerate() {
-                    opt.collect(id as u32, ctx, comp);
+                for (idx, opt) in options.iter().enumerate() {
+                    opt.collect(idx, ctx, comp);
                 }
             }
             CanonicalFunction::ResourceNew { resource } => {
-                comp.component_types[*resource as usize].collect(*resource, ctx, comp);
+                comp.component_types.items[*resource as usize].collect(*resource as usize, ctx, comp);
             }
             CanonicalFunction::ResourceDrop { resource } => {
-                comp.component_types[*resource as usize].collect(*resource, ctx, comp);
+                comp.component_types.items[*resource as usize].collect(*resource as usize, ctx, comp);
             }
             _ => todo!("Haven't implemented this yet: {self:?}"),
         }
 
         // assign a temporary index during collection
-        let idx = ctx.plan.items.len() as u32;
+        // let idx = ctx.plan.items.len() as u32;
         ctx.seen.canon_funcs.insert(ptr, idx);
 
         // push to ordered plan
-        ctx.plan.items.push(ComponentItem::CanonicalFunc { node: ptr, original_id });
+        ctx.plan.items.push(ComponentItem::CanonicalFunc { node: ptr, idx });
     }
 }
 
 impl<'a> Collect<'a> for CoreType<'a> {
-    fn collect(&'a self, original_id: u32, ctx: &mut CollectCtx<'a>, comp: &'a Component<'a>) {
+    fn collect(&'a self, idx: usize, ctx: &mut CollectCtx<'a>, comp: &'a Component<'a>) {
         let ptr = self as *const _;
         if ctx.seen.core_types.contains_key(&ptr) {
             return;
@@ -247,22 +255,22 @@ impl<'a> Collect<'a> for CoreType<'a> {
         // TODO: Collect dependencies first
 
         // assign a temporary index during collection
-        let idx = ctx.plan.items.len() as u32;
+        // let idx = ctx.plan.items.len() as u32;
         ctx.seen.core_types.insert(ptr, idx);
 
         // push to ordered plan
-        ctx.plan.items.push(ComponentItem::CoreType { node: ptr, original_id });
+        ctx.plan.items.push(ComponentItem::CoreType { node: ptr, idx });
     }
 }
 
 impl<'a> Collect<'a> for CanonicalOption {
-    fn collect(&'a self, original_id: u32, ctx: &mut CollectCtx<'a>, comp: &'a Component<'a>) {
+    fn collect(&'a self, idx: usize, ctx: &mut CollectCtx<'a>, comp: &'a Component<'a>) {
         todo!()
     }
 }
 
 impl<'a> Collect<'a> for ComponentType<'a> {
-    fn collect(&'a self, original_id: u32, ctx: &mut CollectCtx<'a>, comp: &'a Component<'a>) {
+    fn collect(&'a self, idx: usize, ctx: &mut CollectCtx<'a>, comp: &'a Component<'a>) {
         let ptr = self as *const _;
         if ctx.seen.comp_types.contains_key(&ptr) {
             return;
@@ -271,16 +279,16 @@ impl<'a> Collect<'a> for ComponentType<'a> {
         // TODO: collect dependencies first
 
         // assign a temporary index during collection
-        let idx = ctx.plan.items.len() as u32;
+        // let idx = ctx.plan.items.len() as u32;
         ctx.seen.comp_types.insert(ptr, idx);
 
         // push to ordered plan
-        ctx.plan.items.push(ComponentItem::CompType { node: ptr, original_id });
+        ctx.plan.items.push(ComponentItem::CompType { node: ptr, idx });
     }
 }
 
 impl<'a> Collect<'a> for CustomSection<'a> {
-    fn collect(&'a self, original_id: u32, ctx: &mut CollectCtx<'a>, comp: &'a Component<'a>) {
+    fn collect(&'a self, idx: usize, ctx: &mut CollectCtx<'a>, comp: &'a Component<'a>) {
         let ptr = self as *const _;
         if ctx.seen.custom_sections.contains_key(&ptr) {
             return;
@@ -289,10 +297,10 @@ impl<'a> Collect<'a> for CustomSection<'a> {
         // TODO: collect dependencies first
 
         // assign a temporary index during collection
-        let idx = ctx.plan.items.len() as u32;
+        // let idx = ctx.plan.items.len() as u32;
         ctx.seen.custom_sections.insert(ptr, idx);
 
         // push to ordered plan
-        ctx.plan.items.push(ComponentItem::CustomSection { node: ptr, original_id });
+        ctx.plan.items.push(ComponentItem::CustomSection { node: ptr, idx });
     }
 }

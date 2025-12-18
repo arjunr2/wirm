@@ -43,7 +43,7 @@ impl<'a, 'b> ComponentIterator<'a, 'b> {
             metadata.insert(ModuleID(mod_idx as u32), m.get_func_metadata());
         }
         print_metadata(&metadata);
-        let num_modules = comp.num_modules;
+        let num_modules = comp.modules.len();
         ComponentIterator {
             comp,
             comp_iterator: ComponentSubIterator::new(
@@ -106,7 +106,7 @@ impl<'b> Inject<'b> for ComponentIterator<'_, 'b> {
     /// # Example
     /// ```no_run
     /// use std::collections::HashMap;
-    /// use wirm::ir::component::Component;
+    /// use wirm::ir::r#mod::Component;
     /// use wirm::iterator::component_iterator::ComponentIterator;
     /// use wasmparser::Operator;
     /// use wirm::ir::types::{Location};

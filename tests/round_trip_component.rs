@@ -1,4 +1,4 @@
-use wirm::ir::component::Component;
+use wirm::ir::r#mod::Component;
 
 mod common;
 use common::{write_to_file, WASM_OUTPUT_DIR};
