@@ -116,7 +116,8 @@ pub(crate) fn assign_indices<'a>(plan: &mut ComponentPlan<'a>, indices: &mut Idx
             ComponentItem::Import { node, idx } => {
                 unsafe {
                     let ptr: &ComponentImport = &**node;
-                    indices.assign_actual_id(&ComponentSection::ComponentImport, &ExternalItemKind::from(&ptr.ty), *idx);
+                    let kind = ExternalItemKind::from(&ptr.ty);
+                    indices.assign_actual_id(&ComponentSection::ComponentImport, &kind, *idx);
                 }
             }
             ComponentItem::Export { node, idx } => {

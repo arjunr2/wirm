@@ -10,7 +10,7 @@ fn wasm_tools() -> Command {
 }
 
 fn roundtrip(filename: String, component: bool) {
-    println!("filename: {:?}", filename);
+    println!("\nfilename: {:?}", filename);
     let buff = wat::parse_file(filename).expect("couldn't convert the input wat to Wasm");
     let original =
         wasmprinter::print_bytes(&buff).expect("couldn't convert original Wasm to wat");
