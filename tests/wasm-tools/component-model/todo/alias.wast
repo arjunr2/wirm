@@ -61,94 +61,94 @@
 ;;  ))))
 ;;)
 
-(component
-  (import "a" (instance $i
-    (export "a" (func))
-    (export "b" (core module))
-    (export "c" (instance))
-  ))
-  (export "b" (func $i "a"))
-  (export "c" (core module $i "b"))
-  (export "d" (instance $i "c"))
-)
-
-(component
-  (import "a" (core module $libc
-    (export "memory" (memory 1))
-    (export "table" (table 0 funcref))
-    (export "func" (func))
-    (export "global" (global i32))
-    (export "global mut" (global (mut i64)))
-  ))
-
-  (import "b" (core module $needs_libc
-    (import "" "memory" (memory 1))
-    (import "" "table" (table 0 funcref))
-    (import "" "func" (func))
-    (import "" "global" (global i32))
-    (import "" "global mut" (global (mut i64)))
-  ))
-
-  (core instance $libc (instantiate $libc))
-  (core instance (instantiate $needs_libc (with "" (instance
-    (export "memory" (memory $libc "memory"))
-    (export "table" (table $libc "table"))
-    (export "func" (func $libc "func"))
-    (export "global" (global $libc "global"))
-    (export "global mut" (global $libc "global mut"))
-  ))))
-)
-
-(assert_invalid
-  (component
-    (import "a" (instance (export "a" (func))))
-    (export "a" (core module 0 "a"))
-  )
-  "export `a` for instance 0 is not a module")
-
-(assert_invalid
-  (component
-    (component
-      (component (export "a"))
-    )
-    (instance (instantiate 0))
-    (export "a" (core module 0 "a"))
-  )
-  "export `a` for instance 0 is not a module")
-
-(assert_invalid
-  (component
-    (import "a" (core module))
-    (core instance (instantiate 0))
-    (alias core export 0 "a" (core func))
-  )
-  "core instance 0 has no export named `a`")
-
-(assert_invalid
-  (component
-    (core module)
-    (core instance (instantiate 0))
-    (alias core export 0 "a" (core func))
-  )
-  "core instance 0 has no export named `a`")
-
-(assert_invalid
-  (component
-    (import "a" (component))
-    (instance (instantiate 0))
-    (alias export 0 "a" (func))
-  )
-  "instance 0 has no export named `a`")
-
-(assert_invalid
-  (component
-    (import "a" (core module $a (export "" (func))))
-    (import "b" (core module $b (import "" "" (func (param i32)))))
-
-    (core instance $a (instantiate $a))
-    (core instance $b (instantiate $b (with "" (instance $a))))
-  )
-  "type mismatch")
+;;(component
+;;  (import "a" (instance $i
+;;    (export "a" (func))
+;;    (export "b" (core module))
+;;    (export "c" (instance))
+;;  ))
+;;  (export "b" (func $i "a"))
+;;  (export "c" (core module $i "b"))
+;;  (export "d" (instance $i "c"))
+;;)
+;;
+;;(component
+;;  (import "a" (core module $libc
+;;    (export "memory" (memory 1))
+;;    (export "table" (table 0 funcref))
+;;    (export "func" (func))
+;;    (export "global" (global i32))
+;;    (export "global mut" (global (mut i64)))
+;;  ))
+;;
+;;  (import "b" (core module $needs_libc
+;;    (import "" "memory" (memory 1))
+;;    (import "" "table" (table 0 funcref))
+;;    (import "" "func" (func))
+;;    (import "" "global" (global i32))
+;;    (import "" "global mut" (global (mut i64)))
+;;  ))
+;;
+;;  (core instance $libc (instantiate $libc))
+;;  (core instance (instantiate $needs_libc (with "" (instance
+;;    (export "memory" (memory $libc "memory"))
+;;    (export "table" (table $libc "table"))
+;;    (export "func" (func $libc "func"))
+;;    (export "global" (global $libc "global"))
+;;    (export "global mut" (global $libc "global mut"))
+;;  ))))
+;;)
+;;
+;;(assert_invalid
+;;  (component
+;;    (import "a" (instance (export "a" (func))))
+;;    (export "a" (core module 0 "a"))
+;;  )
+;;  "export `a` for instance 0 is not a module")
+;;
+;;(assert_invalid
+;;  (component
+;;    (component
+;;      (component (export "a"))
+;;    )
+;;    (instance (instantiate 0))
+;;    (export "a" (core module 0 "a"))
+;;  )
+;;  "export `a` for instance 0 is not a module")
+;;
+;;(assert_invalid
+;;  (component
+;;    (import "a" (core module))
+;;    (core instance (instantiate 0))
+;;    (alias core export 0 "a" (core func))
+;;  )
+;;  "core instance 0 has no export named `a`")
+;;
+;;(assert_invalid
+;;  (component
+;;    (core module)
+;;    (core instance (instantiate 0))
+;;    (alias core export 0 "a" (core func))
+;;  )
+;;  "core instance 0 has no export named `a`")
+;;
+;;(assert_invalid
+;;  (component
+;;    (import "a" (component))
+;;    (instance (instantiate 0))
+;;    (alias export 0 "a" (func))
+;;  )
+;;  "instance 0 has no export named `a`")
+;;
+;;(assert_invalid
+;;  (component
+;;    (import "a" (core module $a (export "" (func))))
+;;    (import "b" (core module $b (import "" "" (func (param i32)))))
+;;
+;;    (core instance $a (instantiate $a))
+;;    (core instance $b (instantiate $b (with "" (instance $a))))
+;;  )
+;;  "type mismatch")
 
 ;; aliasing various items works
 

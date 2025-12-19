@@ -1,7 +1,8 @@
 use std::collections::HashMap;
 use std::fmt::Debug;
-use wasmparser::{CanonicalFunction, ComponentAlias, ComponentExternalKind, ComponentOuterAliasKind, ComponentTypeRef, ExternalKind};
+use wasmparser::{CanonicalFunction, CanonicalOption, ComponentAlias, ComponentExternalKind, ComponentImport, ComponentInstance, ComponentOuterAliasKind, ComponentType, ComponentTypeRef, ComponentValType, CoreType, ExternalKind, Instance};
 use crate::ir::section::ComponentSection;
+use crate::{Component, Module};
 
 #[derive(Clone, Debug, Default)]
 pub(crate) struct IdxSpaces {
@@ -65,19 +66,19 @@ impl IdxSpaces {
     ///
     /// Consider a canonical function, this can take place of an index in the core-function OR the
     /// component-function index space!
-    pub fn assign_assumed_id_for<I: Debug>(&mut self, items: &Vec<I>, next_id: usize, outer: &ComponentSection, inner: &ExternalItemKind) {
+    pub fn assign_assumed_id_for<I: Debug + IndexSpaceOf>(&mut self, items: &Vec<I>, next_id: usize, section: &ComponentSection) {
         for (i, item) in items.iter().enumerate() {
             let curr_idx = next_id + i;
             // println!("[assign_assumed_id_for@{outer:?}:{inner:?}] idx: {curr_idx}, {item:?}");
-            let assumed_id = self.assign_assumed_id(outer, inner, curr_idx);
+            let assumed_id = self.assign_assumed_id(&item.index_space_of(), section, curr_idx);
             // println!("  ==> ID: {assumed_id:?}");
         }
     }
 
     /// This is also called as I parse a component for the same reason mentioned above in the documentation for [`IdxSpaces.assign_assumed_id_for`].
-    pub fn assign_assumed_id(&mut self, outer: &ComponentSection, inner: &ExternalItemKind, curr_idx: usize) -> Option<usize> {
-        if let Some(space) = self.get_space_mut(outer, inner) {
-            Some(space.assign_assumed_id(outer, curr_idx))
+    pub fn assign_assumed_id(&mut self, space: &Space, section: &ComponentSection, curr_idx: usize) -> Option<usize> {
+        if let Some(space) = self.new_get_space_mut(space) {
+            Some(space.assign_assumed_id(section, curr_idx))
         } else {
             None
         }
@@ -90,6 +91,20 @@ impl IdxSpaces {
             }
         }
         panic!("[{:?}::{:?}] No assumed ID for index: {}", outer, inner, vec_idx)
+    }
+
+    pub fn new_index_from_assumed_id(&self, r: &IndexedRef) -> (SpaceSubtype, usize) {
+        // TODO -- this is incredibly inefficient...i just want to move on with my life...
+        if let Some(space) = self.new_get_space(&r.space) {
+            if let Some((ty, idx)) = space.index_from_assumed_id(r.index as usize) {
+                return (ty, idx)
+            } else {
+                println!("couldn't find idx");
+            }
+        } else {
+            println!("couldn't find space");
+        }
+        panic!("[{:?}] No index for assumed ID: {}", r.space, r.index)
     }
 
     /// This function is used to determine what index the ID points to. It also returns which vector to
@@ -174,6 +189,44 @@ impl IdxSpaces {
     // ===================
     // ==== UTILITIES ====
     // ===================
+
+    fn new_get_space_mut(&mut self, space: &Space) -> Option<&mut IdxSpace> {
+        let s = match space {
+            Space::CompFunc => &mut self.comp_func,
+            Space::CompVal => &mut self.comp_val,
+            Space::CompType => &mut self.comp_type,
+            Space::CompInst => &mut self.comp_inst,
+            // Space::Comp => &mut self.comp,
+            Space::CoreInst => &mut self.core_inst,
+            Space::CoreModule => &mut self.module,
+            Space::CoreType => &mut self.core_type,
+            Space::CoreFunc => &mut self.core_func,
+            Space::CoreMemory => &mut self.core_memory,
+            Space::CoreTable => &mut self.core_table,
+            Space::CoreGlobal => &mut self.core_global,
+            Space::CoreTag => &mut self.core_tag,
+        };
+        Some(s)
+    }
+
+    fn new_get_space(&self, space: &Space) -> Option<&IdxSpace> {
+        let s = match space {
+            Space::CompFunc => &self.comp_func,
+            Space::CompVal => &self.comp_val,
+            Space::CompType => &self.comp_type,
+            Space::CompInst => &self.comp_inst,
+            // Space::Comp => &mut self.comp,
+            Space::CoreInst => &self.core_inst,
+            Space::CoreModule => &self.module,
+            Space::CoreType => &self.core_type,
+            Space::CoreFunc => &self.core_func,
+            Space::CoreMemory => &self.core_memory,
+            Space::CoreTable => &self.core_table,
+            Space::CoreGlobal => &self.core_global,
+            Space::CoreTag => &self.core_tag,
+        };
+        Some(s)
+    }
 
     fn get_space_mut(&mut self, outer: &ComponentSection, inner: &ExternalItemKind) -> Option<&mut IdxSpace> {
         let space = match outer {
@@ -608,6 +661,390 @@ impl From<&CanonicalFunction> for ExternalItemKind {
             CanonicalFunction::ThreadSuspend { .. } |
             CanonicalFunction::ThreadResumeLater |
             CanonicalFunction::ThreadYieldTo { .. } => todo!()
+        }
+    }
+}
+
+// Logic to figure out which index space is being manipulated
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum Space {
+    // Component-level spaces
+    CompFunc,
+    CompVal,
+    CompType,
+    CompInst,
+    // Comp,
+
+    // Core-level spaces
+    CoreInst,
+    CoreModule,
+    CoreType,
+    CoreFunc,
+    CoreMemory,
+    CoreTable,
+    CoreGlobal,
+    CoreTag,
+}
+
+// Trait for centralizing index space mapping
+pub trait IndexSpaceOf {
+    // /// Returns all indices in this node with their Space
+    // fn index_space_of(&self) -> Vec<(Space, u32)>;
+
+    /// Simplified (for now)
+    fn index_space_of(&self) -> Space;
+}
+
+impl IndexSpaceOf for ComponentTypeRef {
+    fn index_space_of(&self) -> Space {
+        // This is the index space to use when looking up
+        // the IDs in this ref.
+        match self {
+            Self::Value(_) => Space::CompVal,
+            Self::Instance(_) => Space::CompInst,
+            Self::Component(_) => Space::CompType,
+            Self::Module(_) => Space::CoreModule,
+            Self::Func(_) |
+            Self::Type(_) => Space::CompType,
+        }
+    }
+}
+
+impl IndexSpaceOf for ComponentImport<'_> {
+    fn index_space_of(&self) -> Space {
+        // This is the index space of THIS IMPORT!
+        // Not what space to use for the IDs of the typeref!
+        match self.ty {
+            ComponentTypeRef::Func(_) => Space::CompFunc,
+            ComponentTypeRef::Value(_) => Space::CompVal,
+            ComponentTypeRef::Type(_) => Space::CompType,
+            ComponentTypeRef::Instance(_) => Space::CompInst,
+            ComponentTypeRef::Component(_) => Space::CompInst,
+            ComponentTypeRef::Module(_) => Space::CoreModule
+        }
+    }
+}
+
+impl IndexSpaceOf for Instance<'_> {
+    fn index_space_of(&self) -> Space {
+        Space::CoreInst
+    }
+}
+
+impl<'a> IndexSpaceOf for ComponentAlias<'a> {
+    fn index_space_of(&self) -> Space {
+        match self {
+            // Aliasing an export of a component instance
+            ComponentAlias::InstanceExport { kind, .. } => match kind {
+                ComponentExternalKind::Func => Space::CompFunc,
+                ComponentExternalKind::Value => Space::CompVal,
+                ComponentExternalKind::Type => Space::CompType,
+                ComponentExternalKind::Instance => Space::CompInst,
+                ComponentExternalKind::Component => Space::CompType,
+                ComponentExternalKind::Module => Space::CoreModule,
+            },
+
+            // Aliasing an export of a core instance
+            ComponentAlias::CoreInstanceExport { kind, .. } => match kind {
+                ExternalKind::Func => Space::CoreFunc,
+                ExternalKind::Memory => Space::CoreMemory,
+                ExternalKind::Table => Space::CoreTable,
+                ExternalKind::Global => Space::CoreGlobal,
+                ExternalKind::Tag => Space::CoreTag,
+            },
+
+            // Aliasing an outer item
+            ComponentAlias::Outer { kind, .. } => match kind {
+                ComponentOuterAliasKind::CoreModule => Space::CoreModule,
+                ComponentOuterAliasKind::CoreType => Space::CoreType,
+                ComponentOuterAliasKind::Type => Space::CompType,
+                ComponentOuterAliasKind::Component => Space::CompType,
+            },
+        }
+    }
+}
+
+impl IndexSpaceOf for CanonicalFunction {
+    fn index_space_of(&self) -> Space {
+        match self {
+            CanonicalFunction::Lower { .. } => Space::CoreFunc,
+            CanonicalFunction::Lift { .. } => Space::CompFunc,
+
+            // Resource-related functions reference a resource type
+            CanonicalFunction::ResourceNew { .. }
+            | CanonicalFunction::ResourceDrop { .. }
+            | CanonicalFunction::ResourceDropAsync { .. }
+            | CanonicalFunction::ResourceRep { .. } => Space::CompFunc,
+
+            // Thread spawn / new indirect → function type
+            CanonicalFunction::ThreadSpawnRef { .. }
+            | CanonicalFunction::ThreadSpawnIndirect { .. }
+            | CanonicalFunction::ThreadNewIndirect { .. } => Space::CompFunc,
+
+            // Task-related functions operate on values
+            CanonicalFunction::TaskReturn { .. }
+            | CanonicalFunction::TaskCancel { .. }
+            | CanonicalFunction::SubtaskDrop
+            | CanonicalFunction::SubtaskCancel { .. } => Space::CompFunc,
+
+            // Context access
+            CanonicalFunction::ContextGet(_)
+            | CanonicalFunction::ContextSet(_) => Space::CompFunc,
+
+            // Stream / Future functions operate on types
+            CanonicalFunction::StreamNew { .. }
+            | CanonicalFunction::StreamRead { .. }
+            | CanonicalFunction::StreamWrite { .. }
+            | CanonicalFunction::StreamCancelRead { .. }
+            | CanonicalFunction::StreamCancelWrite { .. }
+            | CanonicalFunction::StreamDropReadable { .. }
+            | CanonicalFunction::StreamDropWritable { .. }
+            | CanonicalFunction::FutureNew { .. }
+            | CanonicalFunction::FutureRead { .. }
+            | CanonicalFunction::FutureWrite { .. }
+            | CanonicalFunction::FutureCancelRead { .. }
+            | CanonicalFunction::FutureCancelWrite { .. }
+            | CanonicalFunction::FutureDropReadable { .. }
+            | CanonicalFunction::FutureDropWritable { .. } => Space::CompFunc,
+
+            // Error context → operate on values
+            CanonicalFunction::ErrorContextNew { .. }
+            | CanonicalFunction::ErrorContextDebugMessage { .. }
+            | CanonicalFunction::ErrorContextDrop => Space::CompFunc,
+
+            // Waitable set → memory
+            CanonicalFunction::WaitableSetWait { .. }
+            | CanonicalFunction::WaitableSetPoll { .. } => Space::CompFunc,
+            CanonicalFunction::WaitableSetNew
+            | CanonicalFunction::WaitableSetDrop
+            | CanonicalFunction::WaitableJoin => Space::CompFunc,
+
+            // Thread functions
+            CanonicalFunction::ThreadIndex
+            | CanonicalFunction::ThreadSwitchTo { .. }
+            | CanonicalFunction::ThreadSuspend { .. }
+            | CanonicalFunction::ThreadResumeLater
+            | CanonicalFunction::ThreadYieldTo { .. }
+            | CanonicalFunction::ThreadYield { .. }
+            | CanonicalFunction::ThreadAvailableParallelism => Space::CompFunc,
+
+            CanonicalFunction::BackpressureSet
+            | CanonicalFunction::BackpressureInc
+            | CanonicalFunction::BackpressureDec => Space::CompFunc,
+        }
+    }
+}
+
+impl IndexSpaceOf for Module<'_> {
+    fn index_space_of(&self) -> Space {
+        Space::CoreModule
+    }
+}
+
+impl IndexSpaceOf for Component<'_> {
+    fn index_space_of(&self) -> Space {
+        Space::CompType
+    }
+}
+
+impl IndexSpaceOf for CoreType<'_> {
+    fn index_space_of(&self) -> Space {
+        Space::CoreType
+    }
+}
+
+impl IndexSpaceOf for ComponentType<'_> {
+    fn index_space_of(&self) -> Space {
+        Space::CompType
+    }
+}
+
+impl IndexSpaceOf for ComponentInstance<'_> {
+    fn index_space_of(&self) -> Space {
+        Space::CompInst
+    }
+}
+
+/// To unify how I look up the referenced indices inside an IR node
+pub trait ReferencedIndices {
+    fn referenced_indices(&self) -> Option<Refs>;
+}
+
+#[derive(Default)]
+pub struct Refs {
+    pub func: Option<IndexedRef>,
+    pub ty: Option<IndexedRef>,
+    pub mem: Option<IndexedRef>,
+    pub others: Vec<Option<Refs>>,
+}
+impl Refs {
+    pub fn as_list(&self) -> Vec<IndexedRef> {
+        let mut res = vec![];
+        let Refs { func, ty, mem, others } = self;
+
+        if let Some(func) = func {
+            res.push(*func);
+        }
+        if let Some(ty) = ty {
+            res.push(*ty);
+        }
+        if let Some(mem) = mem {
+            res.push(*mem);
+        }
+        others.iter().for_each(|o| {
+            if let Some(o) = o {
+                res.extend(o.as_list());
+            }
+        });
+
+        res
+    }
+}
+
+/// A single referenced index with semantic metadata
+#[derive(Copy, Clone, Debug)]
+pub struct IndexedRef {
+    pub space: Space,
+    pub index: u32,
+    // pub kind: RefKind, // semantic kind of the reference
+}
+
+// #[derive(Clone, Copy)]
+// pub enum RefKind {
+//     Func,
+//     Type,
+//     Resource,
+//     Memory,
+//     None,
+//     // Table,
+//     // Option,
+//     // Other,
+// }
+
+impl ReferencedIndices for CanonicalFunction {
+    fn referenced_indices(&self) -> Option<Refs> {
+        match self {
+            CanonicalFunction::Lift { core_func_index, type_index, options } => {
+                let mut others = vec![];
+                // Recursively include indices from options
+                for opt in options.iter() {
+                    others.push(opt.referenced_indices());
+                }
+                Some(Refs {
+                    func: Some(IndexedRef { space: Space::CoreFunc, index: *core_func_index }),
+                    ty: Some(IndexedRef { space: Space::CompType, index: *type_index}),
+                    others,
+                    ..Default::default()
+                })
+            }
+
+            CanonicalFunction::Lower { func_index, options } => {
+                let mut others = vec![];
+                // Recursively include indices from options
+                for opt in options.iter() {
+                    others.push(opt.referenced_indices());
+                }
+                Some(Refs {
+                    func: Some(IndexedRef { space: Space::CompFunc, index: *func_index }),
+                    others,
+                    ..Default::default()
+                })
+            }
+
+            CanonicalFunction::ResourceNew { resource }
+            | CanonicalFunction::ResourceDrop { resource }
+            | CanonicalFunction::ResourceDropAsync { resource }
+            | CanonicalFunction::ResourceRep { resource }=> Some(
+                Refs {
+                    ty: Some(IndexedRef { space: Space::CompType, index: *resource }),
+                    ..Default::default()
+                }),
+
+            // other variants...
+            _ => todo!()
+        }
+    }
+}
+
+impl ReferencedIndices for CanonicalOption {
+    fn referenced_indices(&self) -> Option<Refs> {
+        match self {
+            CanonicalOption::Memory(id) => Some(
+                Refs {
+                    mem: Some(IndexedRef { space: Space::CoreMemory, index: *id }),
+                    ..Default::default()
+                }),
+            CanonicalOption::Realloc(id)
+            | CanonicalOption::PostReturn(id)
+            | CanonicalOption::Callback(id) => Some(
+                Refs {
+                    func: Some(IndexedRef { space: Space::CoreFunc, index: *id }),
+                    ..Default::default()
+                }),
+            CanonicalOption::CoreType(id) => Some(
+                Refs {
+                    ty: Some(IndexedRef { space: Space::CoreType, index: *id }),
+                    ..Default::default()
+                }),
+            CanonicalOption::Async
+            | CanonicalOption::CompactUTF16
+            | CanonicalOption::Gc
+            | CanonicalOption::UTF8
+            | CanonicalOption::UTF16 => None
+        }
+    }
+}
+
+impl ReferencedIndices for ComponentImport<'_> {
+    fn referenced_indices(&self) -> Option<Refs> {
+        self.ty.referenced_indices()
+    }
+}
+impl ReferencedIndices for ComponentTypeRef {
+    fn referenced_indices(&self) -> Option<Refs> {
+        match &self {
+            // The reference is to a core module type.
+            // The index is expected to be core type index to a core module type.
+            ComponentTypeRef::Module(id) => Some(
+                Refs {
+                    ty: Some(IndexedRef { space: Space::CoreType, index: *id }),
+                    ..Default::default()
+                }
+            ),
+            ComponentTypeRef::Func(id) => Some(
+                Refs {
+                    ty: Some(IndexedRef { space: Space::CompType, index: *id }),
+                    ..Default::default()
+                }
+            ),
+            ComponentTypeRef::Instance(id) => Some(
+                Refs {
+                    ty: Some(IndexedRef { space: Space::CompType, index: *id }),
+                    ..Default::default()
+                }
+            ),
+            ComponentTypeRef::Component(id) => Some(
+                Refs {
+                    ty: Some(IndexedRef { space: Space::CompType, index: *id }),
+                    ..Default::default()
+                }
+            ),
+            ComponentTypeRef::Value(ty) => ty.referenced_indices(),
+            ComponentTypeRef::Type(_) => None
+        }
+    }
+}
+
+impl ReferencedIndices for ComponentValType {
+    fn referenced_indices(&self) -> Option<Refs> {
+        match self {
+            ComponentValType::Primitive(_) => None,
+            ComponentValType::Type(id) => Some(
+                Refs {
+                    ty: Some(IndexedRef { space: Space::CompType, index: *id }),
+                    ..Default::default()
+                }
+            ),
         }
     }
 }

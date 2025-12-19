@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use wasmparser::{CanonicalFunction, CanonicalOption, ComponentAlias, ComponentExport, ComponentImport, ComponentInstance, ComponentType, ComponentTypeRef, CoreType, Instance};
 use crate::{Component, Module};
-use crate::ir::component::idx_spaces::{ExternalItemKind, IdxSpaces, SpaceSubtype};
+use crate::ir::component::idx_spaces::{ExternalItemKind, IdxSpaces, IndexedRef, ReferencedIndices, Refs, Space, SpaceSubtype};
 use crate::ir::section::ComponentSection;
 use crate::ir::types::CustomSection;
 
@@ -211,7 +211,7 @@ impl<'a> Collect<'a> for Module<'a> {
         ctx.seen.modules.insert(ptr, idx);
 
         // TODO: Collect dependencies first
-
+        // collect_deps(self, ctx, comp);
 
         // push to ordered plan
         ctx.plan.items.push(ComponentItem::Module { node: ptr, idx });
@@ -228,7 +228,7 @@ impl<'a> Collect<'a> for ComponentType<'a> {
         ctx.seen.comp_types.insert(ptr, idx);
 
         // TODO: collect dependencies first
-
+        // collect_deps(self, ctx, comp);
 
         // push to ordered plan
         ctx.plan.items.push(ComponentItem::CompType { node: ptr, idx });
@@ -245,7 +245,7 @@ impl<'a> Collect<'a> for ComponentInstance<'a> {
         ctx.seen.comp_instances.insert(ptr, idx);
 
         // TODO: Collect dependencies first
-
+        // collect_deps(self, ctx, comp);
 
         // push to ordered plan
         ctx.plan.items.push(ComponentItem::CompInst { node: ptr, idx });
@@ -261,66 +261,8 @@ impl<'a> Collect<'a> for CanonicalFunction {
         // assign a temporary index during collection
         ctx.seen.canon_funcs.insert(ptr, idx);
 
-        // let kind = ExternalItemKind::from(self);
         // Collect dependencies first
-        match &self {
-            CanonicalFunction::Lift { core_func_index, type_index, options } => {
-                let (canon_vec, canon_idx) = ctx.indices.index_from_assumed_id(&ComponentSection::Canon, &ExternalItemKind::CoreFunc, *core_func_index as usize);
-                // assert!(matches!(ty, SpaceSubtype::Main), "didn't match {ty:?}");
-                let (ty_vec, ty_idx) = ctx.indices.index_from_assumed_id(&ComponentSection::ComponentType, &ExternalItemKind::NA, *type_index as usize);
-                // assert!(matches!(ty, SpaceSubtype::Main));
-
-                match canon_vec {
-                    SpaceSubtype::Export => comp.exports[canon_idx].collect(canon_idx, ctx, comp),
-                    SpaceSubtype::Import => comp.imports[canon_idx].collect(canon_idx, ctx, comp),
-                    SpaceSubtype::Alias => comp.alias.items[canon_idx].collect(canon_idx, ctx, comp),
-                    SpaceSubtype::Components |
-                    SpaceSubtype::Main => panic!("Shouldn't get here"),
-                }
-
-                match ty_vec {
-                    SpaceSubtype::Main => comp.component_types.items[ty_idx].collect(ty_idx, ctx, comp),
-                    SpaceSubtype::Export => comp.exports[ty_idx].collect(ty_idx, ctx, comp),
-                    SpaceSubtype::Import => comp.imports[ty_idx].collect(ty_idx, ctx, comp),
-                    SpaceSubtype::Alias => comp.alias.items[ty_idx].collect(ty_idx, ctx, comp),
-                    SpaceSubtype::Components => panic!("Shouldn't get here"),
-                }
-
-                for (idx, opt) in options.iter().enumerate() {
-                    opt.collect(idx, ctx, comp);
-                }
-            }
-            CanonicalFunction::Lower { func_index, options } => {
-                let (canon_vec, canon_idx) = ctx.indices.index_from_assumed_id(&ComponentSection::Canon, &ExternalItemKind::CompFunc, *func_index as usize);
-                // assert!(matches!(ty, SpaceSubtype::Main));
-                // comp.canons.items[canon_idx].collect(canon_idx, ctx, comp);
-
-                match canon_vec {
-                    SpaceSubtype::Export => comp.exports[canon_idx].collect(canon_idx, ctx, comp),
-                    SpaceSubtype::Import => comp.imports[canon_idx].collect(canon_idx, ctx, comp),
-                    SpaceSubtype::Alias => comp.alias.items[canon_idx].collect(canon_idx, ctx, comp),
-                    SpaceSubtype::Components |
-                    SpaceSubtype::Main => panic!("Shouldn't get here"),
-                }
-
-                for (idx, opt) in options.iter().enumerate() {
-                    opt.collect(idx, ctx, comp);
-                }
-            }
-            CanonicalFunction::ResourceNew { resource } => {
-                let (ty, ty_idx) = ctx.indices.index_from_assumed_id(&ComponentSection::ComponentType, &ExternalItemKind::NA, *resource as usize);
-                assert!(matches!(ty, SpaceSubtype::Main));
-
-                comp.component_types.items[ty_idx].collect(ty_idx, ctx, comp);
-            }
-            CanonicalFunction::ResourceDrop { resource } => {
-                let (ty, ty_idx) = ctx.indices.index_from_assumed_id(&ComponentSection::ComponentType, &ExternalItemKind::NA, *resource as usize);
-                assert!(matches!(ty, SpaceSubtype::Main));
-                comp.component_types.items[ty_idx].collect(ty_idx, ctx, comp);
-            }
-            _ => todo!("Haven't implemented this yet: {self:?}"),
-        }
-
+        collect_deps(self, ctx, comp);
 
         // push to ordered plan
         ctx.plan.items.push(ComponentItem::CanonicalFunc { node: ptr, idx });
@@ -337,7 +279,7 @@ impl<'a> Collect<'a> for ComponentAlias<'a> {
         ctx.seen.aliases.insert(ptr, idx);
 
         // TODO: Collect dependencies first
-
+        // collect_deps(self, ctx, comp);
 
         // push to ordered plan
         ctx.plan.items.push(ComponentItem::Alias { node: ptr, idx });
@@ -354,21 +296,7 @@ impl<'a> Collect<'a> for ComponentImport<'a> {
         ctx.seen.imports.insert(ptr, idx);
 
         // TODO: Collect dependencies first
-        match &self.ty {
-            // The reference is to a core module type.
-            // The index is expected to be core type index to a core module type.
-            ComponentTypeRef::Module(id) => {
-                let (ty, idx) = ctx.indices.index_from_assumed_id(&ComponentSection::CoreType, &ExternalItemKind::NA, *id as usize);
-                assert!(matches!(ty, SpaceSubtype::Main));
-
-                comp.core_types[idx].collect(idx, ctx, comp);
-            }
-            ComponentTypeRef::Func(id) => {}
-            ComponentTypeRef::Value(old_id) => {}
-            ComponentTypeRef::Type(old_id) => {}
-            ComponentTypeRef::Instance(id) => {}
-            ComponentTypeRef::Component(id) => {}
-        }
+        collect_deps(self, ctx, comp);
 
 
         // push to ordered plan
@@ -386,7 +314,7 @@ impl<'a> Collect<'a> for ComponentExport<'a> {
         ctx.seen.exports.insert(ptr, idx);
 
         // TODO: Collect dependencies first
-
+        // collect_deps(self, ctx, comp);
 
         // push to ordered plan
         ctx.plan.items.push(ComponentItem::Export { node: ptr, idx });
@@ -403,7 +331,7 @@ impl<'a> Collect<'a> for CoreType<'a> {
         ctx.seen.core_types.insert(ptr, idx);
 
         // TODO: Collect dependencies first
-
+        // collect_deps(self, ctx, comp);
 
         // push to ordered plan
         ctx.plan.items.push(ComponentItem::CoreType { node: ptr, idx });
@@ -420,7 +348,7 @@ impl<'a> Collect<'a> for Instance<'a> {
         ctx.seen.instances.insert(ptr, idx);
 
         // TODO: Collect dependencies first
-
+        // collect_deps(self, ctx, comp);
 
         // push to ordered plan
         ctx.plan.items.push(ComponentItem::Inst { node: ptr, idx });
@@ -437,59 +365,10 @@ impl<'a> Collect<'a> for CustomSection<'a> {
         ctx.seen.custom_sections.insert(ptr, idx);
 
         // TODO: collect dependencies first
-
+        // collect_deps(self, ctx, comp);
 
         // push to ordered plan
         ctx.plan.items.push(ComponentItem::CustomSection { node: ptr, idx });
-    }
-}
-
-impl<'a> Collect<'a> for CanonicalOption {
-    fn collect(&'a self, _idx: usize, ctx: &mut CollectCtx<'a>, comp: &'a Component<'a>) {
-        match self {
-            CanonicalOption::Memory(id) => {
-                let (mem_vec, idx) = ctx.indices.index_from_assumed_id(&ComponentSection::Canon, &ExternalItemKind::CoreMemory, *id as usize);
-
-                match mem_vec {
-                    SpaceSubtype::Import => comp.imports[idx].collect(idx, ctx, comp),
-                    SpaceSubtype::Alias => comp.alias.items[idx].collect(idx, ctx, comp),
-                    SpaceSubtype::Components |
-                    SpaceSubtype::Export |
-                    SpaceSubtype::Main => panic!("Shouldn't get here"),
-                }
-            }
-            CanonicalOption::PostReturn(id) |
-            CanonicalOption::Callback(id) |
-            CanonicalOption::Realloc(id) => {
-                let (mem_vec, idx) = ctx.indices.index_from_assumed_id(&ComponentSection::Canon, &ExternalItemKind::CoreFunc, *id as usize);
-
-                match mem_vec {
-                    // TODO: This could collect something 2x?
-                    // Does `seen` check avoid this? -- might need to collect one at a time instead?
-                    SpaceSubtype::Main => comp.canons.items[idx].collect(idx, ctx, comp),
-                    SpaceSubtype::Import => comp.imports[idx].collect(idx, ctx, comp),
-                    SpaceSubtype::Alias => comp.alias.items[idx].collect(idx, ctx, comp),
-                    SpaceSubtype::Components |
-                    SpaceSubtype::Export => panic!("Shouldn't get here"),
-                }
-            }
-            CanonicalOption::CoreType(id) => {
-                let (mem_vec, idx) = ctx.indices.index_from_assumed_id(&ComponentSection::CoreType, &ExternalItemKind::NA, *id as usize);
-
-                match mem_vec {
-                    SpaceSubtype::Import => comp.imports[idx].collect(idx, ctx, comp),
-                    SpaceSubtype::Alias => comp.alias.items[idx].collect(idx, ctx, comp),
-                    SpaceSubtype::Main => comp.core_types[idx].collect(idx, ctx, comp),
-                    SpaceSubtype::Components |
-                    SpaceSubtype::Export => panic!("Shouldn't get here"),
-                }
-            }
-            CanonicalOption::UTF8 |
-            CanonicalOption::UTF16 |
-            CanonicalOption::CompactUTF16 |
-            CanonicalOption::Async |
-            CanonicalOption::Gc => {}   // do nothing
-        }
     }
 }
 
@@ -498,5 +377,35 @@ fn collect_vec<'a, T: Collect<'a> + 'a>(start: usize, num: usize, all: &'a Vec<T
     for i in 0..num {
         let idx = start + i;
         all[idx].collect(idx, ctx, comp);
+    }
+}
+
+fn collect_deps<'a, T: ReferencedIndices + 'a>(item: &T, ctx: &mut CollectCtx<'a>, comp: &'a Component<'a>) {
+    if let Some(refs) = item.referenced_indices() {
+        for r in refs.as_list().iter() {
+            let (vec, idx) = ctx.indices.new_index_from_assumed_id(r);
+            let space = r.space;
+            match vec {
+                SpaceSubtype::Main => match space {
+                    Space::CompType => comp.component_types.items[idx].collect(idx, ctx, comp),
+                    Space::CompInst => comp.component_instance[idx].collect(idx, ctx, comp),
+                    Space::CoreInst => comp.instances[idx].collect(idx, ctx, comp),
+                    Space::CoreModule => comp.modules[idx].collect(idx, ctx, comp),
+                    Space::CoreType => comp.core_types[idx].collect(idx, ctx, comp),
+                    Space::CompFunc
+                    | Space::CoreFunc => comp.canons.items[idx].collect(idx, ctx, comp),
+                    Space::CompVal => todo!(),
+                    Space::CoreMemory => todo!(),
+                    Space::CoreTable => todo!(),
+                    Space::CoreGlobal => todo!(),
+                    Space::CoreTag => todo!(),
+                },
+                SpaceSubtype::Export => comp.exports[idx].collect(idx, ctx, comp),
+                SpaceSubtype::Import => comp.imports[idx].collect(idx, ctx, comp),
+                SpaceSubtype::Alias => comp.alias.items[idx].collect(idx, ctx, comp),
+                SpaceSubtype::Components => comp.components[idx].collect(idx, ctx, comp),
+            }
+            
+        }
     }
 }

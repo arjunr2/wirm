@@ -6,7 +6,7 @@ use crate::encode::component::encode;
 use crate::error::Error;
 use crate::ir::component::alias::Aliases;
 use crate::ir::component::canons::Canons;
-use crate::ir::component::idx_spaces::{ExternalItemKind, IdxSpaces};
+use crate::ir::component::idx_spaces::{ExternalItemKind, IdxSpaces, IndexSpaceOf, Space};
 use crate::ir::component::types::ComponentTypes;
 use crate::ir::helpers::{
     print_alias, print_component_export, print_component_import, print_component_type,
@@ -91,15 +91,15 @@ impl<'a> Component<'a> {
         Self::default()
     }
 
-    fn add_section(&mut self, outer: ComponentSection, inner: ExternalItemKind, idx: usize) -> usize {
+    fn add_section(&mut self, space: Space, sect: ComponentSection, idx: usize) -> usize {
         // get and save off the assumed id
-        let assumed_id = self.indices.assign_assumed_id(&outer, &inner, idx);
+        let assumed_id = self.indices.assign_assumed_id(&space, &sect, idx);
 
         // add to section order list
-        if self.sections[self.num_sections - 1].1 == outer {
+        if self.sections[self.num_sections - 1].1 == sect {
             self.sections[self.num_sections - 1].0 += 1;
         } else {
-            self.sections.push((1, outer));
+            self.sections.push((1, sect));
         }
 
         println!("assumed: {:?}", assumed_id);
@@ -109,8 +109,8 @@ impl<'a> Component<'a> {
     /// Add a Module to this Component.
     pub fn add_module(&mut self, module: Module<'a>) -> ModuleID {
         let idx = self.modules.len();
+        let id = self.add_section(module.index_space_of(), ComponentSection::Module, idx);
         self.modules.push(module);
-        let id = self.add_section(ComponentSection::Module, ExternalItemKind::NA, idx);
 
         ModuleID(id as u32)
     }
@@ -122,10 +122,10 @@ impl<'a> Component<'a> {
 
     pub fn add_import(&mut self, import: ComponentImport<'a>) -> u32 {
         let idx = self.imports.len();
+        let id = self.add_section(import.index_space_of(), ComponentSection::ComponentImport, idx);
         self.imports.push(import);
-        let kind = ExternalItemKind::from(&import.ty);
 
-        self.add_section(ComponentSection::ComponentImport, kind, idx) as u32
+        id as u32
     }
 
     pub fn add_alias_func(&mut self, alias: ComponentAlias<'a>) -> (AliasFuncId, AliasId) {
@@ -143,8 +143,9 @@ impl<'a> Component<'a> {
                },
                self.canons.items.len()
         );
+        let space = alias.index_space_of();
         let (item_id, alias_id) = self.alias.add(alias);
-        let id = self.add_section(ComponentSection::Alias, kind, *alias_id as usize);
+        let id = self.add_section(space, ComponentSection::Alias, *alias_id as usize);
         println!("   --> @{}", id);
 
         (AliasFuncId(id as u32), alias_id)
@@ -152,9 +153,9 @@ impl<'a> Component<'a> {
 
     pub fn add_canon_func(&mut self, canon: CanonicalFunction) -> CanonicalFuncId {
         print!("[add_canon_func] {:?}", canon);
-        let kind = ExternalItemKind::from(&canon);
+        let space = canon.index_space_of();
         let idx = self.canons.add(canon).1;
-        let id = self.add_section(ComponentSection::Canon, kind, *idx as usize);
+        let id = self.add_section(space, ComponentSection::Canon, *idx as usize);
         println!("   --> @{}", id);
 
         CanonicalFuncId(id as u32)
@@ -164,8 +165,9 @@ impl<'a> Component<'a> {
         &mut self,
         component_ty: ComponentType<'a>,
     ) -> (u32, ComponentTypeId) {
+        let space = component_ty.index_space_of();
         let ids = self.component_types.add(component_ty);
-        let id = self.add_section(ComponentSection::ComponentType, ExternalItemKind::NA, *ids.1 as usize);
+        let id = self.add_section(space, ComponentSection::ComponentType, *ids.1 as usize);
 
         (id as u32, ids.1)
     }
@@ -199,8 +201,8 @@ impl<'a> Component<'a> {
 
     pub fn add_core_instance(&mut self, instance: Instance<'a>) -> CoreInstanceId {
         let idx = self.instances.len();
+        let id  = self.add_section(instance.index_space_of(), ComponentSection::CoreInstance, idx);
         self.instances.push(instance);
-        let id  = self.add_section(ComponentSection::CoreInstance, ExternalItemKind::NA, idx);
         println!("[add_core_instance] id: {id}");
 
         CoreInstanceId(id as u32)
@@ -310,14 +312,15 @@ impl<'a> Component<'a> {
                         .into_iter()
                         .collect::<Result<_, _>>()?;
                     let l = temp.len();
-                    let num_imps = imports.len();
-                    // indices.assign_assumed_id_for(&temp, imports.len(), &ComponentSection::ComponentImport, &ExternalItemKind::from(&imp.ty));
-                    for (i, imp) in temp.iter().enumerate() {
-                        let curr_idx = num_imps + i;
-                        // println!("[parse-import] idx: {curr_idx}, {temp:?}");
-                        let assumed_id = indices.assign_assumed_id(&ComponentSection::ComponentImport, &ExternalItemKind::from(&imp.ty), curr_idx);
-                        // println!("  ==> ID: {assumed_id:?}");
-                    }
+                    // let num_imps = imports.len();
+                    // // indices.assign_assumed_id_for(&temp, imports.len(), &ComponentSection::ComponentImport, &ExternalItemKind::from(&imp.ty));
+                    // for (i, imp) in temp.iter().enumerate() {
+                    //     let curr_idx = num_imps + i;
+                    //     // println!("[parse-import] idx: {curr_idx}, {temp:?}");
+                    //     let assumed_id = indices.assign_assumed_id(&ComponentSection::ComponentImport, &ExternalItemKind::from(&imp.ty), curr_idx);
+                    //     // println!("  ==> ID: {assumed_id:?}");
+                    // }
+                    indices.assign_assumed_id_for(&temp, imports.len(), &ComponentSection::ComponentImport);
                     imports.append(temp);
                     Self::add_to_sections(
                         &mut sections,
@@ -331,14 +334,6 @@ impl<'a> Component<'a> {
                         .into_iter()
                         .collect::<Result<_, _>>()?;
                     let l = temp.len();
-                    let num_exps = exports.len();
-                    for (i, exp) in temp.iter().enumerate() {
-                        let curr_idx = num_exps + i;
-                        // TODO: exports don't use IDs! (is this correct?)
-                        // println!("[parse-export] idx: {curr_idx}, {temp:?}");
-                        // let assumed_id = indices.assign_assumed_id(&ComponentSection::ComponentExport, &ExternalItemKind::from(&exp.kind), curr_idx);
-                        // println!("  ==> ID: {assumed_id:?}");
-                    }
                     exports.append(temp);
                     Self::add_to_sections(
                         &mut sections,
@@ -352,11 +347,7 @@ impl<'a> Component<'a> {
                         .into_iter()
                         .collect::<Result<_, _>>()?;
                     let l = temp.len();
-                    let num_insts = instances.len();
-                    for i in 0..temp.len() {
-                        let curr_idx = num_insts + i;
-                        indices.assign_assumed_id(&ComponentSection::CoreInstance, &ExternalItemKind::NA, curr_idx);
-                    }
+                    indices.assign_assumed_id_for(&temp, instances.len(), &ComponentSection::CoreInstance);
                     instances.append(temp);
                     Self::add_to_sections(
                         &mut sections,
@@ -369,11 +360,7 @@ impl<'a> Component<'a> {
                     let temp: &mut Vec<CoreType> =
                         &mut core_type_reader.into_iter().collect::<Result<_, _>>()?;
                     let l = temp.len();
-                    let num_tys = core_types.len();
-                    for i in 0..temp.len() {
-                        let curr_idx = num_tys + i;
-                        indices.assign_assumed_id(&ComponentSection::CoreType, &ExternalItemKind::NA, curr_idx);
-                    }
+                    indices.assign_assumed_id_for(&temp, core_types.len(), &ComponentSection::CoreType);
                     core_types.append(temp);
                     Self::add_to_sections(
                         &mut sections,
@@ -387,7 +374,7 @@ impl<'a> Component<'a> {
                         .into_iter()
                         .collect::<Result<_, _>>()?;
                     let l = temp.len();
-                    indices.assign_assumed_id_for(&temp, component_types.len(), &ComponentSection::ComponentType, &ExternalItemKind::NA);
+                    indices.assign_assumed_id_for(&temp, component_types.len(), &ComponentSection::ComponentType);
                     component_types.append(temp);
                     Self::add_to_sections(
                         &mut sections,
@@ -400,7 +387,7 @@ impl<'a> Component<'a> {
                     let temp: &mut Vec<ComponentInstance> =
                         &mut component_instances.into_iter().collect::<Result<_, _>>()?;
                     let l = temp.len();
-                    indices.assign_assumed_id_for(&temp, component_instance.len(), &ComponentSection::ComponentInstance, &ExternalItemKind::NA);
+                    indices.assign_assumed_id_for(&temp, component_instance.len(), &ComponentSection::ComponentInstance);
                     component_instance.append(temp);
                     Self::add_to_sections(
                         &mut sections,
@@ -413,13 +400,7 @@ impl<'a> Component<'a> {
                     let temp: &mut Vec<ComponentAlias> =
                         &mut alias_reader.into_iter().collect::<Result<_, _>>()?;
                     let l = temp.len();
-                    let num_aliases = alias.len();
-                    for (i, alias) in temp.iter().enumerate() {
-                        let curr_idx = num_aliases + i;
-                        // println!("[parse-alias] idx: {curr_idx}, {temp:?}");
-                        let assumed_id = indices.assign_assumed_id(&ComponentSection::Alias, &ExternalItemKind::from(alias), curr_idx);
-                        // println!("  ==> ID: {assumed_id:?}");
-                    }
+                    indices.assign_assumed_id_for(&temp, alias.len(), &ComponentSection::Alias);
                     alias.append(temp);
                     Self::add_to_sections(
                         &mut sections,
@@ -432,14 +413,7 @@ impl<'a> Component<'a> {
                     let temp: &mut Vec<CanonicalFunction> =
                         &mut canon_reader.into_iter().collect::<Result<_, _>>()?;
                     let l = temp.len();
-                    let num_canons = canons.len();
-                    for (i, t) in temp.iter().enumerate() {
-                        let curr_idx = num_canons + i;
-                        // let assumed_id = indices.assign_assumed_id(&ComponentSection::Canon, &ExternalItemKind::NA, curr_idx);
-                        // println!("[parse-canon] idx: {curr_idx}, {t:?}");
-                        let assumed_id = indices.assign_assumed_id(&ComponentSection::Canon, &ExternalItemKind::from(t), curr_idx);
-                        // println!("  ==> ID: {assumed_id:?}");
-                    }
+                    indices.assign_assumed_id_for(&temp, canons.len(), &ComponentSection::Canon);
                     canons.append(temp);
                     Self::add_to_sections(
                         &mut sections,
@@ -455,13 +429,14 @@ impl<'a> Component<'a> {
                     // Indicating the start of a new module
                     parent_stack.push(Encoding::Module);
                     stack.push(Encoding::Module);
-                    indices.assign_assumed_id(&ComponentSection::Module, &ExternalItemKind::NA, modules.len());
-                    modules.push(Module::parse_internal(
+                    let m = Module::parse_internal(
                         &wasm[unchecked_range.start - start..unchecked_range.end - start],
                         enable_multi_memory,
                         with_offsets,
                         parser,
-                    )?);
+                    )?;
+                    indices.assign_assumed_id(&m.index_space_of(), &ComponentSection::Module, modules.len());
+                    modules.push(m);
                     Self::add_to_sections(
                         &mut sections,
                         ComponentSection::Module,
@@ -484,7 +459,7 @@ impl<'a> Component<'a> {
                         unchecked_range.start,
                         &mut stack,
                     )?;
-                    indices.assign_assumed_id(&ComponentSection::Component, &ExternalItemKind::NA, components.len());
+                    indices.assign_assumed_id(&cmp.index_space_of(), &ComponentSection::Component, components.len());
                     components.push(cmp);
                     Self::add_to_sections(
                         &mut sections,
