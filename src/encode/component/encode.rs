@@ -121,126 +121,94 @@ impl Encode for ComponentType<'_> {
     fn do_encode<'a>(&self, component: &mut wasm_encoder::Component, indices: &IdxSpaces, reencode: &mut RoundtripReencoder) {
         let mut component_ty_section = wasm_encoder::ComponentTypeSection::new();
 
+        let section = ComponentSection::ComponentType;
+        let kind = ExternalItemKind::NA;
         match &self {
-            // ComponentType::Defined(comp_ty) => {
-            //     let enc = component_ty_section.defined_type();
-            //     match comp_ty {
-            //         wasmparser::ComponentDefinedType::Primitive(p) => {
-            //             enc.primitive(wasm_encoder::PrimitiveValType::from(*p))
-            //         }
-            //         wasmparser::ComponentDefinedType::Record(records) => {
-            //             enc.record(
-            //                 records.iter().map(|(n, ty)| {
-            //                     let fixed_ty = self.lookup_component_val_type(
-            //                         *ty, component, reencode, indices
-            //                     );
-            //                     (*n, reencode.component_val_type(fixed_ty))
-            //                 }),
-            //             );
-            //         }
-            //         wasmparser::ComponentDefinedType::Variant(variants) => {
-            //             enc.variant(variants.iter().map(|variant| {
-            //                 (
-            //                     variant.name,
-            //                     variant.ty.map(|ty| {
-            //                         let fixed_ty = self.lookup_component_val_type(
-            //                             ty, component, reencode, indices
-            //                         );
-            //                         reencode.component_val_type(fixed_ty)
-            //                     }),
-            //                     variant.refines,
-            //                 )
-            //             }))
-            //         }
-            //         wasmparser::ComponentDefinedType::List(l) => {
-            //             let fixed_ty = self.lookup_component_val_type(
-            //                 *l, component, reencode, indices
-            //             );
-            //             enc.list(reencode.component_val_type(fixed_ty))
-            //         }
-            //         wasmparser::ComponentDefinedType::Tuple(tup) => enc.tuple(
-            //             tup.iter()
-            //                 .map(|val_type| {
-            //                     let fixed_ty = self.lookup_component_val_type(
-            //                         *val_type, component, reencode, indices
-            //                     );
-            //                     reencode.component_val_type(fixed_ty)
-            //                 }),
-            //         ),
-            //         wasmparser::ComponentDefinedType::Flags(flags) => {
-            //             enc.flags(flags.clone().into_vec().into_iter())
-            //         }
-            //         wasmparser::ComponentDefinedType::Enum(en) => {
-            //             enc.enum_type(en.clone().into_vec().into_iter())
-            //         }
-            //         wasmparser::ComponentDefinedType::Option(opt) => {
-            //             let fixed_ty = self.lookup_component_val_type(
-            //                 *opt, component, reencode, indices
-            //             );
-            //             enc.option(reencode.component_val_type(fixed_ty))
-            //         }
-            //         wasmparser::ComponentDefinedType::Result { ok, err } => enc.result(
-            //             ok.map(|val_type| {
-            //                 let fixed_ty = self.lookup_component_val_type(
-            //                     val_type, component, reencode, indices
-            //                 );
-            //                 reencode.component_val_type(fixed_ty)
-            //             }),
-            //             err.map(|val_type| {
-            //                 let fixed_ty = self.lookup_component_val_type(
-            //                     val_type, component, reencode, indices
-            //                 );
-            //                 reencode.component_val_type(fixed_ty)
-            //             }),
-            //         ),
-            //         wasmparser::ComponentDefinedType::Own(u) => {
-            //             let id = if let Some(id) = indices.lookup_actual_id(&section, &kind, *u as usize) {
-            //                 // has already been encoded
-            //                 *id
-            //             } else {
-            //                 // we need to skip around and encode this type first!
-            //                 self.internal_encode_component_type(*u as usize, 1, component, reencode, indices);
-            //                 indices.lookup_actual_id_or_panic(&section, &kind, *u as usize)
-            //             };
-            //             enc.own(id as u32)
-            //         },
-            //         wasmparser::ComponentDefinedType::Borrow(u) => {
-            //             let id = if let Some(id) = indices.lookup_actual_id(&section, &kind, *u as usize) {
-            //                 // has already been encoded
-            //                 *id
-            //             } else {
-            //                 // we need to skip around and encode this type first!
-            //                 self.internal_encode_component_type(*u as usize, 1, component, reencode, indices);
-            //                 indices.lookup_actual_id_or_panic(&section, &kind, *u as usize)
-            //             };
-            //             enc.borrow(id as u32)
-            //         },
-            //         wasmparser::ComponentDefinedType::Future(opt) => match opt {
-            //             Some(u) => {
-            //                 let fixed_ty = self.lookup_component_val_type(
-            //                     *u, component, reencode, indices
-            //                 );
-            //                 enc.future(Some(reencode.component_val_type(fixed_ty)))
-            //             },
-            //             None => enc.future(None),
-            //         },
-            //         wasmparser::ComponentDefinedType::Stream(opt) => match opt {
-            //             Some(u) => {
-            //                 let fixed_ty = self.lookup_component_val_type(
-            //                     *u, component, reencode, indices
-            //                 );
-            //                 enc.stream(Some(reencode.component_val_type(fixed_ty)))
-            //             },
-            //             None => enc.stream(None),
-            //         },
-            //         wasmparser::ComponentDefinedType::FixedSizeList(ty, i) => {
-            //             let fixed_ty = self.lookup_component_val_type(
-            //                 *ty, component, reencode, indices
-            //             );
-            //             enc.fixed_size_list(reencode.component_val_type(fixed_ty), *i)
-            //         }
-            //     }
-            // }
+            ComponentType::Defined(comp_ty) => {
+                let enc = component_ty_section.defined_type();
+                match comp_ty {
+                    wasmparser::ComponentDefinedType::Primitive(p) => {
+                        enc.primitive(wasm_encoder::PrimitiveValType::from(*p))
+                    }
+                    wasmparser::ComponentDefinedType::Record(records) => {
+                        enc.record(
+                            records.iter().map(|(n, ty)| {
+                                let fixed_ty = ty.fix(component, indices, reencode);
+                                (*n, reencode.component_val_type(fixed_ty))
+                            }),
+                        );
+                    }
+                    wasmparser::ComponentDefinedType::Variant(variants) => {
+                        enc.variant(variants.iter().map(|variant| {
+                            (
+                                variant.name,
+                                variant.ty.map(|ty| {
+                                    let fixed_ty = ty.fix(component, indices, reencode);
+                                    reencode.component_val_type(fixed_ty)
+                                }),
+                                variant.refines,
+                            )
+                        }))
+                    }
+                    wasmparser::ComponentDefinedType::List(l) => {
+                        let fixed_ty = l.fix(component, indices, reencode);
+                        enc.list(reencode.component_val_type(fixed_ty))
+                    }
+                    wasmparser::ComponentDefinedType::Tuple(tup) => enc.tuple(
+                        tup.iter()
+                            .map(|val_type| {
+                                let fixed_ty = val_type.fix(component, indices, reencode);
+                                reencode.component_val_type(fixed_ty)
+                            }),
+                    ),
+                    wasmparser::ComponentDefinedType::Flags(flags) => {
+                        enc.flags(flags.clone().into_vec().into_iter())
+                    }
+                    wasmparser::ComponentDefinedType::Enum(en) => {
+                        enc.enum_type(en.clone().into_vec().into_iter())
+                    }
+                    wasmparser::ComponentDefinedType::Option(opt) => {
+                        let fixed_ty = opt.fix(component, indices, reencode);
+                        enc.option(reencode.component_val_type(fixed_ty))
+                    }
+                    wasmparser::ComponentDefinedType::Result { ok, err } => enc.result(
+                        ok.map(|val_type| {
+                            let fixed_ty = val_type.fix(component, indices, reencode);
+                            reencode.component_val_type(fixed_ty)
+                        }),
+                        err.map(|val_type| {
+                            let fixed_ty = val_type.fix(component, indices, reencode);
+                            reencode.component_val_type(fixed_ty)
+                        }),
+                    ),
+                    wasmparser::ComponentDefinedType::Own(u) => {
+                        let id = indices.lookup_actual_id_or_panic(&section, &kind, *u as usize);
+                        enc.own(id as u32)
+                    },
+                    wasmparser::ComponentDefinedType::Borrow(u) => {
+                        let id = indices.lookup_actual_id_or_panic(&section, &kind, *u as usize);
+                        enc.borrow(id as u32)
+                    },
+                    wasmparser::ComponentDefinedType::Future(opt) => match opt {
+                        Some(u) => {
+                            let fixed_ty = u.fix(component, indices, reencode);
+                            enc.future(Some(reencode.component_val_type(fixed_ty)))
+                        },
+                        None => enc.future(None),
+                    },
+                    wasmparser::ComponentDefinedType::Stream(opt) => match opt {
+                        Some(u) => {
+                            let fixed_ty = u.fix(component, indices, reencode);
+                            enc.stream(Some(reencode.component_val_type(fixed_ty)))
+                        },
+                        None => enc.stream(None),
+                    },
+                    wasmparser::ComponentDefinedType::FixedSizeList(ty, i) => {
+                        let fixed_ty = ty.fix(component, indices, reencode);
+                        enc.fixed_size_list(reencode.component_val_type(fixed_ty), *i)
+                    }
+                }
+            }
             ComponentType::Func(func_ty) => {
                 let mut enc = component_ty_section.function();
                 enc.params(func_ty.params.iter().map(
@@ -303,10 +271,12 @@ impl Encode for ComponentType<'_> {
                             new_comp.export(name.0, ty);
                         }
                         ComponentTypeDeclaration::Import(imp) => {
-                            let fixed_ty = imp.ty.fix(component, indices, reencode);
+                            // TODO: this is self-contained, so theoretically instrumentation should
+                            //       insert new types that don't need to be changed.
+                            // let fixed_ty = imp.ty.fix(component, indices, reencode);
 
                             let ty = do_reencode(
-                                fixed_ty,
+                                imp.ty,
                                 RoundtripReencoder::component_type_ref,
                                 reencode,
                                 "component type",
@@ -341,7 +311,7 @@ impl Encode for ComponentInstance<'_> {
                 component_index,
                 args,
             } => {
-                let section = ComponentSection::Component;
+                let section = ComponentSection::ComponentType;
                 let kind = ExternalItemKind::NA;
                 let new_id = indices.lookup_actual_id_or_panic(&section, &kind, *component_index as usize);
 
@@ -350,11 +320,11 @@ impl Encode for ComponentInstance<'_> {
                     args.iter().map(|arg| {
                         let (section, kind) = match &arg.kind {
                             ComponentExternalKind::Module => (ComponentSection::Module, ExternalItemKind::NA),
-                            ComponentExternalKind::Func => (ComponentSection::Canon, ExternalItemKind::CompFunc),
-                            ComponentExternalKind::Component => (ComponentSection::Component, ExternalItemKind::NA),
-                            ComponentExternalKind::Value |
+                            ComponentExternalKind::Value => (ComponentSection::ComponentInstance, ExternalItemKind::CompVal),
+                            ComponentExternalKind::Func |
+                            ComponentExternalKind::Component |
                             ComponentExternalKind::Type |
-                            ComponentExternalKind::Instance => todo!(),
+                            ComponentExternalKind::Instance => (ComponentSection::ComponentType, ExternalItemKind::NA),
                         };
                         let new_id = indices.lookup_actual_id_or_panic(&section, &kind, arg.index as usize);
 
@@ -923,7 +893,7 @@ impl Encode for ComponentImport<'_> {
     fn do_encode<'a>(&self, component: &mut wasm_encoder::Component, indices: &IdxSpaces, reencode: &mut RoundtripReencoder) {
         let mut imports = wasm_encoder::ComponentImportSection::new();
 
-        component.section(&imports);
+        // component.section(&imports);
         let fixed_ty = self.ty.fix(component, indices, reencode);
         let ty = do_reencode(
             fixed_ty,
@@ -938,8 +908,39 @@ impl Encode for ComponentImport<'_> {
 }
 
 impl Encode for ComponentExport<'_> {
-    fn do_encode<'a>(&self, component: &mut wasm_encoder::Component, _indices: &IdxSpaces, _reencode: &mut RoundtripReencoder) {
-        todo!()
+    fn do_encode<'a>(&self, component: &mut wasm_encoder::Component, indices: &IdxSpaces, reencode: &mut RoundtripReencoder) {
+        let mut exports = wasm_encoder::ComponentExportSection::new();
+        // let section = ComponentSection::ComponentExport;
+        // let kind = ExternalItemKind::from(&self.kind);
+
+        let res = self.ty.map(|ty| {
+            let fixed_ty = ty.fix(component, indices, reencode);
+            do_reencode(
+                fixed_ty,
+                RoundtripReencoder::component_type_ref,
+                reencode,
+                "component export",
+            )
+        });
+
+        let (section, kind) = match &self.kind {
+            ComponentExternalKind::Instance => (ComponentSection::ComponentType, ExternalItemKind::NA),
+            ComponentExternalKind::Module => (ComponentSection::Module, ExternalItemKind::NA),
+            ComponentExternalKind::Component => (ComponentSection::ComponentType, ExternalItemKind::NA),
+            ComponentExternalKind::Func => (ComponentSection::ComponentType, ExternalItemKind::NA),
+            ComponentExternalKind::Value => (ComponentSection::ComponentExport, ExternalItemKind::CompVal),
+            ComponentExternalKind::Type => todo!(),
+        };
+        let id = indices.lookup_actual_id_or_panic(&section, &kind, self.index as usize);
+
+        exports.export(
+            self.name.0,
+            reencode.component_export_kind(self.kind),
+            id as u32,
+            res,
+        );
+
+        component.section(&exports);
     }
 }
 
@@ -1045,13 +1046,17 @@ impl FixIndices for ComponentTypeRef {
     fn fix<'a>(&self, component: &mut wasm_encoder::Component, indices: &IdxSpaces, reencode: &mut RoundtripReencoder) -> Self {
         match self {
             ComponentTypeRef::Type(_) => self.clone(), // nothing to do
+            // The reference is to a core module type.
+            // The index is expected to be core type index to a core module type.
             ComponentTypeRef::Module(id) => {
                 let section = ComponentSection::Module;
                 let kind = ExternalItemKind::NA;
                 let new_id = indices.lookup_actual_id_or_panic(&section, &kind, *id as usize);
                 ComponentTypeRef::Module(new_id as u32)
             }
-            ComponentTypeRef::Value(ty) => ComponentTypeRef::Value(ty.fix(component, indices, reencode)),
+            ComponentTypeRef::Value(ty) => {
+                ComponentTypeRef::Value(ty.fix(component, indices, reencode))
+            },
             ComponentTypeRef::Func(id) |
             ComponentTypeRef::Instance(id) => {
                 // TODO -- no idea if this section is right...
@@ -1065,11 +1070,10 @@ impl FixIndices for ComponentTypeRef {
                 }
             }
             ComponentTypeRef::Component(id) => {
-                // TODO -- no idea if this section is right...
                 let section = ComponentSection::ComponentType;
                 let kind = ExternalItemKind::NA;
                 let new_id = indices.lookup_actual_id_or_panic(&section, &kind, *id as usize);
-                ComponentTypeRef::Func(new_id as u32)
+                ComponentTypeRef::Component(new_id as u32)
             }
         }
     }

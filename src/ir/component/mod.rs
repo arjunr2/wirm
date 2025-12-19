@@ -334,8 +334,9 @@ impl<'a> Component<'a> {
                     let num_exps = exports.len();
                     for (i, exp) in temp.iter().enumerate() {
                         let curr_idx = num_exps + i;
+                        // TODO: exports don't use IDs! (is this correct?)
                         // println!("[parse-export] idx: {curr_idx}, {temp:?}");
-                        let assumed_id = indices.assign_assumed_id(&ComponentSection::ComponentExport, &ExternalItemKind::from(&exp.kind), curr_idx);
+                        // let assumed_id = indices.assign_assumed_id(&ComponentSection::ComponentExport, &ExternalItemKind::from(&exp.kind), curr_idx);
                         // println!("  ==> ID: {assumed_id:?}");
                     }
                     exports.append(temp);

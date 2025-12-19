@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use wasmparser::{CanonicalFunction, CanonicalOption, ComponentAlias, ComponentExport, ComponentImport, ComponentInstance, ComponentType, CoreType, Instance};
+use wasmparser::{CanonicalFunction, CanonicalOption, ComponentAlias, ComponentExport, ComponentImport, ComponentInstance, ComponentType, ComponentTypeRef, CoreType, Instance};
 use crate::{Component, Module};
 use crate::ir::component::idx_spaces::{ExternalItemKind, IdxSpaces, SpaceSubtype};
 use crate::ir::section::ComponentSection;
@@ -131,11 +131,7 @@ impl<'a> Collect<'a> for Component<'a> {
         }
 
         // Collect dependencies first (in the order of the sections)
-
-        // Create a clone of the original sections to allow iterating over them (borrow issues)
-        // TODO: Can I avoid this clone?
-        let orig_sections = self.sections.clone();
-        for (num, section) in orig_sections.iter() {
+        for (num, section) in self.sections.iter() {
             let start_idx = ctx.indices.visit_section(section, *num as usize);
 
             match section {
@@ -270,13 +266,26 @@ impl<'a> Collect<'a> for CanonicalFunction {
         // Collect dependencies first
         match &self {
             CanonicalFunction::Lift { core_func_index, type_index, options } => {
-                let (ty, canon_idx) = ctx.indices.index_from_assumed_id(&ComponentSection::Canon, &ExternalItemKind::CoreFunc, *core_func_index as usize);
-                assert!(matches!(ty, SpaceSubtype::Main));
-                let (ty, ty_idx) = ctx.indices.index_from_assumed_id(&ComponentSection::ComponentType, &ExternalItemKind::NA, *type_index as usize);
-                assert!(matches!(ty, SpaceSubtype::Main));
+                let (canon_vec, canon_idx) = ctx.indices.index_from_assumed_id(&ComponentSection::Canon, &ExternalItemKind::CoreFunc, *core_func_index as usize);
+                // assert!(matches!(ty, SpaceSubtype::Main), "didn't match {ty:?}");
+                let (ty_vec, ty_idx) = ctx.indices.index_from_assumed_id(&ComponentSection::ComponentType, &ExternalItemKind::NA, *type_index as usize);
+                // assert!(matches!(ty, SpaceSubtype::Main));
 
-                comp.canons.items[canon_idx].collect(canon_idx, ctx, comp);
-                comp.component_types.items[ty_idx].collect(ty_idx, ctx, comp);
+                match canon_vec {
+                    SpaceSubtype::Export => comp.exports[canon_idx].collect(canon_idx, ctx, comp),
+                    SpaceSubtype::Import => comp.imports[canon_idx].collect(canon_idx, ctx, comp),
+                    SpaceSubtype::Alias => comp.alias.items[canon_idx].collect(canon_idx, ctx, comp),
+                    SpaceSubtype::Components |
+                    SpaceSubtype::Main => panic!("Shouldn't get here"),
+                }
+
+                match ty_vec {
+                    SpaceSubtype::Main => comp.component_types.items[ty_idx].collect(ty_idx, ctx, comp),
+                    SpaceSubtype::Export => comp.exports[ty_idx].collect(ty_idx, ctx, comp),
+                    SpaceSubtype::Import => comp.imports[ty_idx].collect(ty_idx, ctx, comp),
+                    SpaceSubtype::Alias => comp.alias.items[ty_idx].collect(ty_idx, ctx, comp),
+                    SpaceSubtype::Components => panic!("Shouldn't get here"),
+                }
 
                 for (idx, opt) in options.iter().enumerate() {
                     opt.collect(idx, ctx, comp);
@@ -333,13 +342,28 @@ impl<'a> Collect<'a> for ComponentAlias<'a> {
 }
 
 impl<'a> Collect<'a> for ComponentImport<'a> {
-    fn collect(&'a self, idx: usize, ctx: &mut CollectCtx<'a>, _comp: &'a Component<'a>) {
+    fn collect(&'a self, idx: usize, ctx: &mut CollectCtx<'a>, comp: &'a Component<'a>) {
         let ptr = self as *const _;
         if ctx.seen.imports.contains_key(&ptr) {
             return;
         }
 
         // TODO: Collect dependencies first
+        match &self.ty {
+            // The reference is to a core module type.
+            // The index is expected to be core type index to a core module type.
+            ComponentTypeRef::Module(id) => {
+                let (ty, idx) = ctx.indices.index_from_assumed_id(&ComponentSection::CoreType, &ExternalItemKind::NA, *id as usize);
+                assert!(matches!(ty, SpaceSubtype::Main));
+
+                comp.core_types[idx].collect(idx, ctx, comp);
+            }
+            ComponentTypeRef::Func(id) => {}
+            ComponentTypeRef::Value(old_id) => {}
+            ComponentTypeRef::Type(old_id) => {}
+            ComponentTypeRef::Instance(id) => {}
+            ComponentTypeRef::Component(id) => {}
+        }
 
         // assign a temporary index during collection
         // let idx = ctx.plan.items.len() as u32;
@@ -423,8 +447,51 @@ impl<'a> Collect<'a> for CustomSection<'a> {
 }
 
 impl<'a> Collect<'a> for CanonicalOption {
-    fn collect(&'a self, _idx: usize, _ctx: &mut CollectCtx<'a>, _comp: &'a Component<'a>) {
-        todo!()
+    fn collect(&'a self, _idx: usize, ctx: &mut CollectCtx<'a>, comp: &'a Component<'a>) {
+        match self {
+            CanonicalOption::Memory(id) => {
+                let (mem_vec, idx) = ctx.indices.index_from_assumed_id(&ComponentSection::Canon, &ExternalItemKind::CoreMemory, *id as usize);
+
+                match mem_vec {
+                    SpaceSubtype::Import => comp.imports[idx].collect(idx, ctx, comp),
+                    SpaceSubtype::Alias => comp.alias.items[idx].collect(idx, ctx, comp),
+                    SpaceSubtype::Components |
+                    SpaceSubtype::Export |
+                    SpaceSubtype::Main => panic!("Shouldn't get here"),
+                }
+            }
+            CanonicalOption::PostReturn(id) |
+            CanonicalOption::Callback(id) |
+            CanonicalOption::Realloc(id) => {
+                let (mem_vec, idx) = ctx.indices.index_from_assumed_id(&ComponentSection::Canon, &ExternalItemKind::CoreFunc, *id as usize);
+
+                match mem_vec {
+                    // TODO: This could collect something 2x?
+                    // Does `seen` check avoid this? -- might need to collect one at a time instead?
+                    SpaceSubtype::Main => comp.canons.items[idx].collect(idx, ctx, comp),
+                    SpaceSubtype::Import => comp.imports[idx].collect(idx, ctx, comp),
+                    SpaceSubtype::Alias => comp.alias.items[idx].collect(idx, ctx, comp),
+                    SpaceSubtype::Components |
+                    SpaceSubtype::Export => panic!("Shouldn't get here"),
+                }
+            }
+            CanonicalOption::CoreType(id) => {
+                let (mem_vec, idx) = ctx.indices.index_from_assumed_id(&ComponentSection::CoreType, &ExternalItemKind::NA, *id as usize);
+
+                match mem_vec {
+                    SpaceSubtype::Import => comp.imports[idx].collect(idx, ctx, comp),
+                    SpaceSubtype::Alias => comp.alias.items[idx].collect(idx, ctx, comp),
+                    SpaceSubtype::Main => comp.core_types[idx].collect(idx, ctx, comp),
+                    SpaceSubtype::Components |
+                    SpaceSubtype::Export => panic!("Shouldn't get here"),
+                }
+            }
+            CanonicalOption::UTF8 |
+            CanonicalOption::UTF16 |
+            CanonicalOption::CompactUTF16 |
+            CanonicalOption::Async |
+            CanonicalOption::Gc => {}   // do nothing
+        }
     }
 }
 

@@ -10,7 +10,7 @@ pub(crate) struct IdxSpaces {
     pub comp_val: IdxSpace,
     pub comp_type: IdxSpace,
     pub comp_inst: IdxSpace,
-    pub comp: IdxSpace,
+    // pub comp: IdxSpace,      // TODO -- seems i don't need this
 
     // Core space (added by component model)
     pub core_inst: IdxSpace, // (these are module instances)
@@ -44,7 +44,7 @@ impl IdxSpaces {
             comp_val: IdxSpace::new("component_values".to_string()),
             comp_type: IdxSpace::new("component_types".to_string()),
             comp_inst: IdxSpace::new("component_instances".to_string()),
-            comp: IdxSpace::new("components".to_string()),
+            // comp: IdxSpace::new("components".to_string()),
 
             core_inst: IdxSpace::new("core_instances".to_string()),
             module: IdxSpace::new("core_modules".to_string()),
@@ -158,7 +158,7 @@ impl IdxSpaces {
         self.comp_val.reset_ids();
         self.comp_type.reset_ids();
         self.comp_inst.reset_ids();
-        self.comp.reset_ids();
+        // self.comp.reset_ids();
 
         self.core_inst.reset_ids();
         self.module.reset_ids();
@@ -185,19 +185,20 @@ impl IdxSpaces {
             ComponentSection::Canon => match inner {
                 ExternalItemKind::CompFunc => &mut self.comp_func,
                 ExternalItemKind::CoreFunc => &mut self.core_func,
+                ExternalItemKind::CoreMemory => &mut self.core_memory,
                 _ => panic!("shouldn't get here")
             },
-            ComponentSection::Component => &mut self.comp,
+            ComponentSection::Component => &mut self.comp_type,    // TODO -- is this okay?
 
             // These manipulate other index spaces!
             ComponentSection::Alias |
             ComponentSection::ComponentImport |
             ComponentSection::ComponentExport => match inner {
                 ExternalItemKind::CompFunc => &mut self.comp_func,
-                ExternalItemKind::CompVal => &mut self.comp_val,
+                ExternalItemKind::CompVal => &mut self.comp_val,    // TODO -- is this okay?
                 ExternalItemKind::CompType => &mut self.comp_type,
                 ExternalItemKind::CompInst => &mut self.comp_inst,
-                ExternalItemKind::Comp => &mut self.comp,
+                ExternalItemKind::Comp => &mut self.comp_type,    // TODO -- is this okay?
                 ExternalItemKind::CoreInst => &mut self.core_inst,
                 ExternalItemKind::Module => &mut self.module,
                 ExternalItemKind::CoreType => &mut self.core_type,
@@ -224,19 +225,20 @@ impl IdxSpaces {
             ComponentSection::Canon => match inner {
                 ExternalItemKind::CompFunc => &self.comp_func,
                 ExternalItemKind::CoreFunc => &self.core_func,
+                ExternalItemKind::CoreMemory => &self.core_memory,
                 _ => panic!("shouldn't get here")
             },
-            ComponentSection::Component => &self.comp,
+            ComponentSection::Component => &self.comp_type,        // TODO: Is this okay?
 
             // These manipulate other index spaces!
             ComponentSection::Alias |
             ComponentSection::ComponentImport |
             ComponentSection::ComponentExport => match inner {
                 ExternalItemKind::CompFunc => &self.comp_func,
-                ExternalItemKind::CompVal => &self.comp_val,
+                ExternalItemKind::CompVal => &self.comp_val,        // TODO: Is this okay?
                 ExternalItemKind::CompType => &self.comp_type,
                 ExternalItemKind::CompInst => &self.comp_inst,
-                ExternalItemKind::Comp => &self.comp,
+                ExternalItemKind::Comp => &self.comp_type,        // TODO: Is this okay?
                 ExternalItemKind::CoreInst => &self.core_inst,
                 ExternalItemKind::Module => &self.module,
                 ExternalItemKind::CoreType => &self.core_type,
@@ -293,6 +295,11 @@ pub(crate) struct IdxSpace {
     /// Tracks the index in the EXPORT item vector to the ID we've assumed for it: `exports_idx -> assumed_id`
     /// This ID will be used to reference that item in the IR.
     exports_assumed_ids: HashMap<usize, usize>,
+
+    // (Only relevant for component_types)
+    /// Tracks the index in the COMPONENT item vector to the ID we've assumed for it: `component_idx -> assumed_id`
+    /// This ID will be used to reference that item in the IR.
+    components_assumed_ids: HashMap<usize, usize>,
 }
 impl IdxSpace {
     pub fn new(name: String) -> Self {
@@ -329,8 +336,9 @@ impl IdxSpace {
     pub fn lookup_assumed_id(&self, section: &ComponentSection, vec_idx: usize) -> Option<&usize> {
         let (group, vector) = match section {
             ComponentSection::ComponentImport => ("imports", &self.imports_assumed_ids),
-            ComponentSection::ComponentExport => ("exports", &self.exports_assumed_ids),
+            ComponentSection::ComponentExport => todo!(), // ("exports", &self.exports_assumed_ids),
             ComponentSection::Alias => ("aliases", &self.alias_assumed_ids),
+            ComponentSection::Component => ("components", &self.components_assumed_ids),
 
             ComponentSection::Module |
             ComponentSection::CoreType |
@@ -339,7 +347,6 @@ impl IdxSpace {
             ComponentSection::ComponentInstance |
             ComponentSection::Canon |
             ComponentSection::CustomSection |
-            ComponentSection::Component |
             ComponentSection::ComponentStartSection => ("main", &self.main_assumed_ids)
         };
 
@@ -370,7 +377,7 @@ impl IdxSpace {
         //     ComponentSection::Component |
         //     ComponentSection::ComponentStartSection => (SpaceSubtype::Main, &self.main_assumed_ids)
         // };
-        let maps = vec![(SpaceSubtype::Main, &self.main_assumed_ids), (SpaceSubtype::Import, &self.imports_assumed_ids), (SpaceSubtype::Export, &self.exports_assumed_ids), (SpaceSubtype::Alias, &self.alias_assumed_ids)];
+        let maps = vec![(SpaceSubtype::Main, &self.main_assumed_ids), (SpaceSubtype::Import, &self.imports_assumed_ids), (SpaceSubtype::Export, &self.exports_assumed_ids), (SpaceSubtype::Alias, &self.alias_assumed_ids), (SpaceSubtype::Components, &self.components_assumed_ids)];
 
         for (subty, map) in maps.iter() {
             for (idx, assumed) in map.iter() {
@@ -390,6 +397,7 @@ impl IdxSpace {
             ComponentSection::ComponentImport => &mut self.imports_assumed_ids,
             ComponentSection::ComponentExport => &mut self.exports_assumed_ids,
             ComponentSection::Alias => &mut self.alias_assumed_ids,
+            ComponentSection::Component => &mut self.components_assumed_ids,
 
             ComponentSection::Module |
             ComponentSection::CoreType |
@@ -398,7 +406,6 @@ impl IdxSpace {
             ComponentSection::ComponentInstance |
             ComponentSection::Canon |
             ComponentSection::CustomSection |
-            ComponentSection::Component |
             ComponentSection::ComponentStartSection => &mut self.main_assumed_ids
         };
         // println!("[{}] idx: {}, assumed_id: {}", self.name, vec_idx, assumed_id);
@@ -431,6 +438,8 @@ pub(crate) enum SpaceSubtype {
     Export,
     Import,
     Alias,
+    // This is only relevant for component types!
+    Components,
     Main
 }
 
@@ -455,19 +464,20 @@ pub(crate) enum ExternalItemKind {
     CoreGlobal,
     CoreTag,
 
+    // Inline, // ❗ not indexed
     // Does not impact an index space
-    NA
+    NA,
 }
 
 impl From<&ComponentTypeRef> for ExternalItemKind {
     fn from(value: &ComponentTypeRef) -> Self {
         match value {
             ComponentTypeRef::Module(_) => Self::Module,
-            ComponentTypeRef::Func(_) => Self::CompFunc,
-            ComponentTypeRef::Value(_) => Self::CompVal,
-            ComponentTypeRef::Type(_) => Self::CompType,
-            ComponentTypeRef::Instance(_) => Self::CompInst,
-            ComponentTypeRef::Component(_) => Self::Comp
+            ComponentTypeRef::Func(_)
+            | ComponentTypeRef::Type(_)
+            | ComponentTypeRef::Instance(_) => Self::CompType,
+            ComponentTypeRef::Component(_) => Self::CompInst,
+            ComponentTypeRef::Value(_) => Self::CompVal,        // TODO: Is this okay?
         }
     }
 }
@@ -487,7 +497,7 @@ impl From<&ComponentExternalKind> for ExternalItemKind {
         match value {
             ComponentExternalKind::Module => Self::Module,
             ComponentExternalKind::Func => Self::CompFunc,
-            ComponentExternalKind::Value => Self::CompVal,
+            ComponentExternalKind::Value => Self::CompVal,      // TODO: Is this okay?
             ComponentExternalKind::Type => Self::CompType,
             ComponentExternalKind::Instance => Self::CompInst,
             ComponentExternalKind::Component => Self::Comp
@@ -512,7 +522,7 @@ impl From<&ComponentAlias<'_>> for ExternalItemKind {
                     // println!("Assigned to comp-func");
                     Self::CompFunc
                 },
-                ComponentExternalKind::Value => Self::CompVal,
+                ComponentExternalKind::Value => Self::CompVal,      // TODO: Is this okay?
                 ComponentExternalKind::Type => {
                     // println!("Assigned to comp-type");
                     Self::CompType

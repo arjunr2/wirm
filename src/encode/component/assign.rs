@@ -87,7 +87,7 @@ pub(crate) fn assign_indices<'a>(plan: &mut ComponentPlan<'a>, indices: &mut Idx
         match item {
             ComponentItem::Component{ plan: subplan, indices: subindices, idx, .. } => {
                 // Visit this component's internals
-                indices.reset_ids();
+                subindices.reset_ids();
                 assign_indices(subplan, subindices);
 
                 indices.assign_actual_id(&ComponentSection::Component, &ExternalItemKind::NA, *idx);
@@ -115,16 +115,22 @@ pub(crate) fn assign_indices<'a>(plan: &mut ComponentPlan<'a>, indices: &mut Idx
             }
             ComponentItem::Import { node, idx } => {
                 unsafe {
+                    // This import actually imports a new component INSTANCE, of the type that is
+                    // defined by ptr.ty.
+                    // So, we're creating a new index into the component INSTANCE space.
                     let ptr: &ComponentImport = &**node;
                     let kind = ExternalItemKind::from(&ptr.ty);
                     indices.assign_actual_id(&ComponentSection::ComponentImport, &kind, *idx);
                 }
             }
             ComponentItem::Export { node, idx } => {
-                unsafe {
-                    let ptr: &ComponentExport = &**node;
-                    indices.assign_actual_id(&ComponentSection::ComponentExport, &ExternalItemKind::from(&ptr.ty), *idx);
-                }
+                // unsafe {
+                //     let ptr: &ComponentExport = &**node;
+                //     let kind = ExternalItemKind::from(&ptr.ty);
+                //     indices.assign_actual_id(&ComponentSection::ComponentExport, &kind, *idx);
+                // }
+                // TODO: Is this correct?
+                // Exports → name things, do NOT allocate indices ❌
             }
             ComponentItem::CoreType { idx, .. } => {
                 indices.assign_actual_id(&ComponentSection::CoreType, &ExternalItemKind::NA, *idx);
