@@ -93,7 +93,7 @@ impl IdxSpaces {
         panic!("[{:?}::{:?}] No assumed ID for index: {}", outer, inner, vec_idx)
     }
 
-    pub fn new_index_from_assumed_id(&self, r: &IndexedRef) -> (SpaceSubtype, usize) {
+    pub fn index_from_assumed_id(&self, r: &IndexedRef) -> (SpaceSubtype, usize) {
         // TODO -- this is incredibly inefficient...i just want to move on with my life...
         if let Some(space) = self.new_get_space(&r.space) {
             if let Some((ty, idx)) = space.index_from_assumed_id(r.index as usize) {
@@ -105,22 +105,6 @@ impl IdxSpaces {
             println!("couldn't find space");
         }
         panic!("[{:?}] No index for assumed ID: {}", r.space, r.index)
-    }
-
-    /// This function is used to determine what index the ID points to. It also returns which vector to
-    /// use when using the index.
-    pub fn index_from_assumed_id(&self, outer: &ComponentSection, inner: &ExternalItemKind, assumed_id: usize) -> (SpaceSubtype, usize) {
-        // TODO -- this is incredibly inefficient...i just want to move on with my life...
-        if let Some(space) = self.get_space(outer, inner) {
-            if let Some((ty, idx)) = space.index_from_assumed_id(assumed_id) {
-                return (ty, idx)
-            } else {
-                println!("couldn't find idx");
-            }
-        } else {
-            println!("couldn't find space");
-        }
-        panic!("[{:?}::{:?}] No index for assumed ID: {}", outer, inner, assumed_id)
     }
 
     pub fn assign_actual_id(&mut self, outer: &ComponentSection, inner: &ExternalItemKind, vec_idx: usize) {

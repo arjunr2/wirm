@@ -383,7 +383,7 @@ fn collect_vec<'a, T: Collect<'a> + 'a>(start: usize, num: usize, all: &'a Vec<T
 fn collect_deps<'a, T: ReferencedIndices + 'a>(item: &T, ctx: &mut CollectCtx<'a>, comp: &'a Component<'a>) {
     if let Some(refs) = item.referenced_indices() {
         for r in refs.as_list().iter() {
-            let (vec, idx) = ctx.indices.new_index_from_assumed_id(r);
+            let (vec, idx) = ctx.indices.index_from_assumed_id(r);
             let space = r.space;
             match vec {
                 SpaceSubtype::Main => match space {
