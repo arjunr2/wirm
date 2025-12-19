@@ -260,10 +260,13 @@ impl Encode for ComponentType<'_> {
                         }
                         ComponentTypeDeclaration::Alias(a) => todo!(),
                         ComponentTypeDeclaration::Export { name, ty } => {
-                            let fixed_ty = ty.fix(component, indices, reencode);
+                            // TODO: this is self-contained, so theoretically instrumentation should
+                            //       insert new types that don't need to be changed.
+                            //       (to truly fix, a (type (component ...)) decl would need to carry its own index space...
+                            // let fixed_ty = ty.fix(component, indices, reencode);
 
                             let ty = do_reencode(
-                                fixed_ty,
+                                *ty,
                                 RoundtripReencoder::component_type_ref,
                                 reencode,
                                 "component type",
@@ -273,6 +276,7 @@ impl Encode for ComponentType<'_> {
                         ComponentTypeDeclaration::Import(imp) => {
                             // TODO: this is self-contained, so theoretically instrumentation should
                             //       insert new types that don't need to be changed.
+                            //       (to truly fix, a (type (component ...)) decl would need to carry its own index space...
                             // let fixed_ty = imp.ty.fix(component, indices, reencode);
 
                             let ty = do_reencode(
@@ -1054,17 +1058,19 @@ impl FixIndices for ComponentTypeRef {
             ComponentTypeRef::Value(ty) => {
                 ComponentTypeRef::Value(ty.fix(component, indices, reencode))
             },
-            ComponentTypeRef::Func(id) |
+            ComponentTypeRef::Func(id) => {
+                // TODO -- no idea if this section is right...
+                let section = ComponentSection::ComponentType;
+                let kind = ExternalItemKind::NA;
+                let new_id = indices.lookup_actual_id_or_panic(&section, &kind, *id as usize);
+                ComponentTypeRef::Func(new_id as u32)
+            }
             ComponentTypeRef::Instance(id) => {
                 // TODO -- no idea if this section is right...
                 let section = ComponentSection::ComponentType;
                 let kind = ExternalItemKind::NA;
                 let new_id = indices.lookup_actual_id_or_panic(&section, &kind, *id as usize);
-                if matches!(self, ComponentTypeRef::Func(_)) {
-                    ComponentTypeRef::Func(new_id as u32)
-                } else {
-                    ComponentTypeRef::Instance(new_id as u32)
-                }
+                ComponentTypeRef::Instance(new_id as u32)
             }
             ComponentTypeRef::Component(id) => {
                 let section = ComponentSection::ComponentType;
