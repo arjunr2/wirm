@@ -26,7 +26,6 @@ fn roundtrip(filename: String, component: bool) {
         let out = wasmprinter::print_bytes(result.clone()).expect("couldn't translate Wasm to wat");
         assert_eq!(out, original);
     }
-    // component.print();
 }
 
 fn test_wast(path: String, component: bool) {

@@ -2,7 +2,7 @@
 
 use wasm_encoder::{Alias, ComponentAliasSection, ComponentFuncTypeEncoder, ComponentTypeEncoder, CoreTypeEncoder, InstanceType, ModuleArg, ModuleSection, NestedComponentSection};
 use wasm_encoder::reencode::{Reencode, ReencodeComponent, RoundtripReencoder};
-use wasmparser::{CanonicalFunction, ComponentAlias, ComponentExport, ComponentExternalKind, ComponentImport, ComponentInstance, ComponentType, ComponentTypeDeclaration, ComponentTypeRef, ComponentValType, CoreType, Instance, InstanceTypeDeclaration, SubType};
+use wasmparser::{CanonicalFunction, CanonicalOption, ComponentAlias, ComponentExport, ComponentExternalKind, ComponentImport, ComponentInstance, ComponentType, ComponentTypeDeclaration, ComponentTypeRef, ComponentValType, CoreType, Instance, InstanceTypeDeclaration, SubType};
 use crate::{Component, Module};
 use crate::encode::component::collect::{ComponentItem, ComponentPlan};
 use crate::ir::component::idx_spaces::{ExternalItemKind, IdxSpaces};
@@ -368,71 +368,69 @@ impl Encode for CanonicalFunction {
                 type_index: type_idx_orig,
                 options: options_orig,
             } => {
-                // // a lift would need to reference a CORE function
-                // let new_fid = spaces.core_func.get(core_func_index_orig).unwrap();
-                // let new_tid = spaces.comp_type.get(type_idx_orig).unwrap();
-                // canon_sec.lift(
-                //     *new_fid,
-                //     *new_tid,
-                //     options_orig.iter().map(|canon| {
-                //         do_reencode(
-                //             *canon,
-                //             RoundtripReencoder::canonical_option,
-                //             reencode,
-                //             "canonical option",
-                //         )
-                //     }),
-                // );
-                todo!()
+                let new_fid = indices.lookup_actual_id_or_panic(&ComponentSection::Canon, &ExternalItemKind::CoreFunc, *core_func_index_orig as usize);
+                let new_tid = indices.lookup_actual_id_or_panic(&ComponentSection::ComponentType, &ExternalItemKind::CompType, *type_idx_orig as usize);
+
+                canon_sec.lift(
+                    new_fid as u32,
+                    new_tid as u32,
+                    options_orig.iter().map(|canon| {
+                        do_reencode(
+                            *canon,
+                            RoundtripReencoder::canonical_option,
+                            reencode,
+                            "canonical option",
+                        )
+                    }),
+                );
             }
             CanonicalFunction::Lower {
                 func_index: fid_orig,
                 options: options_orig
             } => {
                 // TODO -- need to fix options!!!
-                // let mut fixed_options = vec![];
-                // for opt in options_orig.iter() {
-                //     let fixed = match opt {
-                //         CanonicalOption::Realloc(opt_fid_orig) |
-                //         CanonicalOption::PostReturn(opt_fid_orig) |
-                //         CanonicalOption::Callback(opt_fid_orig) => {
-                //             let new_fid = spaces.core_func.get(opt_fid_orig).unwrap();
-                //             match opt {
-                //                 CanonicalOption::Realloc(_) => CanonicalOption::Realloc(*new_fid),
-                //                 CanonicalOption::PostReturn(_) => CanonicalOption::PostReturn(*new_fid),
-                //                 CanonicalOption::Callback(_) => CanonicalOption::Callback(*new_fid),
-                //                 _ => unreachable!()
-                //             }
-                //         }
-                //         CanonicalOption::CoreType(opt_tid_orig) => {
-                //             let new_tid = spaces.core_type.get(opt_tid_orig).unwrap();
-                //             CanonicalOption::CoreType(*new_tid)
-                //         }
-                //
-                //         // TODO -- handle remapping of map ids!
-                //         CanonicalOption::Memory(_mid) => opt.clone(),
-                //         CanonicalOption::UTF8 |
-                //         CanonicalOption::UTF16 |
-                //         CanonicalOption::CompactUTF16 |
-                //         CanonicalOption::Async |
-                //         CanonicalOption::Gc => opt.clone(),
-                //     };
-                //     fixed_options.push(fixed);
-                // }
+                let mut fixed_options = vec![];
+                for opt in options_orig.iter() {
+                    let fixed = match opt {
+                        CanonicalOption::Realloc(opt_fid_orig) |
+                        CanonicalOption::PostReturn(opt_fid_orig) |
+                        CanonicalOption::Callback(opt_fid_orig) => {
+                            let new_fid = indices.lookup_actual_id_or_panic(&ComponentSection::Canon, &ExternalItemKind::CoreFunc, *opt_fid_orig as usize);
+                            match opt {
+                                CanonicalOption::Realloc(_) => CanonicalOption::Realloc(new_fid as u32),
+                                CanonicalOption::PostReturn(_) => CanonicalOption::PostReturn(new_fid as u32),
+                                CanonicalOption::Callback(_) => CanonicalOption::Callback(new_fid as u32),
+                                _ => unreachable!()
+                            }
+                        }
+                        CanonicalOption::CoreType(opt_tid_orig) => {
+                            let new_tid = indices.lookup_actual_id_or_panic(&ComponentSection::CoreType, &ExternalItemKind::NA, *opt_tid_orig as usize);
+                            CanonicalOption::CoreType(new_tid as u32)
+                        }
 
-                // let new_fid = spaces.comp_func.get(fid_orig).unwrap();
-                // canon_sec.lower(
-                //     *new_fid,
-                //     fixed_options.iter().map(|canon| {
-                //         do_reencode(
-                //             *canon,
-                //             RoundtripReencoder::canonical_option,
-                //             reencode,
-                //             "canonical option",
-                //         )
-                //     }),
-                // );
-                todo!()
+                        // TODO -- handle remapping of map ids!
+                        CanonicalOption::Memory(_mid) => opt.clone(),
+                        CanonicalOption::UTF8 |
+                        CanonicalOption::UTF16 |
+                        CanonicalOption::CompactUTF16 |
+                        CanonicalOption::Async |
+                        CanonicalOption::Gc => opt.clone(),
+                    };
+                    fixed_options.push(fixed);
+                }
+
+                let new_fid = indices.lookup_actual_id_or_panic(&ComponentSection::Canon, &ExternalItemKind::CompFunc, *fid_orig as usize);
+                canon_sec.lower(
+                    new_fid as u32,
+                    fixed_options.iter().map(|canon| {
+                        do_reencode(
+                            *canon,
+                            RoundtripReencoder::canonical_option,
+                            reencode,
+                            "canonical option",
+                        )
+                    }),
+                );
             }
             CanonicalFunction::ResourceNew { resource: rsc_orig } => {
                 // let new_rsc = spaces.comp_type.get(rsc_orig).unwrap();
@@ -443,7 +441,6 @@ impl Encode for CanonicalFunction {
                 // let new_rsc = spaces.comp_type.get(rsc_orig).unwrap();
                 // canon_sec.resource_drop(*new_rsc);
                 let new_id = indices.lookup_actual_id_or_panic(&ComponentSection::ComponentType, &kind, *rsc_orig as usize);
-                println!("[{kind:?}] {rsc_orig} -> {new_id}");
                 canon_sec.resource_drop(new_id as u32);
             }
             CanonicalFunction::ResourceRep { resource: rsc_orig } => {
