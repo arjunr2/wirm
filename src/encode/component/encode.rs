@@ -925,10 +925,10 @@ impl Encode for ComponentExport<'_> {
         });
 
         let (section, kind) = match &self.kind {
-            ComponentExternalKind::Instance => (ComponentSection::ComponentType, ExternalItemKind::NA),
+            ComponentExternalKind::Instance => (ComponentSection::ComponentInstance, ExternalItemKind::NA),
             ComponentExternalKind::Module => (ComponentSection::Module, ExternalItemKind::NA),
-            ComponentExternalKind::Component => (ComponentSection::ComponentType, ExternalItemKind::NA),
-            ComponentExternalKind::Func => (ComponentSection::ComponentType, ExternalItemKind::NA),
+            ComponentExternalKind::Component => (ComponentSection::Component, ExternalItemKind::NA),
+            ComponentExternalKind::Func => (ComponentSection::Canon, ExternalItemKind::CompFunc),
             ComponentExternalKind::Value => (ComponentSection::ComponentExport, ExternalItemKind::CompVal),
             ComponentExternalKind::Type => todo!(),
         };

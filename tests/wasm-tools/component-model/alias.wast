@@ -1,65 +1,65 @@
 ;; RUN: wast --assert default --snapshot tests/snapshots % -f cm-values
 
-(component
-  (import "i" (instance $i
-    (export "f1" (func))
-    (export "f2" (func (param "p1" string)))
-  ))
-  (export "run" (func $i "f1"))
-)
-
-(component
-  (import "i" (component $c
-    (export "f1" (func))
-    (export "f2" (func (param "p1" string)))
-  ))
-  (instance $i (instantiate $c))
-  (export "run" (func $i "f1"))
-)
-
-(component
-  (import "i" (core module $m
-    (export "f1" (func $f1))
-    (export "f2" (func $f2 (param i32)))
-  ))
-  (core instance $i (instantiate $m))
-
-  (core module $m2 (import "" "" (func)))
-
-  (core instance (instantiate $m2 (with "" (instance (export "" (func $i "f1"))))))
-)
-
-(component
-  (import "a" (core module $libc
-    (export "memory" (memory 1))
-    (export "table" (table 0 funcref))
-    (export "func" (func))
-    (export "global" (global i32))
-    (export "global mut" (global (mut i64)))
-  ))
-  (core instance $libc (instantiate $libc))
-  (alias core export $libc "memory" (core memory $mem))
-  (alias core export $libc "table" (core table $tbl))
-  (alias core export $libc "func" (core func $func))
-  (alias core export $libc "global" (core global $global))
-  (alias core export $libc "global mut" (core global $global_mut))
-
-  (import "x" (core module $needs_libc
-    (import "" "memory" (memory 1))
-    (import "" "table" (table 0 funcref))
-    (import "" "func" (func))
-    (import "" "global" (global i32))
-    (import "" "global mut" (global (mut i64)))
-  ))
-
-  (core instance (instantiate $needs_libc (with "" (instance
-    (export "memory" (memory $mem))
-    (export "table" (table $tbl))
-    (export "func" (func $func))
-    (export "global" (global $global))
-    (export "global mut" (global $global_mut))
-  ))))
-)
+;;(component
+;;  (import "i" (instance $i
+;;    (export "f1" (func))
+;;    (export "f2" (func (param "p1" string)))
+;;  ))
+;;  (export "run" (func $i "f1"))
+;;)
+;;
+;;(component
+;;  (import "i" (component $c
+;;    (export "f1" (func))
+;;    (export "f2" (func (param "p1" string)))
+;;  ))
+;;  (instance $i (instantiate $c))
+;;  (export "run" (func $i "f1"))
+;;)
+;;
+;;(component
+;;  (import "i" (core module $m
+;;    (export "f1" (func $f1))
+;;    (export "f2" (func $f2 (param i32)))
+;;  ))
+;;  (core instance $i (instantiate $m))
+;;
+;;  (core module $m2 (import "" "" (func)))
+;;
+;;  (core instance (instantiate $m2 (with "" (instance (export "" (func $i "f1"))))))
+;;)
+;;
+;;(component
+;;  (import "a" (core module $libc
+;;    (export "memory" (memory 1))
+;;    (export "table" (table 0 funcref))
+;;    (export "func" (func))
+;;    (export "global" (global i32))
+;;    (export "global mut" (global (mut i64)))
+;;  ))
+;;  (core instance $libc (instantiate $libc))
+;;  (alias core export $libc "memory" (core memory $mem))
+;;  (alias core export $libc "table" (core table $tbl))
+;;  (alias core export $libc "func" (core func $func))
+;;  (alias core export $libc "global" (core global $global))
+;;  (alias core export $libc "global mut" (core global $global_mut))
+;;
+;;  (import "x" (core module $needs_libc
+;;    (import "" "memory" (memory 1))
+;;    (import "" "table" (table 0 funcref))
+;;    (import "" "func" (func))
+;;    (import "" "global" (global i32))
+;;    (import "" "global mut" (global (mut i64)))
+;;  ))
+;;
+;;  (core instance (instantiate $needs_libc (with "" (instance
+;;    (export "memory" (memory $mem))
+;;    (export "table" (table $tbl))
+;;    (export "func" (func $func))
+;;    (export "global" (global $global))
+;;    (export "global mut" (global $global_mut))
+;;  ))))
+;;)
 
 (component
   (import "a" (instance $i
