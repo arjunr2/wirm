@@ -473,8 +473,8 @@ impl From<&ComponentTypeRef> for ExternalItemKind {
     fn from(value: &ComponentTypeRef) -> Self {
         match value {
             ComponentTypeRef::Module(_) => Self::Module,
-            ComponentTypeRef::Func(_)
-            | ComponentTypeRef::Type(_)
+            ComponentTypeRef::Func(_) => Self::CompFunc, // TODO: changed to this for an import!
+            ComponentTypeRef::Type(_)
             | ComponentTypeRef::Instance(_) => Self::CompType,
             ComponentTypeRef::Component(_) => Self::CompInst,
             ComponentTypeRef::Value(_) => Self::CompVal,        // TODO: Is this okay?

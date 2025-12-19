@@ -1,4 +1,4 @@
-use wasmparser::{CanonicalFunction, ComponentAlias, ComponentExport, ComponentImport};
+use wasmparser::{CanonicalFunction, ComponentAlias, ComponentImport};
 use crate::encode::component::collect::{ComponentItem, ComponentPlan};
 
 use crate::ir::component::idx_spaces::{ExternalItemKind, IdxSpaces};

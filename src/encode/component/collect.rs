@@ -207,12 +207,11 @@ impl<'a> Collect<'a> for Module<'a> {
         if ctx.seen.modules.contains_key(&ptr) {
             return;
         }
+        // assign a temporary index during collection
+        ctx.seen.modules.insert(ptr, idx);
 
         // TODO: Collect dependencies first
 
-        // assign a temporary index during collection
-        // let idx = ctx.plan.items.len() as u32;
-        ctx.seen.modules.insert(ptr, idx);
 
         // push to ordered plan
         ctx.plan.items.push(ComponentItem::Module { node: ptr, idx });
@@ -225,12 +224,11 @@ impl<'a> Collect<'a> for ComponentType<'a> {
         if ctx.seen.comp_types.contains_key(&ptr) {
             return;
         }
+        // assign a temporary index during collection
+        ctx.seen.comp_types.insert(ptr, idx);
 
         // TODO: collect dependencies first
 
-        // assign a temporary index during collection
-        // let idx = ctx.plan.items.len() as u32;
-        ctx.seen.comp_types.insert(ptr, idx);
 
         // push to ordered plan
         ctx.plan.items.push(ComponentItem::CompType { node: ptr, idx });
@@ -243,12 +241,11 @@ impl<'a> Collect<'a> for ComponentInstance<'a> {
         if ctx.seen.comp_instances.contains_key(&ptr) {
             return;
         }
+        // assign a temporary index during collection
+        ctx.seen.comp_instances.insert(ptr, idx);
 
         // TODO: Collect dependencies first
 
-        // assign a temporary index during collection
-        // let idx = ctx.plan.items.len() as u32;
-        ctx.seen.comp_instances.insert(ptr, idx);
 
         // push to ordered plan
         ctx.plan.items.push(ComponentItem::CompInst { node: ptr, idx });
@@ -261,6 +258,8 @@ impl<'a> Collect<'a> for CanonicalFunction {
         if ctx.seen.canon_funcs.contains_key(&ptr) {
             return;
         }
+        // assign a temporary index during collection
+        ctx.seen.canon_funcs.insert(ptr, idx);
 
         // let kind = ExternalItemKind::from(self);
         // Collect dependencies first
@@ -292,9 +291,17 @@ impl<'a> Collect<'a> for CanonicalFunction {
                 }
             }
             CanonicalFunction::Lower { func_index, options } => {
-                let (ty, canon_idx) = ctx.indices.index_from_assumed_id(&ComponentSection::Canon, &ExternalItemKind::CompFunc, *func_index as usize);
-                assert!(matches!(ty, SpaceSubtype::Main));
-                comp.canons.items[canon_idx].collect(canon_idx, ctx, comp);
+                let (canon_vec, canon_idx) = ctx.indices.index_from_assumed_id(&ComponentSection::Canon, &ExternalItemKind::CompFunc, *func_index as usize);
+                // assert!(matches!(ty, SpaceSubtype::Main));
+                // comp.canons.items[canon_idx].collect(canon_idx, ctx, comp);
+
+                match canon_vec {
+                    SpaceSubtype::Export => comp.exports[canon_idx].collect(canon_idx, ctx, comp),
+                    SpaceSubtype::Import => comp.imports[canon_idx].collect(canon_idx, ctx, comp),
+                    SpaceSubtype::Alias => comp.alias.items[canon_idx].collect(canon_idx, ctx, comp),
+                    SpaceSubtype::Components |
+                    SpaceSubtype::Main => panic!("Shouldn't get here"),
+                }
 
                 for (idx, opt) in options.iter().enumerate() {
                     opt.collect(idx, ctx, comp);
@@ -314,9 +321,6 @@ impl<'a> Collect<'a> for CanonicalFunction {
             _ => todo!("Haven't implemented this yet: {self:?}"),
         }
 
-        // assign a temporary index during collection
-        // let idx = ctx.plan.items.len() as u32;
-        ctx.seen.canon_funcs.insert(ptr, idx);
 
         // push to ordered plan
         ctx.plan.items.push(ComponentItem::CanonicalFunc { node: ptr, idx });
@@ -329,12 +333,11 @@ impl<'a> Collect<'a> for ComponentAlias<'a> {
         if ctx.seen.aliases.contains_key(&ptr) {
             return;
         }
+        // assign a temporary index during collection
+        ctx.seen.aliases.insert(ptr, idx);
 
         // TODO: Collect dependencies first
 
-        // assign a temporary index during collection
-        // let idx = ctx.plan.items.len() as u32;
-        ctx.seen.aliases.insert(ptr, idx);
 
         // push to ordered plan
         ctx.plan.items.push(ComponentItem::Alias { node: ptr, idx });
@@ -347,6 +350,8 @@ impl<'a> Collect<'a> for ComponentImport<'a> {
         if ctx.seen.imports.contains_key(&ptr) {
             return;
         }
+        // assign a temporary index during collection
+        ctx.seen.imports.insert(ptr, idx);
 
         // TODO: Collect dependencies first
         match &self.ty {
@@ -365,9 +370,6 @@ impl<'a> Collect<'a> for ComponentImport<'a> {
             ComponentTypeRef::Component(id) => {}
         }
 
-        // assign a temporary index during collection
-        // let idx = ctx.plan.items.len() as u32;
-        ctx.seen.imports.insert(ptr, idx);
 
         // push to ordered plan
         ctx.plan.items.push(ComponentItem::Import { node: ptr, idx });
@@ -380,12 +382,11 @@ impl<'a> Collect<'a> for ComponentExport<'a> {
         if ctx.seen.exports.contains_key(&ptr) {
             return;
         }
+        // assign a temporary index during collection
+        ctx.seen.exports.insert(ptr, idx);
 
         // TODO: Collect dependencies first
 
-        // assign a temporary index during collection
-        // let idx = ctx.plan.items.len() as u32;
-        ctx.seen.exports.insert(ptr, idx);
 
         // push to ordered plan
         ctx.plan.items.push(ComponentItem::Export { node: ptr, idx });
@@ -398,12 +399,11 @@ impl<'a> Collect<'a> for CoreType<'a> {
         if ctx.seen.core_types.contains_key(&ptr) {
             return;
         }
+        // assign a temporary index during collection
+        ctx.seen.core_types.insert(ptr, idx);
 
         // TODO: Collect dependencies first
 
-        // assign a temporary index during collection
-        // let idx = ctx.plan.items.len() as u32;
-        ctx.seen.core_types.insert(ptr, idx);
 
         // push to ordered plan
         ctx.plan.items.push(ComponentItem::CoreType { node: ptr, idx });
@@ -416,12 +416,11 @@ impl<'a> Collect<'a> for Instance<'a> {
         if ctx.seen.instances.contains_key(&ptr) {
             return;
         }
+        // assign a temporary index during collection
+        ctx.seen.instances.insert(ptr, idx);
 
         // TODO: Collect dependencies first
 
-        // assign a temporary index during collection
-        // let idx = ctx.plan.items.len() as u32;
-        ctx.seen.instances.insert(ptr, idx);
 
         // push to ordered plan
         ctx.plan.items.push(ComponentItem::Inst { node: ptr, idx });
@@ -434,12 +433,11 @@ impl<'a> Collect<'a> for CustomSection<'a> {
         if ctx.seen.custom_sections.contains_key(&ptr) {
             return;
         }
+        // assign a temporary index during collection
+        ctx.seen.custom_sections.insert(ptr, idx);
 
         // TODO: collect dependencies first
 
-        // assign a temporary index during collection
-        // let idx = ctx.plan.items.len() as u32;
-        ctx.seen.custom_sections.insert(ptr, idx);
 
         // push to ordered plan
         ctx.plan.items.push(ComponentItem::CustomSection { node: ptr, idx });
