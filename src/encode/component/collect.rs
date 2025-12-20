@@ -394,11 +394,11 @@ fn collect_deps<'a, T: ReferencedIndices + 'a>(item: &T, ctx: &mut CollectCtx<'a
                     Space::CoreType => comp.core_types[idx].collect(idx, ctx, comp),
                     Space::CompFunc
                     | Space::CoreFunc => comp.canons.items[idx].collect(idx, ctx, comp),
-                    Space::CompVal => todo!(),
-                    Space::CoreMemory => todo!(),
-                    Space::CoreTable => todo!(),
-                    Space::CoreGlobal => todo!(),
-                    Space::CoreTag => todo!(),
+                    Space::CompVal
+                    | Space::CoreMemory
+                    | Space::CoreTable
+                    | Space::CoreGlobal
+                    | Space::CoreTag => unreachable!("This spaces don't exist in a main vector on the component IR: {vec:?}"),
                 },
                 SpaceSubtype::Export => comp.exports[idx].collect(idx, ctx, comp),
                 SpaceSubtype::Import => comp.imports[idx].collect(idx, ctx, comp),

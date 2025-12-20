@@ -1,7 +1,9 @@
-use wasmparser::{CanonicalFunction, ComponentAlias, ComponentImport};
+use wasm_encoder::NestedComponentSection;
+use wasmparser::{CanonicalFunction, ComponentAlias, ComponentImport, ComponentInstance, ComponentType, CoreType, Instance};
+use crate::{Component, Module};
 use crate::encode::component::collect::{ComponentItem, ComponentPlan};
-
-use crate::ir::component::idx_spaces::{ExternalItemKind, IdxSpaces};
+use crate::encode::component::encode::encode_internal;
+use crate::ir::component::idx_spaces::{ExternalItemKind, IdxSpaces, IndexSpaceOf};
 use crate::ir::section::ComponentSection;
 
 // Phase 2
@@ -85,58 +87,48 @@ use crate::ir::section::ComponentSection;
 pub(crate) fn assign_indices<'a>(plan: &mut ComponentPlan<'a>, indices: &mut IdxSpaces) {
     for item in &mut plan.items {
         match item {
-            ComponentItem::Component{ plan: subplan, indices: subindices, idx, .. } => {
+            ComponentItem::Component{ node, plan: subplan, indices: subindices, idx } => unsafe {
                 // Visit this component's internals
                 subindices.reset_ids();
                 assign_indices(subplan, subindices);
 
-                indices.assign_actual_id(&ComponentSection::Component, &ExternalItemKind::NA, *idx);
+                let ptr: &Component = &**node;
+                indices.assign_actual_id(&ptr.index_space_of(), &ComponentSection::Component, *idx);
             }
-            ComponentItem::Module { idx, .. } => {
-                indices.assign_actual_id(&ComponentSection::Module, &ExternalItemKind::NA, *idx);
+            ComponentItem::Module { node, idx } => unsafe {
+                let ptr: &Module = &**node;
+                indices.assign_actual_id(&ptr.index_space_of(), &ComponentSection::Module, *idx);
             }
-            ComponentItem::CompType { idx, .. } => {
-                indices.assign_actual_id(&ComponentSection::ComponentType, &ExternalItemKind::NA, *idx);
+            ComponentItem::CompType { node, idx } => unsafe {
+                let ptr: &ComponentType = &**node;
+                indices.assign_actual_id(&ptr.index_space_of(), &ComponentSection::ComponentType, *idx);
             }
-            ComponentItem::CompInst { idx, .. } => {
-                indices.assign_actual_id(&ComponentSection::ComponentInstance, &ExternalItemKind::NA, *idx);
+            ComponentItem::CompInst { node, idx} => unsafe {
+                let ptr: &ComponentInstance = &**node;
+                indices.assign_actual_id(&ptr.index_space_of(), &ComponentSection::ComponentInstance, *idx);
             }
-            ComponentItem::CanonicalFunc { node, idx } => {
-                unsafe {
-                    let ptr: &CanonicalFunction = &**node;
-                    indices.assign_actual_id(&ComponentSection::Canon, &ExternalItemKind::from(ptr), *idx);
-                }
+            ComponentItem::CanonicalFunc { node, idx } => unsafe {
+                let ptr: &CanonicalFunction = &**node;
+                indices.assign_actual_id(&ptr.index_space_of(), &ComponentSection::Canon, *idx);
             }
-            ComponentItem::Alias { node, idx } => {
-                unsafe {
-                    let ptr: &ComponentAlias = &**node;
-                    indices.assign_actual_id(&ComponentSection::Alias, &ExternalItemKind::from(ptr), *idx);
-                }
+            ComponentItem::Alias { node, idx } => unsafe {
+                let ptr: &ComponentAlias = &**node;
+                indices.assign_actual_id(&ptr.index_space_of(), &ComponentSection::Alias, *idx);
             }
-            ComponentItem::Import { node, idx } => {
-                unsafe {
-                    // This import actually imports a new component INSTANCE, of the type that is
-                    // defined by ptr.ty.
-                    // So, we're creating a new index into the component INSTANCE space.
-                    let ptr: &ComponentImport = &**node;
-                    let kind = ExternalItemKind::from(&ptr.ty);
-                    indices.assign_actual_id(&ComponentSection::ComponentImport, &kind, *idx);
-                }
-            }
-            ComponentItem::Export { node, idx } => {
-                // unsafe {
-                //     let ptr: &ComponentExport = &**node;
-                //     let kind = ExternalItemKind::from(&ptr.ty);
-                //     indices.assign_actual_id(&ComponentSection::ComponentExport, &kind, *idx);
-                // }
-                // TODO: Is this correct?
-                // Exports → name things, do NOT allocate indices ❌
-            }
-            ComponentItem::CoreType { idx, .. } => {
-                indices.assign_actual_id(&ComponentSection::CoreType, &ExternalItemKind::NA, *idx);
-            }
-            ComponentItem::Inst { idx, .. } => {
-                indices.assign_actual_id(&ComponentSection::CoreInstance, &ExternalItemKind::NA, *idx);
+            ComponentItem::Import { node, idx } => unsafe {
+                let ptr: &ComponentImport = &**node;
+                indices.assign_actual_id(&ptr.index_space_of(), &ComponentSection::ComponentImport, *idx);
+            },
+            ComponentItem::CoreType { node, idx } => unsafe {
+                let ptr: &CoreType = &**node;
+                indices.assign_actual_id(&ptr.index_space_of(), &ComponentSection::CoreType, *idx);
+            },
+            ComponentItem::Inst { node, idx } => unsafe {
+                    let ptr: &Instance = &**node;
+                    indices.assign_actual_id(&ptr.index_space_of(), &ComponentSection::CoreInstance, *idx);
+            },
+            ComponentItem::Export { .. } => {
+                // NA: exports don't get IDs
             }
             ComponentItem::CustomSection { .. } => {
                 // NA: Custom sections don't get IDs

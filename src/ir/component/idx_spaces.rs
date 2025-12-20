@@ -84,13 +84,13 @@ impl IdxSpaces {
         }
     }
 
-    pub fn lookup_assumed_id(&self, outer: &ComponentSection, inner: &ExternalItemKind, vec_idx: usize) -> usize {
-        if let Some(space) = self.get_space(outer, inner) {
-            if let Some(assumed_id) = space.lookup_assumed_id(outer, vec_idx) {
+    pub fn lookup_assumed_id(&self, space: &Space, section: &ComponentSection, vec_idx: usize) -> usize {
+        if let Some(space) = self.new_get_space(space) {
+            if let Some(assumed_id) = space.lookup_assumed_id(section, vec_idx) {
                 return *assumed_id
             }
         }
-        panic!("[{:?}::{:?}] No assumed ID for index: {}", outer, inner, vec_idx)
+        panic!("[{:?}] No assumed ID for index: {}", space, vec_idx)
     }
 
     pub fn index_from_assumed_id(&self, r: &IndexedRef) -> (SpaceSubtype, usize) {
@@ -107,18 +107,10 @@ impl IdxSpaces {
         panic!("[{:?}] No index for assumed ID: {}", r.space, r.index)
     }
 
-    pub fn assign_actual_id(&mut self, outer: &ComponentSection, inner: &ExternalItemKind, vec_idx: usize) {
-        let assumed_id = self.lookup_assumed_id(outer, inner, vec_idx);
-        if let Some(space) = self.get_space_mut(outer, inner) {
+    pub fn assign_actual_id(&mut self, space: &Space, section: &ComponentSection, vec_idx: usize) {
+        let assumed_id = self.lookup_assumed_id(space, section, vec_idx);
+        if let Some(space) = self.new_get_space_mut(space) {
             space.assign_actual_id(assumed_id);
-        }
-    }
-
-    pub fn lookup_actual_id(&self, outer: &ComponentSection, inner: &ExternalItemKind, assumed_id: usize) -> Option<&usize> {
-        if let Some(space) = self.get_space(outer, inner) {
-            space.lookup_actual_id(assumed_id)
-        } else {
-            None
         }
     }
 
@@ -210,46 +202,6 @@ impl IdxSpaces {
             Space::CoreTag => &self.core_tag,
         };
         Some(s)
-    }
-
-    fn get_space_mut(&mut self, outer: &ComponentSection, inner: &ExternalItemKind) -> Option<&mut IdxSpace> {
-        let space = match outer {
-            ComponentSection::Module => &mut self.module,
-            ComponentSection::CoreType => &mut self.core_type,
-            ComponentSection::ComponentType => &mut self.comp_type,
-            ComponentSection::CoreInstance => &mut self.core_inst,
-            ComponentSection::ComponentInstance => &mut self.comp_inst,
-            ComponentSection::Canon => match inner {
-                ExternalItemKind::CompFunc => &mut self.comp_func,
-                ExternalItemKind::CoreFunc => &mut self.core_func,
-                ExternalItemKind::CoreMemory => &mut self.core_memory,
-                _ => panic!("shouldn't get here")
-            },
-            ComponentSection::Component => &mut self.comp_type,    // TODO -- is this okay?
-
-            // These manipulate other index spaces!
-            ComponentSection::Alias |
-            ComponentSection::ComponentImport |
-            ComponentSection::ComponentExport => match inner {
-                ExternalItemKind::CompFunc => &mut self.comp_func,
-                ExternalItemKind::CompVal => &mut self.comp_val,    // TODO -- is this okay?
-                ExternalItemKind::CompType => &mut self.comp_type,
-                ExternalItemKind::CompInst => &mut self.comp_inst,
-                ExternalItemKind::Comp => &mut self.comp_type,    // TODO -- is this okay?
-                ExternalItemKind::CoreInst => &mut self.core_inst,
-                ExternalItemKind::Module => &mut self.module,
-                ExternalItemKind::CoreType => &mut self.core_type,
-                ExternalItemKind::CoreFunc => &mut self.core_func,
-                ExternalItemKind::CoreTable => &mut self.core_table,
-                ExternalItemKind::CoreMemory => &mut self.core_memory,
-                ExternalItemKind::CoreGlobal => &mut self.core_global,
-                ExternalItemKind::CoreTag => &mut self.core_tag,
-                ExternalItemKind::NA => return None // nothing to do
-            }
-            ComponentSection::ComponentStartSection |
-            ComponentSection::CustomSection => return None // nothing to do for custom or start sections
-        };
-        Some(space)
     }
 
     fn get_space(&self, outer: &ComponentSection, inner: &ExternalItemKind) -> Option<&IdxSpace> {
