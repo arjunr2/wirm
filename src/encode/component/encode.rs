@@ -5,7 +5,7 @@ use wasm_encoder::reencode::{Reencode, ReencodeComponent, RoundtripReencoder};
 use wasmparser::{CanonicalFunction, CanonicalOption, ComponentAlias, ComponentExport, ComponentExternalKind, ComponentImport, ComponentInstance, ComponentType, ComponentTypeDeclaration, ComponentTypeRef, ComponentValType, CoreType, Instance, InstanceTypeDeclaration, SubType};
 use crate::{Component, Module};
 use crate::encode::component::collect::{ComponentItem, ComponentPlan};
-use crate::ir::component::idx_spaces::{ExternalItemKind, IdxSpaces};
+use crate::ir::component::idx_spaces::{ExternalItemKind, IdxSpaces, ReferencedIndices, Refs};
 use crate::ir::section::ComponentSection;
 use crate::ir::types::CustomSection;
 use crate::ir::wrappers::{convert_module_type_declaration, do_reencode};
@@ -80,6 +80,8 @@ pub(crate) fn encode_internal<'a>(comp: &Component, plan: &ComponentPlan<'a>, in
         name_sec.component(comp_name);
     }
 
+    // TODO -- does the order here matter for names in the map?
+    //         might need to fix indices here!
     name_sec.core_funcs(&comp.core_func_names);
     name_sec.core_tables(&comp.table_names);
     name_sec.core_memories(&comp.memory_names);
@@ -1031,11 +1033,11 @@ impl Encode for CustomSection<'_> {
 
 impl FixIndices for ComponentValType {
     fn fix<'a>(&self, _component: &mut wasm_encoder::Component, indices: &IdxSpaces, _reencode: &mut RoundtripReencoder) -> Self {
-        let section = ComponentSection::ComponentType;
-        let kind = ExternalItemKind::NA;
-
-        if let ComponentValType::Type(ty_id) = self {
-            let new_id = indices.lookup_actual_id_or_panic(&section, &kind, *ty_id as usize);
+        if let ComponentValType::Type(_) = self {
+            let Some(Refs { ty: Some(ty), ..}) = self.referenced_indices() else {
+                todo!()
+            };
+            let new_id = indices.new_lookup_actual_id_or_panic(&ty);
             ComponentValType::Type(new_id as u32)
         } else {
             self.clone()
@@ -1050,32 +1052,34 @@ impl FixIndices for ComponentTypeRef {
             // The reference is to a core module type.
             // The index is expected to be core type index to a core module type.
             ComponentTypeRef::Module(id) => {
-                let section = ComponentSection::Module;
-                let kind = ExternalItemKind::NA;
-                let new_id = indices.lookup_actual_id_or_panic(&section, &kind, *id as usize);
+                let Some(Refs { ty: Some(ty), ..}) = self.referenced_indices() else {
+                    todo!()
+                };
+                let new_id = indices.new_lookup_actual_id_or_panic(&ty);
                 ComponentTypeRef::Module(new_id as u32)
             }
             ComponentTypeRef::Value(ty) => {
                 ComponentTypeRef::Value(ty.fix(component, indices, reencode))
             },
             ComponentTypeRef::Func(id) => {
-                // TODO -- no idea if this section is right...
-                let section = ComponentSection::ComponentType;
-                let kind = ExternalItemKind::NA;
-                let new_id = indices.lookup_actual_id_or_panic(&section, &kind, *id as usize);
+                let Some(Refs { ty: Some(ty), ..}) = self.referenced_indices() else {
+                    todo!()
+                };
+                let new_id = indices.new_lookup_actual_id_or_panic(&ty);
                 ComponentTypeRef::Func(new_id as u32)
             }
             ComponentTypeRef::Instance(id) => {
-                // TODO -- no idea if this section is right...
-                let section = ComponentSection::ComponentType;
-                let kind = ExternalItemKind::NA;
-                let new_id = indices.lookup_actual_id_or_panic(&section, &kind, *id as usize);
+                let Some(Refs { ty: Some(ty), ..}) = self.referenced_indices() else {
+                    todo!()
+                };
+                let new_id = indices.new_lookup_actual_id_or_panic(&ty);
                 ComponentTypeRef::Instance(new_id as u32)
             }
             ComponentTypeRef::Component(id) => {
-                let section = ComponentSection::ComponentType;
-                let kind = ExternalItemKind::NA;
-                let new_id = indices.lookup_actual_id_or_panic(&section, &kind, *id as usize);
+                let Some(Refs { ty: Some(ty), ..}) = self.referenced_indices() else {
+                    todo!()
+                };
+                let new_id = indices.new_lookup_actual_id_or_panic(&ty);
                 ComponentTypeRef::Component(new_id as u32)
             }
         }

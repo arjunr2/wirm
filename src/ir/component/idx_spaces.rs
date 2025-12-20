@@ -111,6 +111,15 @@ impl IdxSpaces {
         }
     }
 
+    pub fn new_lookup_actual_id_or_panic(&self, r: &IndexedRef) -> usize {
+        if let Some(space) = self.new_get_space(&r.space) {
+            if let Some(actual_id) = space.lookup_actual_id(r.index as usize) {
+                return *actual_id;
+            }
+        }
+        panic!("[{:?}] Can't find assumed id {} in id-tracker", r.space, r.index);
+    }
+
     pub fn lookup_actual_id_or_panic(&self, outer: &ComponentSection, inner: &ExternalItemKind, assumed_id: usize) -> usize {
         if let Some(space) = self.get_space(outer, inner) {
             if let Some(actual_id) = space.lookup_actual_id(assumed_id) {
