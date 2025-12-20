@@ -11,7 +11,6 @@ pub(crate) struct IdxSpaces {
     pub comp_val: IdxSpace,
     pub comp_type: IdxSpace,
     pub comp_inst: IdxSpace,
-    // pub comp: IdxSpace,      // TODO -- seems i don't need this
 
     // Core space (added by component model)
     pub core_inst: IdxSpace, // (these are module instances)
@@ -69,15 +68,13 @@ impl IdxSpaces {
     pub fn assign_assumed_id_for<I: Debug + IndexSpaceOf>(&mut self, items: &Vec<I>, next_id: usize, section: &ComponentSection) {
         for (i, item) in items.iter().enumerate() {
             let curr_idx = next_id + i;
-            // println!("[assign_assumed_id_for@{outer:?}:{inner:?}] idx: {curr_idx}, {item:?}");
-            let assumed_id = self.assign_assumed_id(&item.index_space_of(), section, curr_idx);
-            // println!("  ==> ID: {assumed_id:?}");
+            self.assign_assumed_id(&item.index_space_of(), section, curr_idx);
         }
     }
 
     /// This is also called as I parse a component for the same reason mentioned above in the documentation for [`IdxSpaces.assign_assumed_id_for`].
     pub fn assign_assumed_id(&mut self, space: &Space, section: &ComponentSection, curr_idx: usize) -> Option<usize> {
-        if let Some(space) = self.new_get_space_mut(space) {
+        if let Some(space) = self.get_space_mut(space) {
             Some(space.assign_assumed_id(section, curr_idx))
         } else {
             None
@@ -109,7 +106,7 @@ impl IdxSpaces {
 
     pub fn assign_actual_id(&mut self, space: &Space, section: &ComponentSection, vec_idx: usize) {
         let assumed_id = self.lookup_assumed_id(space, section, vec_idx);
-        if let Some(space) = self.new_get_space_mut(space) {
+        if let Some(space) = self.get_space_mut(space) {
             space.assign_actual_id(assumed_id);
         }
     }
@@ -149,7 +146,6 @@ impl IdxSpaces {
         self.comp_val.reset_ids();
         self.comp_type.reset_ids();
         self.comp_inst.reset_ids();
-        // self.comp.reset_ids();
 
         self.core_inst.reset_ids();
         self.module.reset_ids();
@@ -166,13 +162,12 @@ impl IdxSpaces {
     // ==== UTILITIES ====
     // ===================
 
-    fn new_get_space_mut(&mut self, space: &Space) -> Option<&mut IdxSpace> {
+    fn get_space_mut(&mut self, space: &Space) -> Option<&mut IdxSpace> {
         let s = match space {
             Space::CompFunc => &mut self.comp_func,
             Space::CompVal => &mut self.comp_val,
             Space::CompType => &mut self.comp_type,
             Space::CompInst => &mut self.comp_inst,
-            // Space::Comp => &mut self.comp,
             Space::CoreInst => &mut self.core_inst,
             Space::CoreModule => &mut self.module,
             Space::CoreType => &mut self.core_type,
@@ -191,7 +186,6 @@ impl IdxSpaces {
             Space::CompVal => &self.comp_val,
             Space::CompType => &self.comp_type,
             Space::CompInst => &self.comp_inst,
-            // Space::Comp => &mut self.comp,
             Space::CoreInst => &self.core_inst,
             Space::CoreModule => &self.module,
             Space::CoreType => &self.core_type,
@@ -217,17 +211,17 @@ impl IdxSpaces {
                 ExternalItemKind::CoreMemory => &self.core_memory,
                 _ => panic!("shouldn't get here")
             },
-            ComponentSection::Component => &self.comp_type,        // TODO: Is this okay?
+            ComponentSection::Component => &self.comp_type,
 
             // These manipulate other index spaces!
             ComponentSection::Alias |
             ComponentSection::ComponentImport |
             ComponentSection::ComponentExport => match inner {
                 ExternalItemKind::CompFunc => &self.comp_func,
-                ExternalItemKind::CompVal => &self.comp_val,        // TODO: Is this okay?
+                ExternalItemKind::CompVal => &self.comp_val,
                 ExternalItemKind::CompType => &self.comp_type,
                 ExternalItemKind::CompInst => &self.comp_inst,
-                ExternalItemKind::Comp => &self.comp_type,        // TODO: Is this okay?
+                ExternalItemKind::Comp => &self.comp_type,
                 ExternalItemKind::CoreInst => &self.core_inst,
                 ExternalItemKind::Module => &self.module,
                 ExternalItemKind::CoreType => &self.core_type,
@@ -251,16 +245,6 @@ pub(crate) struct IdxSpace {
     name: String,
     /// This is the current ID that we've reached associated with this index space.
     current_id: usize,
-    // TODO: we might not need the below if we just track the current_id
-    //       at both parse and instrument time!
-    // /// This represents the number of items from the main vector that
-    // /// contribute to this index space.
-    // /// (e.g. the number of (type ...) items we've encountered for the component type index space.)
-    // num_main: usize,
-    // /// This represents the number of external structures that contribute to
-    // /// the current ID
-    // /// (e.g. component type indices come from the (type ...) AND the (export ...) expressions
-    // num_external: usize,
 
     /// This is used at encode time. It tracks the actual ID that has been assigned
     /// to some item by allowing for lookup of the assumed ID: `assumed_id -> actual_id`
@@ -285,7 +269,7 @@ pub(crate) struct IdxSpace {
     /// This ID will be used to reference that item in the IR.
     exports_assumed_ids: HashMap<usize, usize>,
 
-    // (Only relevant for component_types)
+    /// (Only relevant for component_types)
     /// Tracks the index in the COMPONENT item vector to the ID we've assumed for it: `component_idx -> assumed_id`
     /// This ID will be used to reference that item in the IR.
     components_assumed_ids: HashMap<usize, usize>,
@@ -309,14 +293,12 @@ impl IdxSpace {
 
     pub fn assign_actual_id(&mut self, assumed_id: usize) {
         let id = self.curr_id();
-        // println!("[{}] assigning {} to {}", self.name, assumed_id, id);
 
         self.actual_ids.insert(assumed_id, id);
         self.next();
     }
 
     fn next(&mut self) -> usize {
-        // println!("[{}] {} >> {}", self.name, self.current_id, self.current_id + 1);
         let curr = self.current_id;
         self.current_id += 1;
         curr
@@ -339,14 +321,7 @@ impl IdxSpace {
             ComponentSection::ComponentStartSection => ("main", &self.main_assumed_ids)
         };
 
-        let assumed = vector.get(&vec_idx);
-
-        // println!("[{}::{group}] idx: {}, assumed_id: {}", self.name, vec_idx, if let Some(a) = assumed {
-        //     &format!("{}", a)
-        // } else {
-        //     "none"
-        // });
-        assumed
+        vector.get(&vec_idx)
     }
 
     pub fn index_from_assumed_id(&self, assumed_id: usize) -> Option<(SpaceSubtype, usize)> {
@@ -370,7 +345,6 @@ impl IdxSpace {
 
         for (subty, map) in maps.iter() {
             for (idx, assumed) in map.iter() {
-                // println!("[{}:{subty:?}] checking: {} -> {}", self.name, idx, assumed);
                 if *assumed == assumed_id {
                     return Some((*subty, *idx));
                 }
@@ -397,28 +371,13 @@ impl IdxSpace {
             ComponentSection::CustomSection |
             ComponentSection::ComponentStartSection => &mut self.main_assumed_ids
         };
-        // println!("[{}] idx: {}, assumed_id: {}", self.name, vec_idx, assumed_id);
         to_update.insert(vec_idx, assumed_id);
 
         assumed_id
     }
 
-    pub fn is_encoded(&self, assumed_id: usize) -> bool {
-        self.actual_ids.contains_key(&assumed_id)
-    }
-
     pub fn lookup_actual_id(&self, id: usize) -> Option<&usize> {
-        // account for the zero-based indexing
-        // if let Some(to) = self.map.get(&(id + 1)) {
-        // if let Some(to) = self.map.get(&(id)) {
-        //     *to
-        // } else {
-        //     panic!("[{}] Can't find id {} in id-tracker...current: {}", self.name, id, self.current);
-        // }
-        let res = self.actual_ids.get(&id);
-        // println!("[{}] actual id for {}?? --> {:?}", self.name, id, res);
-
-        res
+        self.actual_ids.get(&id)
     }
 }
 
@@ -453,7 +412,6 @@ pub(crate) enum ExternalItemKind {
     CoreGlobal,
     CoreTag,
 
-    // Inline, // ❗ not indexed
     // Does not impact an index space
     NA,
 }
@@ -462,11 +420,11 @@ impl From<&ComponentTypeRef> for ExternalItemKind {
     fn from(value: &ComponentTypeRef) -> Self {
         match value {
             ComponentTypeRef::Module(_) => Self::Module,
-            ComponentTypeRef::Func(_) => Self::CompFunc, // TODO: changed to this for an adapt.wast!
+            ComponentTypeRef::Func(_) => Self::CompFunc,
             ComponentTypeRef::Type(_) => Self::CompType,
-            ComponentTypeRef::Instance(_) => Self::CompInst, // TODO: changed to this for alias.wast!
+            ComponentTypeRef::Instance(_) => Self::CompInst,
             ComponentTypeRef::Component(_) => Self::CompInst,
-            ComponentTypeRef::Value(_) => Self::CompVal,        // TODO: Is this okay?
+            ComponentTypeRef::Value(_) => Self::CompVal,
         }
     }
 }
@@ -486,7 +444,7 @@ impl From<&ComponentExternalKind> for ExternalItemKind {
         match value {
             ComponentExternalKind::Module => Self::Module,
             ComponentExternalKind::Func => Self::CompFunc,
-            ComponentExternalKind::Value => Self::CompVal,      // TODO: Is this okay?
+            ComponentExternalKind::Value => Self::CompVal,
             ComponentExternalKind::Type => Self::CompType,
             ComponentExternalKind::Instance => Self::CompInst,
             ComponentExternalKind::Component => Self::Comp
@@ -508,12 +466,10 @@ impl From<&ComponentAlias<'_>> for ExternalItemKind {
             ComponentAlias::InstanceExport { kind, .. } => match kind {
                 ComponentExternalKind::Module => Self::Module,
                 ComponentExternalKind::Func => {
-                    // println!("Assigned to comp-func");
                     Self::CompFunc
                 },
-                ComponentExternalKind::Value => Self::CompVal,      // TODO: Is this okay?
+                ComponentExternalKind::Value => Self::CompVal,
                 ComponentExternalKind::Type => {
-                    // println!("Assigned to comp-type");
                     Self::CompType
                 },
                 ComponentExternalKind::Instance => Self::CompInst,
@@ -528,20 +484,12 @@ impl From<&ComponentAlias<'_>> for ExternalItemKind {
             ComponentAlias::CoreInstanceExport { kind, .. } => {
                 match kind {
                     ExternalKind::Func => {
-                        // println!("[CoreInstanceExport] Assigned to core-func");
                         Self::CoreFunc
                     },
                     ExternalKind::Table => Self::CoreTable,
                     ExternalKind::Memory => Self::CoreMemory,
                     ExternalKind::Global => Self::CoreGlobal,
                     ExternalKind::Tag => Self::CoreTag,
-                    // ExternalKind::Table |
-                    // ExternalKind::Memory |
-                    // ExternalKind::Global |
-                    // ExternalKind::Tag => {
-                    //     println!("[CoreInstanceExport] Assigned to core-type");
-                    //     Self::CoreType
-                    // },
                 }
             }
         }
@@ -609,7 +557,6 @@ pub enum Space {
     CompVal,
     CompType,
     CompInst,
-    // Comp,
 
     // Core-level spaces
     CoreInst,
@@ -624,10 +571,6 @@ pub enum Space {
 
 // Trait for centralizing index space mapping
 pub trait IndexSpaceOf {
-    // /// Returns all indices in this node with their Space
-    // fn index_space_of(&self) -> Vec<(Space, u32)>;
-
-    /// Simplified (for now)
     fn index_space_of(&self) -> Space;
 }
 
@@ -842,20 +785,7 @@ impl Refs {
 pub struct IndexedRef {
     pub space: Space,
     pub index: u32,
-    // pub kind: RefKind, // semantic kind of the reference
 }
-
-// #[derive(Clone, Copy)]
-// pub enum RefKind {
-//     Func,
-//     Type,
-//     Resource,
-//     Memory,
-//     None,
-//     // Table,
-//     // Option,
-//     // Other,
-// }
 
 impl ReferencedIndices for CanonicalFunction {
     fn referenced_indices(&self) -> Option<Refs> {
