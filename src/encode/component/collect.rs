@@ -60,7 +60,7 @@ pub(crate) enum ComponentItem<'a> {
     // ... add others as needed
 }
 // impl<'a> ComponentItem<'a> {
-//     pub fn update_comp_metadata(&mut self, new_indices: Indices<'a>, new_map: IdxSpaces) {
+//     pub fn update_comp_metadata(&mut self, new_indices: Indices<'a>, new_map: ScopeStack) {
 //         if let Self::Component { indices, idx_spaces: map, .. } = self {
 //             *indices = new_indices;
 //             *map = new_map;
@@ -95,7 +95,6 @@ struct Seen<'a> {
     custom_sections: HashMap<*const CustomSection<'a>, usize>
 }
 
-#[derive(Default)]
 pub(crate) struct CollectCtx<'a> {
     pub(crate) plan: ComponentPlan<'a>,
     pub(crate) indices: IdxSpaces,
@@ -105,7 +104,8 @@ impl CollectCtx<'_> {
     pub fn new(comp: &Component) -> Self {
         Self {
             indices: comp.indices.clone(),
-            ..Default::default()
+            plan: ComponentPlan::default(),
+            seen: Seen::default()
         }
     }
 }

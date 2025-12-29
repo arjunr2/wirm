@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use std::fmt::Debug;
-use wasmparser::{CanonicalFunction, CanonicalOption, ComponentAlias, ComponentExternalKind, ComponentImport, ComponentInstance, ComponentOuterAliasKind, ComponentType, ComponentTypeRef, ComponentValType, CoreType, ExternalKind, Instance};
+use wasmparser::{CanonicalFunction, CanonicalOption, ComponentAlias, ComponentDefinedType, ComponentExternalKind, ComponentImport, ComponentInstance, ComponentOuterAliasKind, ComponentType, ComponentTypeRef, ComponentValType, CoreType, ExternalKind, Instance, TagType, TypeRef, VariantCase};
 use crate::ir::section::ComponentSection;
 use crate::{Component, Module};
 
@@ -796,6 +796,83 @@ pub struct IndexedRef {
     pub index: u32,
 }
 
+impl ReferencedIndices for ComponentDefinedType<'_> {
+    fn referenced_indices(&self) -> Option<Refs> {
+        match self {
+            ComponentDefinedType::Record(records) => {
+                let mut others = vec![];
+                for (_, ty) in records.iter() {
+                    others.push(ty.referenced_indices());
+                }
+                Some(Refs {
+                    others,
+                    ..Default::default()
+                })
+            },
+            ComponentDefinedType::Variant(variants) => {
+                // Explanation of variants.refines:
+                // This case `refines` (is a subtype/specialization of) another case in the same variant.
+                // So the u32 refers to: the index of another case within the current variant’s case list.
+                // It is NOT an index into some global index space (hence not handling it here)
+                let mut others = vec![];
+                for VariantCase { name: _, ty, refines: _ } in variants.iter() {
+                    if let Some(t) = ty {
+                        let ty_refs: Option<Refs> = t.referenced_indices();
+                        others.push(ty_refs);
+                    }
+                }
+                Some(Refs {
+                    others,
+                    ..Default::default()
+                })
+            },
+            ComponentDefinedType::List(ty)
+            | ComponentDefinedType::FixedSizeList(ty, _)
+            | ComponentDefinedType::Option(ty) => ty.referenced_indices(),
+            ComponentDefinedType::Tuple(tys) => {
+                let mut others = vec![];
+                for ty in tys.iter() {
+                    others.push(ty.referenced_indices());
+                }
+                Some(Refs {
+                    others,
+                    ..Default::default()
+                })
+            }
+            ComponentDefinedType::Primitive(_)
+            | ComponentDefinedType::Enum(_)
+            | ComponentDefinedType::Flags(_) => None,
+            ComponentDefinedType::Result { ok, err } => {
+                let ok_r = if let Some(ok) = ok {
+                    ok.referenced_indices()
+                } else {
+                    None
+                };
+                let err_r = if let Some(err) = err {
+                    err.referenced_indices()
+                } else {
+                    None
+                };
+                Some(Refs {
+                    others: vec![ ok_r, err_r ],
+                    ..Default::default()
+                })
+            }
+            ComponentDefinedType::Own(ty)
+            | ComponentDefinedType::Borrow(ty) => Some(Refs {
+                ty: Some(IndexedRef { space: Space::CompType, index: *ty}),
+                ..Default::default()
+            }),
+            ComponentDefinedType::Future(ty)
+            | ComponentDefinedType::Stream(ty) => if let Some(ty) = ty {
+                ty.referenced_indices()
+            } else {
+            None
+            }
+        }
+    }
+}
+
 impl ReferencedIndices for CanonicalFunction {
     fn referenced_indices(&self) -> Option<Refs> {
         match self {
@@ -923,3 +1000,20 @@ impl ReferencedIndices for ComponentValType {
         }
     }
 }
+
+impl ReferencedIndices for TypeRef {
+    fn referenced_indices(&self) -> Option<Refs> {
+        match self {
+            TypeRef::Func(ty)
+            | TypeRef::Tag(TagType { kind: _, func_type_idx: ty }) => Some(
+                Refs {
+                    ty: Some(IndexedRef { space: Space::CoreType, index: *ty }),
+                    ..Default::default()
+                }
+            ),
+            _ => None
+        }
+    }
+}
+
+

@@ -3,17 +3,16 @@
 use std::collections::HashMap;
 
 use wasm_encoder::reencode::{Reencode, ReencodeComponent, RoundtripReencoder};
-use wasm_encoder::{
-    Alias, ComponentCoreTypeEncoder, ComponentFuncTypeEncoder, ComponentTypeEncoder,
-    CoreTypeEncoder, InstanceType,
-};
-use wasmparser::{
-    ComponentAlias, ComponentType, ComponentTypeDeclaration, ComponentValType, CoreType,
-    InstanceTypeDeclaration, Operator, SubType,
-};
+use wasm_encoder::{Alias, ComponentCoreTypeEncoder, ComponentFuncTypeEncoder, ComponentTypeEncoder, CoreTypeEncoder, InstanceType};
+use wasmparser::{ComponentAlias, ComponentType, ComponentTypeDeclaration, ComponentValType, CoreType, InstanceTypeDeclaration, Operator, RecGroup, SubType};
+use crate::encode::component::encode::FixIndices;
+use crate::ir::component::idx_spaces::IdxSpaces;
 
 // Not added to wasm-tools
 /// Convert ModuleTypeDeclaration to ModuleType
+/// NOTE: I am NOT fixing indices on this. If instrumentation is performed,
+/// it must only add new module type declarations, it cannot edit already existing
+/// ones. And it must make sure that the dependencies are added in-order.
 pub fn convert_module_type_declaration(
     module: &[wasmparser::ModuleTypeDeclaration],
     enc: ComponentCoreTypeEncoder,
@@ -23,14 +22,7 @@ pub fn convert_module_type_declaration(
     for m in module.iter() {
         match m {
             wasmparser::ModuleTypeDeclaration::Type(recgroup) => {
-                let types = recgroup
-                    .types()
-                    .map(|ty| {
-                        reencode.sub_type(ty.to_owned()).unwrap_or_else(|_| {
-                            panic!("Could not encode type as subtype: {:?}", ty)
-                        })
-                    })
-                    .collect::<Vec<_>>();
+                let types = convert_recgroup(recgroup, reencode);
 
                 if recgroup.is_explicit_rec_group() {
                     mty.ty().rec(types);
@@ -42,6 +34,7 @@ pub fn convert_module_type_declaration(
                 }
             }
             wasmparser::ModuleTypeDeclaration::Export { name, ty } => {
+                // indicies would need to be fixed here if we support that in the future.
                 mty.export(name, reencode.entity_type(*ty).unwrap());
             }
             wasmparser::ModuleTypeDeclaration::OuterAlias {
@@ -63,10 +56,26 @@ pub fn convert_module_type_declaration(
     enc.module(&mty);
 }
 
+pub fn convert_recgroup(
+    recgroup: &RecGroup,
+    reencode: &mut RoundtripReencoder
+) -> Vec<wasm_encoder::SubType> {
+    recgroup
+        .types()
+        .map(|ty| {
+            reencode.sub_type(ty.to_owned()).unwrap_or_else(|_| {
+                panic!("Could not encode type as subtype: {:?}", ty)
+            })
+        })
+        .collect::<Vec<_>>()
+}
+
 // Not added to wasm-tools
 /// Convert Instance Types
 pub fn convert_instance_type(
     instance: &[InstanceTypeDeclaration],
+    component: &mut wasm_encoder::Component,
+    indices: &IdxSpaces,
     reencode: &mut RoundtripReencoder,
 ) -> InstanceType {
     let mut ity = InstanceType::new();
@@ -86,7 +95,7 @@ pub fn convert_instance_type(
             },
             InstanceTypeDeclaration::Type(ty) => {
                 let enc = ity.ty();
-                convert_component_type(ty, enc, reencode);
+                convert_component_type(ty, component, indices, enc, reencode);
             }
             InstanceTypeDeclaration::Alias(alias) => match alias {
                 ComponentAlias::InstanceExport {
@@ -201,8 +210,13 @@ pub fn process_alias<'a>(
 }
 
 /// Convert Component Type
+/// NOTE: I am NOT fixing indices on this. If instrumentation is performed,
+/// it must only add new component types, it cannot edit already existing
+/// ones. And it must make sure that the dependencies are added in-order.
 pub fn convert_component_type(
     ty: &ComponentType,
+    component: &mut wasm_encoder::Component,
+    indices: &IdxSpaces,
     enc: ComponentTypeEncoder,
     reencode: &mut RoundtripReencoder,
 ) {
@@ -294,7 +308,7 @@ pub fn convert_component_type(
                     },
                     ComponentTypeDeclaration::Type(typ) => {
                         let enc = new_comp.ty();
-                        convert_component_type(typ, enc, reencode);
+                        convert_component_type(typ, component, indices, enc, reencode);
                     }
                     ComponentTypeDeclaration::Alias(a) => {
                         new_comp.alias(process_alias(a, reencode));
@@ -326,7 +340,7 @@ pub fn convert_component_type(
             enc.component(&new_comp);
         }
         ComponentType::Instance(inst) => {
-            let ity = convert_instance_type(inst, reencode);
+            let ity = convert_instance_type(inst, component, indices, reencode);
             enc.instance(&ity);
         }
         ComponentType::Resource { rep, dtor } => {

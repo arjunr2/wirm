@@ -2,13 +2,13 @@
 
 use wasm_encoder::{Alias, ComponentAliasSection, ComponentFuncTypeEncoder, ComponentTypeEncoder, CoreTypeEncoder, InstanceType, ModuleArg, ModuleSection, NestedComponentSection};
 use wasm_encoder::reencode::{Reencode, ReencodeComponent, RoundtripReencoder};
-use wasmparser::{CanonicalFunction, CanonicalOption, ComponentAlias, ComponentExport, ComponentExternalKind, ComponentImport, ComponentInstance, ComponentType, ComponentTypeDeclaration, ComponentTypeRef, ComponentValType, CoreType, Instance, InstanceTypeDeclaration, SubType};
+use wasmparser::{CanonicalFunction, CanonicalOption, ComponentAlias, ComponentExport, ComponentExternalKind, ComponentImport, ComponentInstance, ComponentType, ComponentTypeDeclaration, ComponentTypeRef, ComponentValType, CoreType, Instance, InstanceTypeDeclaration, SubType, TagType, TypeRef};
 use crate::{Component, Module};
 use crate::encode::component::collect::{ComponentItem, ComponentPlan};
 use crate::ir::component::idx_spaces::{ExternalItemKind, IdxSpaces, ReferencedIndices, Refs};
 use crate::ir::section::ComponentSection;
 use crate::ir::types::CustomSection;
-use crate::ir::wrappers::{convert_module_type_declaration, do_reencode};
+use crate::ir::wrappers::{convert_module_type_declaration, convert_recgroup, do_reencode};
 
 /// Encodes all items in the plan into the output buffer.
 ///
@@ -107,7 +107,7 @@ trait Encode {
     fn do_encode<'a>(&self, component: &mut wasm_encoder::Component, indices: &IdxSpaces, reencode: &mut RoundtripReencoder);
 }
 
-trait FixIndices {
+pub(crate) trait FixIndices {
     fn fix<'a>(&self, component: &mut wasm_encoder::Component, indices: &IdxSpaces, reencode: &mut RoundtripReencoder) -> Self;
 }
 
@@ -123,8 +123,6 @@ impl Encode for ComponentType<'_> {
     fn do_encode<'a>(&self, component: &mut wasm_encoder::Component, indices: &IdxSpaces, reencode: &mut RoundtripReencoder) {
         let mut component_ty_section = wasm_encoder::ComponentTypeSection::new();
 
-        let section = ComponentSection::ComponentType;
-        let kind = ExternalItemKind::NA;
         match &self {
             ComponentType::Defined(comp_ty) => {
                 let enc = component_ty_section.defined_type();
@@ -183,12 +181,18 @@ impl Encode for ComponentType<'_> {
                             reencode.component_val_type(fixed_ty)
                         }),
                     ),
-                    wasmparser::ComponentDefinedType::Own(u) => {
-                        let id = indices.lookup_actual_id_or_panic(&section, &kind, *u as usize);
+                    wasmparser::ComponentDefinedType::Own(_) => {
+                        let Some(Refs { ty: Some(ty), ..}) = comp_ty.referenced_indices() else {
+                            panic!()
+                        };
+                        let id = indices.new_lookup_actual_id_or_panic(&ty);
                         enc.own(id as u32)
                     },
-                    wasmparser::ComponentDefinedType::Borrow(u) => {
-                        let id = indices.lookup_actual_id_or_panic(&section, &kind, *u as usize);
+                    wasmparser::ComponentDefinedType::Borrow(_) => {
+                        let Some(Refs { ty: Some(ty), ..}) = comp_ty.referenced_indices() else {
+                            panic!()
+                        };
+                        let id = indices.new_lookup_actual_id_or_panic(&ty);
                         enc.borrow(id as u32)
                     },
                     wasmparser::ComponentDefinedType::Future(opt) => match opt {
@@ -231,14 +235,8 @@ impl Encode for ComponentType<'_> {
                     match c {
                         ComponentTypeDeclaration::CoreType(core) => match core {
                             CoreType::Rec(recgroup) => {
-                                let types = recgroup
-                                    .types()
-                                    .map(|ty| {
-                                        reencode.sub_type(ty.to_owned()).unwrap_or_else(|_| {
-                                            panic!("Could not encode type as subtype: {:?}", ty)
-                                        })
-                                    })
-                                    .collect::<Vec<_>>();
+                                // this doesn't have any ID refs.
+                                let types = convert_recgroup(recgroup, reencode);
 
                                 if recgroup.is_explicit_rec_group() {
                                     new_comp.core_type().core().rec(types);
@@ -957,14 +955,7 @@ impl Encode for CoreType<'_> {
         // encode body etc.
         match &self {
             CoreType::Rec(recgroup) => {
-                let types = recgroup
-                    .types()
-                    .map(|ty| {
-                        reencode.sub_type(ty.to_owned()).unwrap_or_else(|_| {
-                            panic!("Could not encode type as subtype: {:?}", ty)
-                        })
-                    })
-                    .collect::<Vec<_>>();
+                let types = convert_recgroup(recgroup, reencode);
 
                 if recgroup.is_explicit_rec_group() {
                     type_section.ty().core().rec(types);
@@ -1029,8 +1020,6 @@ impl Encode for CustomSection<'_> {
     }
 }
 
-
-
 impl FixIndices for ComponentValType {
     fn fix<'a>(&self, _component: &mut wasm_encoder::Component, indices: &IdxSpaces, _reencode: &mut RoundtripReencoder) -> Self {
         if let ComponentValType::Type(_) = self {
@@ -1051,7 +1040,7 @@ impl FixIndices for ComponentTypeRef {
             ComponentTypeRef::Type(_) => self.clone(), // nothing to do
             // The reference is to a core module type.
             // The index is expected to be core type index to a core module type.
-            ComponentTypeRef::Module(id) => {
+            ComponentTypeRef::Module(_) => {
                 let Some(Refs { ty: Some(ty), ..}) = self.referenced_indices() else {
                     todo!()
                 };
@@ -1061,21 +1050,21 @@ impl FixIndices for ComponentTypeRef {
             ComponentTypeRef::Value(ty) => {
                 ComponentTypeRef::Value(ty.fix(component, indices, reencode))
             },
-            ComponentTypeRef::Func(id) => {
+            ComponentTypeRef::Func(_) => {
                 let Some(Refs { ty: Some(ty), ..}) = self.referenced_indices() else {
                     todo!()
                 };
                 let new_id = indices.new_lookup_actual_id_or_panic(&ty);
                 ComponentTypeRef::Func(new_id as u32)
             }
-            ComponentTypeRef::Instance(id) => {
+            ComponentTypeRef::Instance(_) => {
                 let Some(Refs { ty: Some(ty), ..}) = self.referenced_indices() else {
                     todo!()
                 };
                 let new_id = indices.new_lookup_actual_id_or_panic(&ty);
                 ComponentTypeRef::Instance(new_id as u32)
             }
-            ComponentTypeRef::Component(id) => {
+            ComponentTypeRef::Component(_) => {
                 let Some(Refs { ty: Some(ty), ..}) = self.referenced_indices() else {
                     todo!()
                 };
@@ -1096,6 +1085,30 @@ impl FixIndices for InstanceTypeDeclaration<'_> {
             InstanceTypeDeclaration::Type(_) => todo!(),
             InstanceTypeDeclaration::Alias(_) => todo!(),
             InstanceTypeDeclaration::Export { .. } => todo!(),
+        }
+    }
+}
+
+impl FixIndices for TypeRef {
+    fn fix<'a>(&self, _component: &mut wasm_encoder::Component, indices: &IdxSpaces, _reencode: &mut RoundtripReencoder) -> Self {
+        match self {
+            TypeRef::Func(_) => {
+                let Some(Refs { ty: Some(ty), ..}) = self.referenced_indices() else {
+                    panic!()
+                };
+                let new_id = indices.new_lookup_actual_id_or_panic(&ty);
+                TypeRef::Func(new_id as u32)
+            }
+            TypeRef::Tag(TagType { kind, func_type_idx: _ }) => {
+                let Some(Refs { ty: Some(ty), ..}) = self.referenced_indices() else {
+                    panic!()
+                };
+                let new_id = indices.new_lookup_actual_id_or_panic(&ty);
+                TypeRef::Tag(TagType { kind: kind.clone(), func_type_idx: new_id as u32 })
+            }
+            TypeRef::Table(_)
+            | TypeRef::Memory(_)
+            | TypeRef::Global(_) => self.clone()
         }
     }
 }

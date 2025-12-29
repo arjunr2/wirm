@@ -1,4 +1,3 @@
-use wasm_encoder::NestedComponentSection;
 use wasmparser::{CanonicalFunction, ComponentAlias, ComponentImport, ComponentInstance, ComponentType, CoreType, Instance};
 use crate::{Component, Module};
 use crate::encode::component::collect::{ComponentItem, ComponentPlan};
@@ -121,7 +120,15 @@ pub(crate) fn assign_indices<'a>(plan: &mut ComponentPlan<'a>, indices: &mut Idx
             },
             ComponentItem::CoreType { node, idx } => unsafe {
                 let ptr: &CoreType = &**node;
+                // let is_module = matches!(ptr, CoreType::Module(_));
+                // if is_module {
+                //     indices.enter_scope();
+                // }
                 indices.assign_actual_id(&ptr.index_space_of(), &ComponentSection::CoreType, *idx);
+
+                // if is_module {
+                //     indices.exit_scope();
+                // }
             },
             ComponentItem::Inst { node, idx } => unsafe {
                     let ptr: &Instance = &**node;
