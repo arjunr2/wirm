@@ -2,7 +2,7 @@
 
 use wasm_encoder::{Alias, ComponentAliasSection, ComponentFuncTypeEncoder, ComponentTypeEncoder, CoreTypeEncoder, InstanceType, ModuleArg, ModuleSection, NestedComponentSection};
 use wasm_encoder::reencode::{Reencode, ReencodeComponent, RoundtripReencoder};
-use wasmparser::{CanonicalFunction, CanonicalOption, ComponentAlias, ComponentExport, ComponentExternalKind, ComponentImport, ComponentInstance, ComponentType, ComponentTypeDeclaration, ComponentTypeRef, ComponentValType, CoreType, Instance, InstanceTypeDeclaration, SubType, TagType, TypeRef};
+use wasmparser::{CanonicalFunction, CanonicalOption, ComponentAlias, ComponentExport, ComponentExternalKind, ComponentImport, ComponentInstance, ComponentInstantiationArg, ComponentType, ComponentTypeDeclaration, ComponentTypeRef, ComponentValType, CoreType, Instance, InstanceTypeDeclaration, SubType, TagType, TypeRef};
 use crate::{Component, Module};
 use crate::encode::component::collect::{ComponentItem, ComponentPlan};
 use crate::ir::component::idx_spaces::{ExternalItemKind, IdxSpaces, ReferencedIndices, Refs};
@@ -312,30 +312,22 @@ impl Encode for ComponentInstance<'_> {
 
         match self {
             ComponentInstance::Instantiate {
-                component_index,
                 args,
+                ..
             } => {
-                let section = ComponentSection::ComponentType;
-                let kind = ExternalItemKind::NA;
-                let new_id = indices.lookup_actual_id_or_panic(&section, &kind, *component_index as usize);
+                let Some(Refs { comp: Some(comp), ..}) = self.referenced_indices() else {
+                    todo!()
+                };
+                let new_id = indices.new_lookup_actual_id_or_panic(&comp);
 
                 instances.instantiate(
                     new_id as u32,
                     args.iter().map(|arg| {
-                        let (section, kind) = match &arg.kind {
-                            ComponentExternalKind::Module => (ComponentSection::Module, ExternalItemKind::NA),
-                            ComponentExternalKind::Value => (ComponentSection::ComponentInstance, ExternalItemKind::CompVal),
-                            ComponentExternalKind::Func |
-                            ComponentExternalKind::Component |
-                            ComponentExternalKind::Type |
-                            ComponentExternalKind::Instance => (ComponentSection::ComponentType, ExternalItemKind::NA),
-                        };
-                        let new_id = indices.lookup_actual_id_or_panic(&section, &kind, arg.index as usize);
-
+                        let fixed = arg.fix(component, indices, reencode);
                         (
-                            arg.name,
-                            reencode.component_export_kind(arg.kind),
-                            new_id as u32,
+                            fixed.name,
+                            reencode.component_export_kind(fixed.kind),
+                            fixed.index,
                         )
                     }),
                 );
@@ -343,10 +335,11 @@ impl Encode for ComponentInstance<'_> {
             ComponentInstance::FromExports(export) => {
                 instances.export_items(export.iter().map(|value| {
                     // TODO: This needs to be fixed (value.kind)
+                    let fixed = value.fix(component, indices, reencode);
                     (
-                        value.name.0,
-                        reencode.component_export_kind(value.kind),
-                        value.index,
+                        fixed.name.0,
+                        reencode.component_export_kind(fixed.kind),
+                        fixed.index,
                     )
                 }));
             }
@@ -1017,6 +1010,43 @@ impl Encode for Instance<'_> {
 impl Encode for CustomSection<'_> {
     fn do_encode<'a>(&self, component: &mut wasm_encoder::Component, _indices: &IdxSpaces, _reencode: &mut RoundtripReencoder) {
         todo!()
+    }
+}
+
+impl FixIndices for ComponentExport<'_> {
+    fn fix<'a>(&self, comp: &mut wasm_encoder::Component, indices: &IdxSpaces, reenc: &mut RoundtripReencoder) -> Self {
+        let Some(Refs { misc: Some(ty), ..}) = self.referenced_indices() else {
+            todo!()
+        };
+        let new_id = indices.new_lookup_actual_id_or_panic(&ty);
+
+        let fixed_ty = if let Some(ty) = &self.ty {
+            Some(ty.fix(comp, indices, reenc))
+        } else {
+            None
+        };
+
+        ComponentExport {
+            name: self.name,
+            kind: self.kind.clone(),
+            index: new_id as u32,
+            ty: fixed_ty
+        }
+    }
+}
+
+impl FixIndices for ComponentInstantiationArg<'_> {
+    fn fix<'a>(&self, _: &mut wasm_encoder::Component, indices: &IdxSpaces, _: &mut RoundtripReencoder) -> Self {
+        let Some(Refs { ty: Some(ty), ..}) = self.referenced_indices() else {
+            todo!()
+        };
+        let new_id = indices.new_lookup_actual_id_or_panic(&ty);
+
+        ComponentInstantiationArg {
+            name: self.name,
+            kind: self.kind.clone(),
+            index: new_id as u32,
+        }
     }
 }
 

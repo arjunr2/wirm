@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use std::fmt::Debug;
-use wasmparser::{CanonicalFunction, CanonicalOption, ComponentAlias, ComponentDefinedType, ComponentExternalKind, ComponentImport, ComponentInstance, ComponentOuterAliasKind, ComponentType, ComponentTypeRef, ComponentValType, CoreType, ExternalKind, Instance, TagType, TypeRef, VariantCase};
+use wasmparser::{CanonicalFunction, CanonicalOption, ComponentAlias, ComponentDefinedType, ComponentExport, ComponentExternalKind, ComponentImport, ComponentInstance, ComponentInstantiationArg, ComponentOuterAliasKind, ComponentType, ComponentTypeRef, ComponentValType, CoreType, ExternalKind, Instance, TagType, TypeRef, VariantCase};
 use crate::ir::section::ComponentSection;
 use crate::{Component, Module};
 
@@ -760,16 +760,21 @@ pub trait ReferencedIndices {
 
 #[derive(Default)]
 pub struct Refs {
+    pub comp: Option<IndexedRef>,
     pub func: Option<IndexedRef>,
     pub ty: Option<IndexedRef>,
     pub mem: Option<IndexedRef>,
+    pub misc: Option<IndexedRef>,
     pub others: Vec<Option<Refs>>,
 }
 impl Refs {
     pub fn as_list(&self) -> Vec<IndexedRef> {
         let mut res = vec![];
-        let Refs { func, ty, mem, others } = self;
+        let Refs { comp, func, ty, mem, misc, others } = self;
 
+        if let Some(comp) = comp {
+            res.push(*comp);
+        }
         if let Some(func) = func {
             res.push(*func);
         }
@@ -778,6 +783,9 @@ impl Refs {
         }
         if let Some(mem) = mem {
             res.push(*mem);
+        }
+        if let Some(misc) = misc {
+            res.push(*misc);
         }
         others.iter().for_each(|o| {
             if let Some(o) = o {
@@ -1001,6 +1009,45 @@ impl ReferencedIndices for ComponentValType {
     }
 }
 
+impl ReferencedIndices for ComponentInstantiationArg<'_> {
+    fn referenced_indices(&self) -> Option<Refs> {
+        let space = match self.kind {
+            ComponentExternalKind::Func => Space::CompFunc,
+            ComponentExternalKind::Value => Space::CompVal,
+            ComponentExternalKind::Type => Space::CompType,
+            ComponentExternalKind::Instance => Space::CompInst,
+            ComponentExternalKind::Component => Space::CompType,
+            ComponentExternalKind::Module => Space::CoreModule,
+        };
+        Some(Refs {
+            ty: Some(IndexedRef { space, index: self.index }),
+            ..Default::default()
+        })
+    }
+}
+
+impl ReferencedIndices for ComponentExport<'_> {
+    fn referenced_indices(&self) -> Option<Refs> {
+        let space = match self.kind {
+            ComponentExternalKind::Func => Space::CompFunc,
+            ComponentExternalKind::Value => Space::CompVal,
+            ComponentExternalKind::Type => Space::CompType,
+            ComponentExternalKind::Instance => Space::CompInst,
+            ComponentExternalKind::Component => Space::CompType,
+            ComponentExternalKind::Module => Space::CoreModule,
+        };
+        Some(Refs {
+            misc: Some(IndexedRef { space, index: self.index }),
+            ty: if let Some(t) = &self.ty {
+                t.referenced_indices()?.ty
+            } else {
+                None
+            },
+            ..Default::default()
+        })
+    }
+}
+
 impl ReferencedIndices for TypeRef {
     fn referenced_indices(&self) -> Option<Refs> {
         match self {
@@ -1016,4 +1063,46 @@ impl ReferencedIndices for TypeRef {
     }
 }
 
+impl ReferencedIndices for ComponentInstance<'_> {
+    fn referenced_indices(&self) -> Option<Refs> {
+        match self {
+            ComponentInstance::Instantiate {
+                component_index,
+                args
+            } => {
+                let mut others = vec![];
+                // Recursively include indices from args
+                for arg in args.iter() {
+                    others.push(arg.referenced_indices());
+                }
 
+                Some(
+                    Refs {
+                        comp: Some(IndexedRef { space: Space::CompType, index: *component_index }),
+                        others,
+                        ..Default::default()
+                    }
+                )
+            }
+
+            ComponentInstance::FromExports(export) => {
+                let mut others = vec![];
+                // Recursively include indices from args
+                for exp in export.iter() {
+                    others.push(exp.referenced_indices());
+                }
+
+                if !others.is_empty() {
+                    Some(
+                        Refs {
+                            others,
+                            ..Default::default()
+                        }
+                    )
+                } else {
+                    None
+                }
+            }
+        }
+    }
+}
