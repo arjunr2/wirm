@@ -175,7 +175,7 @@ impl<'a> Collect<'a> for Component<'a> {
                         let idx = start_idx + i as usize;
                         let c = &self.components[idx];
 
-                        let ptr = self as *const _;
+                        let ptr = c as *const _;
                         // Check if i've seen this subcomponent before during MY visitation
                         if ctx.seen.components.contains_key(&ptr) {
                             return;
@@ -295,9 +295,7 @@ impl<'a> Collect<'a> for ComponentImport<'a> {
         // assign a temporary index during collection
         ctx.seen.imports.insert(ptr, idx);
 
-        // TODO: Collect dependencies first
         collect_deps(self, ctx, comp);
-
 
         // push to ordered plan
         ctx.plan.items.push(ComponentItem::Import { node: ptr, idx });
