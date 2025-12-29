@@ -1,7 +1,7 @@
 use std::collections::HashMap;
-use wasmparser::{CanonicalFunction, CanonicalOption, ComponentAlias, ComponentExport, ComponentImport, ComponentInstance, ComponentType, ComponentTypeRef, CoreType, Instance};
+use wasmparser::{CanonicalFunction, ComponentAlias, ComponentExport, ComponentImport, ComponentInstance, ComponentType, CoreType, Instance};
 use crate::{Component, Module};
-use crate::ir::component::idx_spaces::{ExternalItemKind, IdxSpaces, IndexedRef, ReferencedIndices, Refs, Space, SpaceSubtype};
+use crate::ir::component::idx_spaces::{IdxSpaces, ReferencedIndices, Space, SpaceSubtype};
 use crate::ir::section::ComponentSection;
 use crate::ir::types::CustomSection;
 

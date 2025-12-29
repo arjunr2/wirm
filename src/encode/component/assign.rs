@@ -1,8 +1,7 @@
 use wasmparser::{CanonicalFunction, ComponentAlias, ComponentImport, ComponentInstance, ComponentType, CoreType, Instance};
 use crate::{Component, Module};
 use crate::encode::component::collect::{ComponentItem, ComponentPlan};
-use crate::encode::component::encode::encode_internal;
-use crate::ir::component::idx_spaces::{ExternalItemKind, IdxSpaces, IndexSpaceOf};
+use crate::ir::component::idx_spaces::{IdxSpaces, IndexSpaceOf};
 use crate::ir::section::ComponentSection;
 
 // Phase 2
