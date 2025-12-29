@@ -361,12 +361,14 @@ impl Encode for CanonicalFunction {
         let kind = ExternalItemKind::from(self);
         match self {
             CanonicalFunction::Lift {
-                core_func_index: core_func_index_orig,
-                type_index: type_idx_orig,
                 options: options_orig,
+                ..
             } => {
-                let new_fid = indices.lookup_actual_id_or_panic(&ComponentSection::Canon, &ExternalItemKind::CoreFunc, *core_func_index_orig as usize);
-                let new_tid = indices.lookup_actual_id_or_panic(&ComponentSection::ComponentType, &ExternalItemKind::CompType, *type_idx_orig as usize);
+                let Some(Refs { func: Some(func), ty: Some(ty),..}) = self.referenced_indices() else {
+                    todo!()
+                };
+                let new_fid = indices.new_lookup_actual_id_or_panic(&func);
+                let new_tid = indices.new_lookup_actual_id_or_panic(&ty);
 
                 canon_sec.lift(
                     new_fid as u32,
@@ -382,41 +384,18 @@ impl Encode for CanonicalFunction {
                 );
             }
             CanonicalFunction::Lower {
-                func_index: fid_orig,
-                options: options_orig
+                options: options_orig,
+                ..
             } => {
-                // TODO -- need to fix options!!!
+                let Some(Refs { func: Some(func), ..}) = self.referenced_indices() else {
+                    todo!()
+                };
                 let mut fixed_options = vec![];
                 for opt in options_orig.iter() {
-                    let fixed = match opt {
-                        CanonicalOption::Realloc(opt_fid_orig) |
-                        CanonicalOption::PostReturn(opt_fid_orig) |
-                        CanonicalOption::Callback(opt_fid_orig) => {
-                            let new_fid = indices.lookup_actual_id_or_panic(&ComponentSection::Canon, &ExternalItemKind::CoreFunc, *opt_fid_orig as usize);
-                            match opt {
-                                CanonicalOption::Realloc(_) => CanonicalOption::Realloc(new_fid as u32),
-                                CanonicalOption::PostReturn(_) => CanonicalOption::PostReturn(new_fid as u32),
-                                CanonicalOption::Callback(_) => CanonicalOption::Callback(new_fid as u32),
-                                _ => unreachable!()
-                            }
-                        }
-                        CanonicalOption::CoreType(opt_tid_orig) => {
-                            let new_tid = indices.lookup_actual_id_or_panic(&ComponentSection::CoreType, &ExternalItemKind::NA, *opt_tid_orig as usize);
-                            CanonicalOption::CoreType(new_tid as u32)
-                        }
-
-                        // TODO -- handle remapping of map ids!
-                        CanonicalOption::Memory(_mid) => opt.clone(),
-                        CanonicalOption::UTF8 |
-                        CanonicalOption::UTF16 |
-                        CanonicalOption::CompactUTF16 |
-                        CanonicalOption::Async |
-                        CanonicalOption::Gc => opt.clone(),
-                    };
-                    fixed_options.push(fixed);
+                    fixed_options.push(opt.fix(component, indices, reencode));
                 }
 
-                let new_fid = indices.lookup_actual_id_or_panic(&ComponentSection::Canon, &ExternalItemKind::CompFunc, *fid_orig as usize);
+                let new_fid = indices.new_lookup_actual_id_or_panic(&func);
                 canon_sec.lower(
                     new_fid as u32,
                     fixed_options.iter().map(|canon| {
@@ -429,26 +408,33 @@ impl Encode for CanonicalFunction {
                     }),
                 );
             }
-            CanonicalFunction::ResourceNew { resource: rsc_orig } => {
-                // let new_rsc = spaces.comp_type.get(rsc_orig).unwrap();
-                // canon_sec.resource_new(*new_rsc);
-                todo!()
+            CanonicalFunction::ResourceNew { .. } => {
+                let Some(Refs { ty: Some(ty),..}) = self.referenced_indices() else {
+                    todo!()
+                };
+                let new_tid = indices.new_lookup_actual_id_or_panic(&ty);
+                canon_sec.resource_new(new_tid as u32);
             }
-            CanonicalFunction::ResourceDrop { resource: rsc_orig } => {
-                // let new_rsc = spaces.comp_type.get(rsc_orig).unwrap();
-                // canon_sec.resource_drop(*new_rsc);
-                let new_id = indices.lookup_actual_id_or_panic(&ComponentSection::ComponentType, &kind, *rsc_orig as usize);
-                canon_sec.resource_drop(new_id as u32);
+            CanonicalFunction::ResourceDrop { .. } => {
+                let Some(Refs { ty: Some(ty),..}) = self.referenced_indices() else {
+                    todo!()
+                };
+                let new_tid = indices.new_lookup_actual_id_or_panic(&ty);
+                canon_sec.resource_drop(new_tid as u32);
             }
-            CanonicalFunction::ResourceRep { resource: rsc_orig } => {
-                // let new_rsc = spaces.comp_type.get(rsc_orig).unwrap();
-                // canon_sec.resource_rep(*new_rsc);
-                todo!()
+            CanonicalFunction::ResourceRep { .. } => {
+                let Some(Refs { ty: Some(ty),..}) = self.referenced_indices() else {
+                    todo!()
+                };
+                let new_tid = indices.new_lookup_actual_id_or_panic(&ty);
+                canon_sec.resource_rep(new_tid as u32);
             }
-            CanonicalFunction::ResourceDropAsync { resource: rsc_orig } => {
-                // let new_rsc = spaces.comp_type.get(rsc_orig).unwrap();
-                // canon_sec.resource_drop_async(*new_rsc);
-                todo!()
+            CanonicalFunction::ResourceDropAsync { .. } => {
+                let Some(Refs { ty: Some(ty),..}) = self.referenced_indices() else {
+                    todo!()
+                };
+                let new_tid = indices.new_lookup_actual_id_or_panic(&ty);
+                canon_sec.resource_drop_async(new_tid as u32);
             }
             CanonicalFunction::ThreadAvailableParallelism => {
                 canon_sec.thread_available_parallelism();
@@ -456,24 +442,17 @@ impl Encode for CanonicalFunction {
             CanonicalFunction::BackpressureSet => {
                 canon_sec.backpressure_set();
             }
-            // CanonicalFunction::TaskReturn { result, options } => {
-            //     // TODO: This needs to be fixed
-            //     let options = options
-            //         .iter()
-            //         .cloned()
-            //         .map(|v| v.into())
-            //         .collect::<Vec<_>>();
-            //     let result = result.map(|v| {
-            //         let fixed_ty = self.lookup_component_val_type(
-            //             v, component, reencode, indices
-            //         );
-            //         fixed_ty.into()
-            //     });
-            //     canon_sec.task_return(result, options);
-            // }
-            // CanonicalFunction::Yield { async_ } => {
-            //     canon_sec.yield_(*async_);
-            // }
+            CanonicalFunction::TaskReturn { result, options: options_orig } => {
+                let mut fixed_options = vec![];
+                for opt in options_orig.iter() {
+                    fixed_options.push(opt.fix(component, indices, reencode).into());
+                }
+                let result = result.map(|v| {
+                    let fixed = v.fix(component, indices, reencode);
+                    fixed.into()
+                });
+                canon_sec.task_return(result, fixed_options);
+            }
             CanonicalFunction::WaitableSetNew => {
                 canon_sec.waitable_set_new();
             }
@@ -492,266 +471,147 @@ impl Encode for CanonicalFunction {
             CanonicalFunction::SubtaskDrop => {
                 canon_sec.subtask_drop();
             }
-            // CanonicalFunction::StreamNew { ty } => {
-            //     let ty_id = if let Some(id) = indices.lookup_actual_id(&ComponentSection::ComponentType, &ExternalItemKind::NA, *ty as usize) {
-            //         // has already been encoded
-            //         *id
-            //     } else {
-            //         // we need to skip around and encode this type first!
-            //         println!("here");
-            //         let (_, idx) = indices.index_from_assumed_id(&section, &kind, *ty as usize);
-            //         println!("    ==> using idx: {idx}");
-            //         self.internal_encode_canon(idx, 1, component, reencode, indices);
-            //         indices.lookup_actual_id_or_panic(&section, &kind, *ty as usize)
-            //     };
-            //     canon_sec.stream_new(ty_id as u32);
-            // }
-            // CanonicalFunction::StreamRead { ty, options } => {
-            //     let ty_id = if let Some(id) = indices.lookup_actual_id(&ComponentSection::ComponentType, &ExternalItemKind::NA, *ty as usize) {
-            //         // has already been encoded
-            //         *id
-            //     } else {
-            //         // we need to skip around and encode this type first!
-            //         println!("here");
-            //         let (_, idx) = indices.index_from_assumed_id(&section, &kind, *ty as usize);
-            //         println!("    ==> using idx: {idx}");
-            //         self.internal_encode_canon(idx, 1, component, reencode, indices);
-            //         indices.lookup_actual_id_or_panic(&section, &kind, *ty as usize)
-            //     };
-            //     canon_sec.stream_read(
-            //         ty_id as u32,
-            //         options
-            //             .into_iter()
-            //             .map(|t| {
-            //                 do_reencode(
-            //                     *t,
-            //                     RoundtripReencoder::canonical_option,
-            //                     reencode,
-            //                     "canonical option",
-            //                 )
-            //             })
-            //             .collect::<Vec<wasm_encoder::CanonicalOption>>(),
-            //     );
-            // }
-            // CanonicalFunction::StreamWrite { ty, options } => {
-            //     let ty_id = if let Some(id) = indices.lookup_actual_id(&ComponentSection::ComponentType, &ExternalItemKind::NA, *ty as usize) {
-            //         // has already been encoded
-            //         *id
-            //     } else {
-            //         // we need to skip around and encode this type first!
-            //         println!("here");
-            //         let (_, idx) = indices.index_from_assumed_id(&section, &kind, *ty as usize);
-            //         println!("    ==> using idx: {idx}");
-            //         self.internal_encode_canon(idx, 1, component, reencode, indices);
-            //         indices.lookup_actual_id_or_panic(&section, &kind, *ty as usize)
-            //     };
-            //     canon_sec.stream_write(
-            //         ty_id as u32,
-            //         options
-            //             .into_iter()
-            //             .map(|t| {
-            //                 do_reencode(
-            //                     *t,
-            //                     RoundtripReencoder::canonical_option,
-            //                     reencode,
-            //                     "canonical option",
-            //                 )
-            //             })
-            //             .collect::<Vec<wasm_encoder::CanonicalOption>>(),
-            //     );
-            // }
-            // CanonicalFunction::StreamCancelRead { ty, async_ } => {
-            //     let ty_id = if let Some(id) = indices.lookup_actual_id(&ComponentSection::ComponentType, &ExternalItemKind::NA, *ty as usize) {
-            //         // has already been encoded
-            //         *id
-            //     } else {
-            //         // we need to skip around and encode this type first!
-            //         println!("here");
-            //         let (_, idx) = indices.index_from_assumed_id(&section, &kind, *ty as usize);
-            //         println!("    ==> using idx: {idx}");
-            //         self.internal_encode_canon(idx, 1, component, reencode, indices);
-            //         indices.lookup_actual_id_or_panic(&section, &kind, *ty as usize)
-            //     };
-            //     canon_sec.stream_cancel_read(ty_id as u32, *async_);
-            // }
-            // CanonicalFunction::StreamCancelWrite { ty, async_ } => {
-            //     let ty_id = if let Some(id) = indices.lookup_actual_id(&ComponentSection::ComponentType, &ExternalItemKind::NA, *ty as usize) {
-            //         // has already been encoded
-            //         *id
-            //     } else {
-            //         // we need to skip around and encode this type first!
-            //         println!("here");
-            //         let (_, idx) = indices.index_from_assumed_id(&section, &kind, *ty as usize);
-            //         println!("    ==> using idx: {idx}");
-            //         self.internal_encode_canon(idx, 1, component, reencode, indices);
-            //         indices.lookup_actual_id_or_panic(&section, &kind, *ty as usize)
-            //     };
-            //     canon_sec.stream_cancel_write(ty_id as u32, *async_);
-            // }
-            // CanonicalFunction::FutureNew { ty } => {
-            //     let ty_id = if let Some(id) = indices.lookup_actual_id(&ComponentSection::ComponentType, &ExternalItemKind::NA, *ty as usize) {
-            //         // has already been encoded
-            //         *id
-            //     } else {
-            //         // we need to skip around and encode this type first!
-            //         println!("here");
-            //         let (_, idx) = indices.index_from_assumed_id(&section, &kind, *ty as usize);
-            //         println!("    ==> using idx: {idx}");
-            //         self.internal_encode_canon(idx, 1, component, reencode, indices);
-            //         indices.lookup_actual_id_or_panic(&section, &kind, *ty as usize)
-            //     };
-            //     canon_sec.future_new(ty_id as u32);
-            // }
-            // CanonicalFunction::FutureRead { ty, options } => {
-            //     let ty_id = if let Some(id) = indices.lookup_actual_id(&ComponentSection::ComponentType, &ExternalItemKind::NA, *ty as usize) {
-            //         // has already been encoded
-            //         *id
-            //     } else {
-            //         // we need to skip around and encode this type first!
-            //         println!("here");
-            //         let (_, idx) = indices.index_from_assumed_id(&section, &kind, *ty as usize);
-            //         println!("    ==> using idx: {idx}");
-            //         self.internal_encode_canon(idx, 1, component, reencode, indices);
-            //         indices.lookup_actual_id_or_panic(&section, &kind, *ty as usize)
-            //     };
-            //     canon_sec.future_read(
-            //         ty_id as u32,
-            //         options
-            //             .into_iter()
-            //             .map(|t| {
-            //                 do_reencode(
-            //                     *t,
-            //                     RoundtripReencoder::canonical_option,
-            //                     reencode,
-            //                     "canonical option",
-            //                 )
-            //             })
-            //             .collect::<Vec<wasm_encoder::CanonicalOption>>(),
-            //     );
-            // }
-            // CanonicalFunction::FutureWrite { ty, options } => {
-            //     let ty_id = if let Some(id) = indices.lookup_actual_id(&ComponentSection::ComponentType, &ExternalItemKind::NA, *ty as usize) {
-            //         // has already been encoded
-            //         *id
-            //     } else {
-            //         // we need to skip around and encode this type first!
-            //         println!("here");
-            //         let (_, idx) = indices.index_from_assumed_id(&section, &kind, *ty as usize);
-            //         println!("    ==> using idx: {idx}");
-            //         self.internal_encode_canon(idx, 1, component, reencode, indices);
-            //         indices.lookup_actual_id_or_panic(&section, &kind, *ty as usize)
-            //     };
-            //     canon_sec.future_write(
-            //         ty_id as u32,
-            //         options
-            //             .into_iter()
-            //             .map(|t| {
-            //                 do_reencode(
-            //                     *t,
-            //                     RoundtripReencoder::canonical_option,
-            //                     reencode,
-            //                     "canonical option",
-            //                 )
-            //             })
-            //             .collect::<Vec<wasm_encoder::CanonicalOption>>(),
-            //     );
-            // }
-            // CanonicalFunction::FutureCancelRead { ty, async_ } => {
-            //     let ty_id = if let Some(id) = indices.lookup_actual_id(&ComponentSection::ComponentType, &ExternalItemKind::NA, *ty as usize) {
-            //         // has already been encoded
-            //         *id
-            //     } else {
-            //         // we need to skip around and encode this type first!
-            //         println!("here");
-            //         let (_, idx) = indices.index_from_assumed_id(&section, &kind, *ty as usize);
-            //         println!("    ==> using idx: {idx}");
-            //         self.internal_encode_canon(idx, 1, component, reencode, indices);
-            //         indices.lookup_actual_id_or_panic(&section, &kind, *ty as usize)
-            //     };
-            //     canon_sec.future_cancel_read(ty_id as u32, *async_);
-            // }
-            // CanonicalFunction::FutureCancelWrite { ty, async_ } => {
-            //     let ty_id = if let Some(id) = indices.lookup_actual_id(&ComponentSection::ComponentType, &ExternalItemKind::NA, *ty as usize) {
-            //         // has already been encoded
-            //         *id
-            //     } else {
-            //         // we need to skip around and encode this type first!
-            //         println!("here");
-            //         let (_, idx) = indices.index_from_assumed_id(&section, &kind, *ty as usize);
-            //         println!("    ==> using idx: {idx}");
-            //         self.internal_encode_canon(idx, 1, component, reencode, indices);
-            //         indices.lookup_actual_id_or_panic(&section, &kind, *ty as usize)
-            //     };
-            //     canon_sec.future_cancel_write(ty_id as u32, *async_);
-            // }
-            CanonicalFunction::ErrorContextNew { options } => {
-                // TODO: This needs to be fixed
-                canon_sec.error_context_new(
-                    options
-                        .into_iter()
-                        .map(|t| {
-                            do_reencode(
-                                *t,
-                                RoundtripReencoder::canonical_option,
-                                reencode,
-                                "canonical option",
-                            )
-                        })
-                        .collect::<Vec<wasm_encoder::CanonicalOption>>(),
-                );
-                todo!()
+            CanonicalFunction::StreamNew { ty } => {
+                let Some(Refs { ty: Some(ty),..}) = self.referenced_indices() else {
+                    todo!()
+                };
+                let new_tid = indices.new_lookup_actual_id_or_panic(&ty);
+                canon_sec.stream_new(new_tid as u32);
             }
-            CanonicalFunction::ErrorContextDebugMessage { options } => {
-                // TODO: This needs to be fixed
-                canon_sec.error_context_debug_message(
-                    options
-                        .into_iter()
-                        .map(|t| {
-                            do_reencode(
-                                *t,
-                                RoundtripReencoder::canonical_option,
-                                reencode,
-                                "canonical option",
-                            )
-                        })
-                        .collect::<Vec<wasm_encoder::CanonicalOption>>(),
+            CanonicalFunction::StreamRead {options: options_orig, .. } => {
+                let Some(Refs { ty: Some(ty),..}) = self.referenced_indices() else {
+                    todo!()
+                };
+                let new_tid = indices.new_lookup_actual_id_or_panic(&ty);
+
+                let mut fixed_options = vec![];
+                for opt in options_orig.iter() {
+                    fixed_options.push(opt.fix(component, indices, reencode).into());
+                }
+
+                canon_sec.stream_read(
+                    new_tid as u32,
+                    fixed_options
                 );
-                todo!()
+            }
+            CanonicalFunction::StreamWrite { options: options_orig, .. } => {
+                let Some(Refs { ty: Some(ty),..}) = self.referenced_indices() else {
+                    todo!()
+                };
+                let new_tid = indices.new_lookup_actual_id_or_panic(&ty);
+
+                let mut fixed_options = vec![];
+                for opt in options_orig.iter() {
+                    fixed_options.push(opt.fix(component, indices, reencode).into());
+                }
+
+                canon_sec.stream_write(
+                    new_tid as u32,
+                    fixed_options
+                );
+            }
+            CanonicalFunction::StreamCancelRead { ty, async_ } => {
+                let Some(Refs { ty: Some(ty),..}) = self.referenced_indices() else {
+                    todo!()
+                };
+                let new_tid = indices.new_lookup_actual_id_or_panic(&ty);
+                canon_sec.stream_cancel_read(new_tid as u32, *async_);
+            }
+            CanonicalFunction::StreamCancelWrite { ty, async_ } => {
+                let Some(Refs { ty: Some(ty),..}) = self.referenced_indices() else {
+                    todo!()
+                };
+                let new_tid = indices.new_lookup_actual_id_or_panic(&ty);
+                canon_sec.stream_cancel_write(new_tid as u32, *async_);
+            }
+            CanonicalFunction::FutureNew { ty } => {
+                let Some(Refs { ty: Some(ty),..}) = self.referenced_indices() else {
+                    todo!()
+                };
+                let new_tid = indices.new_lookup_actual_id_or_panic(&ty);
+                canon_sec.future_new(new_tid as u32);
+            }
+            CanonicalFunction::FutureRead { options: options_orig, .. } => {
+                let Some(Refs { ty: Some(ty),..}) = self.referenced_indices() else {
+                    todo!()
+                };
+                let new_tid = indices.new_lookup_actual_id_or_panic(&ty);
+
+                let mut fixed_options = vec![];
+                for opt in options_orig.iter() {
+                    fixed_options.push(opt.fix(component, indices, reencode).into());
+                }
+                canon_sec.future_read(
+                    new_tid as u32,
+                    fixed_options
+                );
+            }
+            CanonicalFunction::FutureWrite { options: options_orig, .. } => {
+                let Some(Refs { ty: Some(ty),..}) = self.referenced_indices() else {
+                    todo!()
+                };
+                let new_tid = indices.new_lookup_actual_id_or_panic(&ty);
+
+                let mut fixed_options = vec![];
+                for opt in options_orig.iter() {
+                    fixed_options.push(opt.fix(component, indices, reencode).into());
+                }
+                canon_sec.future_write(
+                    new_tid as u32,
+                    fixed_options
+                );
+            }
+            CanonicalFunction::FutureCancelRead { async_, .. } => {
+                let Some(Refs { ty: Some(ty),..}) = self.referenced_indices() else {
+                    todo!()
+                };
+                let new_tid = indices.new_lookup_actual_id_or_panic(&ty);
+                canon_sec.future_cancel_read(new_tid as u32, *async_);
+            }
+            CanonicalFunction::FutureCancelWrite { async_, .. } => {
+                let Some(Refs { ty: Some(ty),..}) = self.referenced_indices() else {
+                    todo!()
+                };
+                let new_tid = indices.new_lookup_actual_id_or_panic(&ty);
+                canon_sec.future_cancel_write(new_tid as u32, *async_);
+            }
+            CanonicalFunction::ErrorContextNew { options: options_orig } => {
+                let mut fixed_options = vec![];
+                for opt in options_orig.iter() {
+                    fixed_options.push(opt.fix(component, indices, reencode).into());
+                }
+                canon_sec.error_context_new(
+                    fixed_options
+                );
+            }
+            CanonicalFunction::ErrorContextDebugMessage { options: options_orig } => {
+                let mut fixed_options = vec![];
+                for opt in options_orig.iter() {
+                    fixed_options.push(opt.fix(component, indices, reencode).into());
+                }
+                canon_sec.error_context_debug_message(
+                    fixed_options
+                );
             }
             CanonicalFunction::ErrorContextDrop => {
                 canon_sec.error_context_drop();
             }
-            // CanonicalFunction::ThreadSpawnRef { func_ty_index } => {
-            //     let ty_id = if let Some(id) = indices.lookup_actual_id(&ComponentSection::ComponentType, &ExternalItemKind::NA, *func_ty_index as usize) {
-            //         // has already been encoded
-            //         *id
-            //     } else {
-            //         // we need to skip around and encode this type first!
-            //         println!("here");
-            //         let (_, idx) = indices.index_from_assumed_id(&section, &kind, *func_ty_index as usize);
-            //         println!("    ==> using idx: {idx}");
-            //         self.internal_encode_canon(idx, 1, component, reencode, indices);
-            //         indices.lookup_actual_id_or_panic(&section, &kind, *func_ty_index as usize)
-            //     };
-            //     canon_sec.thread_spawn_ref(ty_id as u32);
-            // }
+            CanonicalFunction::ThreadSpawnRef { .. } => {
+                let Some(Refs { ty: Some(ty),..}) = self.referenced_indices() else {
+                    todo!()
+                };
+                let new_tid = indices.new_lookup_actual_id_or_panic(&ty);
+                canon_sec.thread_spawn_ref(new_tid as u32);
+            }
             // CanonicalFunction::ThreadSpawnIndirect {
             //     func_ty_index,
             //     table_index,
             // } => {
-            //     // TODO: This needs to be fixed
-            //     let ty_id = if let Some(id) = indices.lookup_actual_id(&ComponentSection::ComponentType, &ExternalItemKind::NA, *func_ty_index as usize) {
-            //         // has already been encoded
-            //         *id
-            //     } else {
-            //         // we need to skip around and encode this type first!
-            //         println!("here");
-            //         let (_, idx) = indices.index_from_assumed_id(&section, &kind, *func_ty_index as usize);
-            //         println!("    ==> using idx: {idx}");
-            //         self.internal_encode_canon(idx, 1, component, reencode, indices);
-            //         indices.lookup_actual_id_or_panic(&section, &kind, *func_ty_index as usize)
+            //     let Some(Refs { ty: Some(ty),..}) = self.referenced_indices() else {
+            //         todo!()
             //     };
-            //     canon_sec.thread_spawn_indirect(ty_id as u32, *table_index);
+            //     let new_tid = indices.new_lookup_actual_id_or_panic(&ty);
+            //     canon_sec.thread_spawn_indirect(new_tid as u32, *table_index);
             // }
             CanonicalFunction::TaskCancel => {
                 canon_sec.task_cancel();
@@ -765,62 +625,34 @@ impl Encode for CanonicalFunction {
             CanonicalFunction::SubtaskCancel { async_ } => {
                 canon_sec.subtask_cancel(*async_);
             }
-            // CanonicalFunction::StreamDropReadable { ty } => {
-            //     let ty_id = if let Some(id) = indices.lookup_actual_id(&ComponentSection::ComponentType, &ExternalItemKind::NA, *ty as usize) {
-            //         // has already been encoded
-            //         *id
-            //     } else {
-            //         // we need to skip around and encode this type first!
-            //         println!("here");
-            //         let (_, idx) = indices.index_from_assumed_id(&section, &kind, *ty as usize);
-            //         println!("    ==> using idx: {idx}");
-            //         self.internal_encode_canon(idx, 1, component, reencode, indices);
-            //         indices.lookup_actual_id_or_panic(&section, &kind, *ty as usize)
-            //     };
-            //     canon_sec.stream_drop_readable(ty_id as u32);
-            // }
-            // CanonicalFunction::StreamDropWritable { ty } => {
-            //     let ty_id = if let Some(id) = indices.lookup_actual_id(&ComponentSection::ComponentType, &ExternalItemKind::NA, *ty as usize) {
-            //         // has already been encoded
-            //         *id
-            //     } else {
-            //         // we need to skip around and encode this type first!
-            //         println!("here");
-            //         let (_, idx) = indices.index_from_assumed_id(&section, &kind, *ty as usize);
-            //         println!("    ==> using idx: {idx}");
-            //         self.internal_encode_canon(idx, 1, component, reencode, indices);
-            //         indices.lookup_actual_id_or_panic(&section, &kind, *ty as usize)
-            //     };
-            //     canon_sec.stream_drop_writable(ty_id as u32);
-            // }
-            // CanonicalFunction::FutureDropReadable { ty } => {
-            //     let ty_id = if let Some(id) = indices.lookup_actual_id(&ComponentSection::ComponentType, &ExternalItemKind::NA, *ty as usize) {
-            //         // has already been encoded
-            //         *id
-            //     } else {
-            //         // we need to skip around and encode this type first!
-            //         println!("here");
-            //         let (_, idx) = indices.index_from_assumed_id(&section, &kind, *ty as usize);
-            //         println!("    ==> using idx: {idx}");
-            //         self.internal_encode_canon(idx, 1, component, reencode, indices);
-            //         indices.lookup_actual_id_or_panic(&section, &kind, *ty as usize)
-            //     };
-            //     canon_sec.future_drop_readable(ty_id as u32);
-            // }
-            // CanonicalFunction::FutureDropWritable { ty } => {
-            //     let ty_id = if let Some(id) = indices.lookup_actual_id(&ComponentSection::ComponentType, &ExternalItemKind::NA, *ty as usize) {
-            //         // has already been encoded
-            //         *id
-            //     } else {
-            //         // we need to skip around and encode this type first!
-            //         println!("here");
-            //         let (_, idx) = indices.index_from_assumed_id(&section, &kind, *ty as usize);
-            //         println!("    ==> using idx: {idx}");
-            //         self.internal_encode_canon(idx, 1, component, reencode, indices);
-            //         indices.lookup_actual_id_or_panic(&section, &kind, *ty as usize)
-            //     };
-            //     canon_sec.future_drop_writable(ty_id as u32);
-            // }
+            CanonicalFunction::StreamDropReadable { ty } => {
+                let Some(Refs { ty: Some(ty),..}) = self.referenced_indices() else {
+                    todo!()
+                };
+                let new_tid = indices.new_lookup_actual_id_or_panic(&ty);
+                canon_sec.stream_drop_readable(new_tid as u32);
+            }
+            CanonicalFunction::StreamDropWritable { ty } => {
+                let Some(Refs { ty: Some(ty),..}) = self.referenced_indices() else {
+                    todo!()
+                };
+                let new_tid = indices.new_lookup_actual_id_or_panic(&ty);
+                canon_sec.stream_drop_writable(new_tid as u32);
+            }
+            CanonicalFunction::FutureDropReadable { ty } => {
+                let Some(Refs { ty: Some(ty),..}) = self.referenced_indices() else {
+                    todo!()
+                };
+                let new_tid = indices.new_lookup_actual_id_or_panic(&ty);
+                canon_sec.future_drop_readable(new_tid as u32);
+            }
+            CanonicalFunction::FutureDropWritable { ty } => {
+                let Some(Refs { ty: Some(ty),..}) = self.referenced_indices() else {
+                    todo!()
+                };
+                let new_tid = indices.new_lookup_actual_id_or_panic(&ty);
+                canon_sec.future_drop_writable(new_tid as u32);
+            }
             _ => todo!("not yet implemented for {self:?}"),
         }
         component.section(&canon_sec);
@@ -1101,6 +933,48 @@ impl FixIndices for ComponentTypeRef {
                 let new_id = indices.new_lookup_actual_id_or_panic(&ty);
                 ComponentTypeRef::Component(new_id as u32)
             }
+        }
+    }
+}
+
+impl FixIndices for CanonicalOption {
+    fn fix<'a>(&self, _: &mut wasm_encoder::Component, indices: &IdxSpaces, _: &mut RoundtripReencoder) -> Self {
+
+        match self {
+            CanonicalOption::Realloc(_) |
+            CanonicalOption::PostReturn(_) |
+            CanonicalOption::Callback(_) => {
+                let Some(Refs { func: Some(func), ..}) = self.referenced_indices() else {
+                    todo!()
+                };
+                let new_fid = indices.new_lookup_actual_id_or_panic(&func);
+                match self {
+                    CanonicalOption::Realloc(_) => CanonicalOption::Realloc(new_fid as u32),
+                    CanonicalOption::PostReturn(_) => CanonicalOption::PostReturn(new_fid as u32),
+                    CanonicalOption::Callback(_) => CanonicalOption::Callback(new_fid as u32),
+                    _ => unreachable!()
+                }
+            }
+            CanonicalOption::CoreType(_) => {
+                let Some(Refs { ty: Some(ty), ..}) = self.referenced_indices() else {
+                    todo!()
+                };
+                let new_tid = indices.new_lookup_actual_id_or_panic(&ty);
+                CanonicalOption::CoreType(new_tid as u32)
+            }
+
+            CanonicalOption::Memory(_) => {
+                let Some(Refs { mem: Some(mem), ..}) = self.referenced_indices() else {
+                    todo!()
+                };
+                let new_mid = indices.new_lookup_actual_id_or_panic(&mem);
+                CanonicalOption::Memory(new_mid as u32)
+            },
+            CanonicalOption::UTF8 |
+            CanonicalOption::UTF16 |
+            CanonicalOption::CompactUTF16 |
+            CanonicalOption::Async |
+            CanonicalOption::Gc => self.clone(),
         }
     }
 }
