@@ -1,6 +1,6 @@
 use wasm_encoder::{Alias, ComponentAliasSection, ComponentFuncTypeEncoder, ComponentTypeEncoder, CoreTypeEncoder, InstanceType, ModuleArg, ModuleSection, NestedComponentSection};
 use wasm_encoder::reencode::{Reencode, ReencodeComponent, RoundtripReencoder};
-use wasmparser::{CanonicalFunction, CanonicalOption, ComponentAlias, ComponentExport, ComponentImport, ComponentInstance, ComponentInstantiationArg, ComponentType, ComponentTypeDeclaration, ComponentTypeRef, ComponentValType, CoreType, Export, Instance, InstanceTypeDeclaration, InstantiationArg, SubType, TagType, TypeRef};
+use wasmparser::{CanonicalFunction, CanonicalOption, ComponentAlias, ComponentExport, ComponentImport, ComponentInstance, ComponentInstantiationArg, ComponentStartFunction, ComponentType, ComponentTypeDeclaration, ComponentTypeRef, ComponentValType, CoreType, Export, Instance, InstanceTypeDeclaration, InstantiationArg, SubType, TagType, TypeRef};
 use crate::{Component, Module};
 use crate::encode::component::collect::{ComponentItem, ComponentPlan};
 use crate::ir::component::idx_spaces::{IdxSpaces, ReferencedIndices, Refs};
@@ -63,6 +63,10 @@ pub(crate) fn encode_internal<'a>(comp: &Component, plan: &ComponentPlan<'a>, in
             ComponentItem::Inst { node, .. } => unsafe {
                 let i: &Instance = &**node;
                 i.do_encode(&mut component, indices, &mut reencode);
+            },
+            ComponentItem::Start { node, .. } => unsafe {
+                let c: &ComponentStartFunction = &**node;
+                c.do_encode(&mut component, indices, &mut reencode);
             },
             ComponentItem::CustomSection { node, .. } => unsafe {
                 let c: &CustomSection = &**node;
@@ -855,6 +859,18 @@ impl Encode for Instance<'_> {
         }
 
         component.section(&instances);
+    }
+}
+
+impl Encode for ComponentStartFunction {
+    fn do_encode<'a>(&self, component: &mut wasm_encoder::Component, _indices: &IdxSpaces, _reencode: &mut RoundtripReencoder) {
+        // TODO: reindex func_index and arguments!
+        
+        component.section(&wasm_encoder::ComponentStartSection {
+            function_index: self.func_index,
+            args: self.arguments.clone(),
+            results: self.results
+        });
     }
 }
 

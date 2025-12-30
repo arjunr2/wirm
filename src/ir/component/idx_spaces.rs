@@ -35,6 +35,7 @@ pub(crate) struct IdxSpaces {
     last_processed_comp_inst: usize,
     last_processed_canon: usize,
     last_processed_component: usize,
+    last_processed_start: usize,
     last_processed_custom: usize,
 }
 impl IdxSpaces {
@@ -133,7 +134,7 @@ impl IdxSpaces {
             ComponentSection::Canon => &mut self.last_processed_canon,
             ComponentSection::CustomSection => &mut self.last_processed_custom,
             ComponentSection::Component => &mut self.last_processed_component,
-            ComponentSection::ComponentStartSection => panic!("No need to call this function for the start section!")
+            ComponentSection::ComponentStartSection => &mut self.last_processed_start,
         };
 
         let curr = *tracker;

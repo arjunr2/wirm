@@ -136,6 +136,9 @@ pub(crate) fn assign_indices<'a>(plan: &mut ComponentPlan<'a>, indices: &mut Idx
             ComponentItem::Export { .. } => {
                 // NA: exports don't get IDs
             }
+            ComponentItem::Start { .. } => {
+                // NA: Start sections don't get IDs
+            }
             ComponentItem::CustomSection { .. } => {
                 // NA: Custom sections don't get IDs
             }

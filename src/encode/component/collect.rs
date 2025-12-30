@@ -1,5 +1,6 @@
 use std::collections::HashMap;
-use wasmparser::{CanonicalFunction, ComponentAlias, ComponentExport, ComponentImport, ComponentInstance, ComponentType, CoreType, Instance};
+use wasm_encoder::StartSection;
+use wasmparser::{CanonicalFunction, ComponentAlias, ComponentExport, ComponentImport, ComponentInstance, ComponentStartFunction, ComponentType, CoreType, Instance};
 use crate::{Component, Module};
 use crate::ir::component::idx_spaces::{IdxSpaces, ReferencedIndices, Space, SpaceSubtype};
 use crate::ir::section::ComponentSection;
@@ -56,6 +57,7 @@ pub(crate) enum ComponentItem<'a> {
     CoreType { node: *const CoreType<'a>, idx: usize },
     Inst { node: *const Instance<'a>, idx: usize },
 
+    Start { node: *const ComponentStartFunction, idx: usize },
     CustomSection { node: *const CustomSection<'a>, idx: usize },
     // ... add others as needed
 }
@@ -92,6 +94,7 @@ struct Seen<'a> {
     core_types: HashMap<*const CoreType<'a>, usize>,
     instances: HashMap<*const Instance<'a>, usize>,
 
+    start: HashMap<*const ComponentStartFunction, usize>,
     custom_sections: HashMap<*const CustomSection<'a>, usize>
 }
 
@@ -163,7 +166,7 @@ impl<'a> Collect<'a> for Component<'a> {
                     collect_vec(start_idx, *num as usize, &self.canons.items, ctx, &self);
                 }
                 ComponentSection::ComponentStartSection => {
-                    todo!()
+                    collect_vec(start_idx, *num as usize, &self.start_section, ctx, &self);
                 }
                 ComponentSection::CustomSection => {
                     collect_vec(start_idx, *num as usize, &self.custom_sections.custom_sections, ctx, &self);
@@ -367,6 +370,23 @@ impl<'a> Collect<'a> for CustomSection<'a> {
 
         // push to ordered plan
         ctx.plan.items.push(ComponentItem::CustomSection { node: ptr, idx });
+    }
+}
+
+impl<'a> Collect<'a> for ComponentStartFunction {
+    fn collect(&'a self, idx: usize, ctx: &mut CollectCtx<'a>, _comp: &'a Component<'a>) {
+        let ptr = self as *const _;
+        if ctx.seen.start.contains_key(&ptr) {
+            return;
+        }
+        // assign a temporary index during collection
+        ctx.seen.start.insert(ptr, idx);
+
+        // TODO: Collect dependencies first
+        // collect_deps(self, ctx, comp);
+
+        // push to ordered plan
+        ctx.plan.items.push(ComponentItem::Start { node: ptr, idx });
     }
 }
 
