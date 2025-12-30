@@ -1113,7 +1113,7 @@ impl<'a> Module<'a> {
                 shared,
                 descriptor,
                 describes,
-                tag,
+                ..
             } => {
                 let params = params
                     .iter()

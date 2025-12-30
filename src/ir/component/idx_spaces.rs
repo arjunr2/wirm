@@ -265,7 +265,7 @@ impl IdxSpace {
     }
 
     pub fn lookup_assumed_id(&self, section: &ComponentSection, vec_idx: usize) -> Option<&usize> {
-        let (group, vector) = match section {
+        let (_group, vector) = match section {
             ComponentSection::ComponentImport => ("imports", &self.imports_assumed_ids),
             ComponentSection::ComponentExport => todo!(), // ("exports", &self.exports_assumed_ids),
             ComponentSection::Alias => ("aliases", &self.alias_assumed_ids),

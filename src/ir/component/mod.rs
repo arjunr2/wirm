@@ -143,7 +143,7 @@ impl<'a> Component<'a> {
                self.canons.items.len()
         );
         let space = alias.index_space_of();
-        let (item_id, alias_id) = self.alias.add(alias);
+        let (_item_id, alias_id) = self.alias.add(alias);
         let id = self.add_section(space, ComponentSection::Alias, *alias_id as usize);
         println!("   --> @{}", id);
 
@@ -549,7 +549,6 @@ impl<'a> Component<'a> {
             }
         }
 
-        let num_modules = modules.len();
         Ok(Component {
             modules,
             alias: Aliases::new(alias),

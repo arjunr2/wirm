@@ -2,10 +2,9 @@
 
 use std::collections::HashMap;
 
-use wasm_encoder::reencode::{Reencode, ReencodeComponent, RoundtripReencoder};
-use wasm_encoder::{Alias, ComponentCoreTypeEncoder, ComponentFuncTypeEncoder, ComponentTypeEncoder, CoreTypeEncoder, InstanceType};
-use wasmparser::{ComponentAlias, ComponentType, ComponentTypeDeclaration, ComponentValType, CoreType, InstanceTypeDeclaration, Operator, RecGroup, SubType};
-use crate::ir::component::idx_spaces::IdxSpaces;
+use wasm_encoder::reencode::{Reencode, RoundtripReencoder};
+use wasm_encoder::ComponentCoreTypeEncoder;
+use wasmparser::{Operator, RecGroup};
 
 // Not added to wasm-tools
 /// Convert ModuleTypeDeclaration to ModuleType
@@ -69,284 +68,284 @@ pub fn convert_recgroup(
         .collect::<Vec<_>>()
 }
 
-// Not added to wasm-tools
-/// Convert Instance Types
-pub fn convert_instance_type(
-    instance: &[InstanceTypeDeclaration],
-    component: &mut wasm_encoder::Component,
-    indices: &IdxSpaces,
-    reencode: &mut RoundtripReencoder,
-) -> InstanceType {
-    let mut ity = InstanceType::new();
-    for value in instance.iter() {
-        match value {
-            InstanceTypeDeclaration::CoreType(core_type) => match core_type {
-                CoreType::Rec(recgroup) => {
-                    for sub in recgroup.types() {
-                        let enc = ity.core_type().core();
-                        encode_core_type_subtype(enc, sub, reencode);
-                    }
-                }
-                CoreType::Module(module) => {
-                    let enc = ity.core_type();
-                    convert_module_type_declaration(module, enc, reencode);
-                }
-            },
-            InstanceTypeDeclaration::Type(ty) => {
-                let enc = ity.ty();
-                convert_component_type(ty, component, indices, enc, reencode);
-            }
-            InstanceTypeDeclaration::Alias(alias) => match alias {
-                ComponentAlias::InstanceExport {
-                    kind,
-                    instance_index,
-                    name,
-                } => {
-                    ity.alias(Alias::InstanceExport {
-                        instance: *instance_index,
-                        kind: reencode.component_export_kind(*kind),
-                        name,
-                    });
-                }
-                ComponentAlias::CoreInstanceExport {
-                    kind,
-                    instance_index,
-                    name,
-                } => {
-                    ity.alias(Alias::CoreInstanceExport {
-                        instance: *instance_index,
-                        kind: do_reencode(
-                            *kind,
-                            RoundtripReencoder::export_kind,
-                            reencode,
-                            "export kind",
-                        ),
-                        name,
-                    });
-                }
-                ComponentAlias::Outer { kind, count, index } => {
-                    ity.alias(Alias::Outer {
-                        kind: reencode.component_outer_alias_kind(*kind),
-                        count: *count,
-                        index: *index,
-                    });
-                }
-            },
-            InstanceTypeDeclaration::Export { name, ty } => {
-                ity.export(
-                    name.0,
-                    do_reencode(
-                        *ty,
-                        RoundtripReencoder::component_type_ref,
-                        reencode,
-                        "component type",
-                    ),
-                );
-            }
-        }
-    }
-    ity
-}
-
-// Not added to wasm-tools
-/// Convert Func Results
-pub fn convert_results(
-    result: Option<ComponentValType>,
-    mut enc: ComponentFuncTypeEncoder,
-    reencode: &mut RoundtripReencoder,
-) {
-    enc.result(result.map(|v| reencode.component_val_type(v)));
-}
-
-// Not added to wasm-tools
-/// CoreTypeEncoding
-pub fn encode_core_type_subtype(
-    enc: CoreTypeEncoder,
-    subtype: &SubType,
-    reencode: &mut RoundtripReencoder,
-) {
-    let subty = reencode
-        .sub_type(subtype.to_owned())
-        .unwrap_or_else(|_| panic!("Could not encode type as subtype: {:?}", subtype));
-    enc.subtype(&subty);
-}
-
-/// Process Alias
-pub fn process_alias<'a>(
-    a: &'a ComponentAlias<'a>,
-    reencode: &mut RoundtripReencoder,
-) -> Alias<'a> {
-    match a {
-        ComponentAlias::InstanceExport {
-            kind,
-            instance_index,
-            name,
-        } => Alias::InstanceExport {
-            instance: *instance_index,
-            kind: reencode.component_export_kind(*kind),
-            name,
-        },
-        ComponentAlias::CoreInstanceExport {
-            kind,
-            instance_index,
-            name,
-        } => Alias::CoreInstanceExport {
-            instance: *instance_index,
-            kind: do_reencode(
-                *kind,
-                RoundtripReencoder::export_kind,
-                reencode,
-                "export kind",
-            ),
-            name,
-        },
-        ComponentAlias::Outer { kind, count, index } => Alias::Outer {
-            kind: reencode.component_outer_alias_kind(*kind),
-            count: *count,
-            index: *index,
-        },
-    }
-}
-
-/// Convert Component Type
-/// NOTE: I am NOT fixing indices on this. If instrumentation is performed,
-/// it must only add new component types, it cannot edit already existing
-/// ones. And it must make sure that the dependencies are added in-order.
-pub fn convert_component_type(
-    ty: &ComponentType,
-    component: &mut wasm_encoder::Component,
-    indices: &IdxSpaces,
-    enc: ComponentTypeEncoder,
-    reencode: &mut RoundtripReencoder,
-) {
-    match ty {
-        ComponentType::Defined(comp_ty) => {
-            let def_enc = enc.defined_type();
-            match comp_ty {
-                wasmparser::ComponentDefinedType::Primitive(p) => {
-                    def_enc.primitive(wasm_encoder::PrimitiveValType::from(*p))
-                }
-                wasmparser::ComponentDefinedType::Record(record) => {
-                    def_enc.record(
-                        record
-                            .iter()
-                            .map(|record| (record.0, reencode.component_val_type(record.1))),
-                    );
-                }
-                wasmparser::ComponentDefinedType::Variant(variant) => {
-                    def_enc.variant(variant.iter().map(|variant| {
-                        (
-                            variant.name,
-                            variant.ty.map(|ty| reencode.component_val_type(ty)),
-                            variant.refines,
-                        )
-                    }))
-                }
-                wasmparser::ComponentDefinedType::List(l) => {
-                    def_enc.list(reencode.component_val_type(*l))
-                }
-                wasmparser::ComponentDefinedType::Tuple(tup) => def_enc.tuple(
-                    tup.iter()
-                        .map(|val_type| reencode.component_val_type(*val_type)),
-                ),
-                wasmparser::ComponentDefinedType::Flags(flags) => {
-                    def_enc.flags((*flags).clone().into_vec())
-                }
-                wasmparser::ComponentDefinedType::Enum(en) => {
-                    def_enc.enum_type((*en).clone().into_vec())
-                }
-                wasmparser::ComponentDefinedType::Option(opt) => {
-                    def_enc.option(reencode.component_val_type(*opt))
-                }
-                wasmparser::ComponentDefinedType::Result { ok, err } => def_enc.result(
-                    ok.map(|val_type| reencode.component_val_type(val_type)),
-                    err.map(|val_type| reencode.component_val_type(val_type)),
-                ),
-                wasmparser::ComponentDefinedType::Own(u) => def_enc.own(*u),
-                wasmparser::ComponentDefinedType::Borrow(u) => def_enc.borrow(*u),
-                wasmparser::ComponentDefinedType::Future(opt) => match opt {
-                    Some(u) => def_enc.future(Some(reencode.component_val_type(*u))),
-                    None => def_enc.future(None),
-                },
-                wasmparser::ComponentDefinedType::Stream(opt) => match opt {
-                    Some(u) => def_enc.stream(Some(reencode.component_val_type(*u))),
-                    None => def_enc.future(None),
-                },
-                wasmparser::ComponentDefinedType::FixedSizeList(ty, len) => {
-                    def_enc.fixed_size_list(reencode.component_val_type(*ty), *len)
-                }
-            }
-        }
-        ComponentType::Func(func_ty) => {
-            let mut new_enc = enc.function();
-            new_enc.params(
-                func_ty
-                    .clone()
-                    .params
-                    .into_vec()
-                    .into_iter()
-                    .map(|p| (p.0, reencode.component_val_type(p.1))),
-            );
-            convert_results(func_ty.clone().result, new_enc, reencode);
-        }
-        ComponentType::Component(comp) => {
-            let mut new_comp = wasm_encoder::ComponentType::new();
-            for c in comp.iter() {
-                match c {
-                    ComponentTypeDeclaration::CoreType(core) => match core {
-                        CoreType::Rec(recgroup) => {
-                            for sub in recgroup.types() {
-                                let enc = new_comp.core_type().core();
-                                encode_core_type_subtype(enc, sub, reencode);
-                            }
-                        }
-                        CoreType::Module(module) => {
-                            let enc = new_comp.core_type();
-                            convert_module_type_declaration(module, enc, reencode);
-                        }
-                    },
-                    ComponentTypeDeclaration::Type(typ) => {
-                        let enc = new_comp.ty();
-                        convert_component_type(typ, component, indices, enc, reencode);
-                    }
-                    ComponentTypeDeclaration::Alias(a) => {
-                        new_comp.alias(process_alias(a, reencode));
-                    }
-                    ComponentTypeDeclaration::Export { name, ty } => {
-                        new_comp.export(
-                            name.0,
-                            do_reencode(
-                                *ty,
-                                RoundtripReencoder::component_type_ref,
-                                reencode,
-                                "component type",
-                            ),
-                        );
-                    }
-                    ComponentTypeDeclaration::Import(imp) => {
-                        new_comp.import(
-                            imp.name.0,
-                            do_reencode(
-                                imp.ty,
-                                RoundtripReencoder::component_type_ref,
-                                reencode,
-                                "component type",
-                            ),
-                        );
-                    }
-                }
-            }
-            enc.component(&new_comp);
-        }
-        ComponentType::Instance(inst) => {
-            let ity = convert_instance_type(inst, component, indices, reencode);
-            enc.instance(&ity);
-        }
-        ComponentType::Resource { rep, dtor } => {
-            enc.resource(reencode.val_type(*rep).unwrap(), *dtor);
-        }
-    }
-}
+// // Not added to wasm-tools
+// /// Convert Instance Types
+// pub fn convert_instance_type(
+//     instance: &[InstanceTypeDeclaration],
+//     component: &mut wasm_encoder::Component,
+//     indices: &IdxSpaces,
+//     reencode: &mut RoundtripReencoder,
+// ) -> InstanceType {
+//     let mut ity = InstanceType::new();
+//     for value in instance.iter() {
+//         match value {
+//             InstanceTypeDeclaration::CoreType(core_type) => match core_type {
+//                 CoreType::Rec(recgroup) => {
+//                     for sub in recgroup.types() {
+//                         let enc = ity.core_type().core();
+//                         encode_core_type_subtype(enc, sub, reencode);
+//                     }
+//                 }
+//                 CoreType::Module(module) => {
+//                     let enc = ity.core_type();
+//                     convert_module_type_declaration(module, enc, reencode);
+//                 }
+//             },
+//             InstanceTypeDeclaration::Type(ty) => {
+//                 let enc = ity.ty();
+//                 convert_component_type(ty, component, indices, enc, reencode);
+//             }
+//             InstanceTypeDeclaration::Alias(alias) => match alias {
+//                 ComponentAlias::InstanceExport {
+//                     kind,
+//                     instance_index,
+//                     name,
+//                 } => {
+//                     ity.alias(Alias::InstanceExport {
+//                         instance: *instance_index,
+//                         kind: reencode.component_export_kind(*kind),
+//                         name,
+//                     });
+//                 }
+//                 ComponentAlias::CoreInstanceExport {
+//                     kind,
+//                     instance_index,
+//                     name,
+//                 } => {
+//                     ity.alias(Alias::CoreInstanceExport {
+//                         instance: *instance_index,
+//                         kind: do_reencode(
+//                             *kind,
+//                             RoundtripReencoder::export_kind,
+//                             reencode,
+//                             "export kind",
+//                         ),
+//                         name,
+//                     });
+//                 }
+//                 ComponentAlias::Outer { kind, count, index } => {
+//                     ity.alias(Alias::Outer {
+//                         kind: reencode.component_outer_alias_kind(*kind),
+//                         count: *count,
+//                         index: *index,
+//                     });
+//                 }
+//             },
+//             InstanceTypeDeclaration::Export { name, ty } => {
+//                 ity.export(
+//                     name.0,
+//                     do_reencode(
+//                         *ty,
+//                         RoundtripReencoder::component_type_ref,
+//                         reencode,
+//                         "component type",
+//                     ),
+//                 );
+//             }
+//         }
+//     }
+//     ity
+// }
+//
+// // Not added to wasm-tools
+// /// Convert Func Results
+// pub fn convert_results(
+//     result: Option<ComponentValType>,
+//     mut enc: ComponentFuncTypeEncoder,
+//     reencode: &mut RoundtripReencoder,
+// ) {
+//     enc.result(result.map(|v| reencode.component_val_type(v)));
+// }
+//
+// // Not added to wasm-tools
+// /// CoreTypeEncoding
+// pub fn encode_core_type_subtype(
+//     enc: CoreTypeEncoder,
+//     subtype: &SubType,
+//     reencode: &mut RoundtripReencoder,
+// ) {
+//     let subty = reencode
+//         .sub_type(subtype.to_owned())
+//         .unwrap_or_else(|_| panic!("Could not encode type as subtype: {:?}", subtype));
+//     enc.subtype(&subty);
+// }
+//
+// /// Process Alias
+// pub fn process_alias<'a>(
+//     a: &'a ComponentAlias<'a>,
+//     reencode: &mut RoundtripReencoder,
+// ) -> Alias<'a> {
+//     match a {
+//         ComponentAlias::InstanceExport {
+//             kind,
+//             instance_index,
+//             name,
+//         } => Alias::InstanceExport {
+//             instance: *instance_index,
+//             kind: reencode.component_export_kind(*kind),
+//             name,
+//         },
+//         ComponentAlias::CoreInstanceExport {
+//             kind,
+//             instance_index,
+//             name,
+//         } => Alias::CoreInstanceExport {
+//             instance: *instance_index,
+//             kind: do_reencode(
+//                 *kind,
+//                 RoundtripReencoder::export_kind,
+//                 reencode,
+//                 "export kind",
+//             ),
+//             name,
+//         },
+//         ComponentAlias::Outer { kind, count, index } => Alias::Outer {
+//             kind: reencode.component_outer_alias_kind(*kind),
+//             count: *count,
+//             index: *index,
+//         },
+//     }
+// }
+//
+// /// Convert Component Type
+// /// NOTE: I am NOT fixing indices on this. If instrumentation is performed,
+// /// it must only add new component types, it cannot edit already existing
+// /// ones. And it must make sure that the dependencies are added in-order.
+// pub fn convert_component_type(
+//     ty: &ComponentType,
+//     component: &mut wasm_encoder::Component,
+//     indices: &IdxSpaces,
+//     enc: ComponentTypeEncoder,
+//     reencode: &mut RoundtripReencoder,
+// ) {
+//     match ty {
+//         ComponentType::Defined(comp_ty) => {
+//             let def_enc = enc.defined_type();
+//             match comp_ty {
+//                 wasmparser::ComponentDefinedType::Primitive(p) => {
+//                     def_enc.primitive(wasm_encoder::PrimitiveValType::from(*p))
+//                 }
+//                 wasmparser::ComponentDefinedType::Record(record) => {
+//                     def_enc.record(
+//                         record
+//                             .iter()
+//                             .map(|record| (record.0, reencode.component_val_type(record.1))),
+//                     );
+//                 }
+//                 wasmparser::ComponentDefinedType::Variant(variant) => {
+//                     def_enc.variant(variant.iter().map(|variant| {
+//                         (
+//                             variant.name,
+//                             variant.ty.map(|ty| reencode.component_val_type(ty)),
+//                             variant.refines,
+//                         )
+//                     }))
+//                 }
+//                 wasmparser::ComponentDefinedType::List(l) => {
+//                     def_enc.list(reencode.component_val_type(*l))
+//                 }
+//                 wasmparser::ComponentDefinedType::Tuple(tup) => def_enc.tuple(
+//                     tup.iter()
+//                         .map(|val_type| reencode.component_val_type(*val_type)),
+//                 ),
+//                 wasmparser::ComponentDefinedType::Flags(flags) => {
+//                     def_enc.flags((*flags).clone().into_vec())
+//                 }
+//                 wasmparser::ComponentDefinedType::Enum(en) => {
+//                     def_enc.enum_type((*en).clone().into_vec())
+//                 }
+//                 wasmparser::ComponentDefinedType::Option(opt) => {
+//                     def_enc.option(reencode.component_val_type(*opt))
+//                 }
+//                 wasmparser::ComponentDefinedType::Result { ok, err } => def_enc.result(
+//                     ok.map(|val_type| reencode.component_val_type(val_type)),
+//                     err.map(|val_type| reencode.component_val_type(val_type)),
+//                 ),
+//                 wasmparser::ComponentDefinedType::Own(u) => def_enc.own(*u),
+//                 wasmparser::ComponentDefinedType::Borrow(u) => def_enc.borrow(*u),
+//                 wasmparser::ComponentDefinedType::Future(opt) => match opt {
+//                     Some(u) => def_enc.future(Some(reencode.component_val_type(*u))),
+//                     None => def_enc.future(None),
+//                 },
+//                 wasmparser::ComponentDefinedType::Stream(opt) => match opt {
+//                     Some(u) => def_enc.stream(Some(reencode.component_val_type(*u))),
+//                     None => def_enc.future(None),
+//                 },
+//                 wasmparser::ComponentDefinedType::FixedSizeList(ty, len) => {
+//                     def_enc.fixed_size_list(reencode.component_val_type(*ty), *len)
+//                 }
+//             }
+//         }
+//         ComponentType::Func(func_ty) => {
+//             let mut new_enc = enc.function();
+//             new_enc.params(
+//                 func_ty
+//                     .clone()
+//                     .params
+//                     .into_vec()
+//                     .into_iter()
+//                     .map(|p| (p.0, reencode.component_val_type(p.1))),
+//             );
+//             convert_results(func_ty.clone().result, new_enc, reencode);
+//         }
+//         ComponentType::Component(comp) => {
+//             let mut new_comp = wasm_encoder::ComponentType::new();
+//             for c in comp.iter() {
+//                 match c {
+//                     ComponentTypeDeclaration::CoreType(core) => match core {
+//                         CoreType::Rec(recgroup) => {
+//                             for sub in recgroup.types() {
+//                                 let enc = new_comp.core_type().core();
+//                                 encode_core_type_subtype(enc, sub, reencode);
+//                             }
+//                         }
+//                         CoreType::Module(module) => {
+//                             let enc = new_comp.core_type();
+//                             convert_module_type_declaration(module, enc, reencode);
+//                         }
+//                     },
+//                     ComponentTypeDeclaration::Type(typ) => {
+//                         let enc = new_comp.ty();
+//                         convert_component_type(typ, component, indices, enc, reencode);
+//                     }
+//                     ComponentTypeDeclaration::Alias(a) => {
+//                         new_comp.alias(process_alias(a, reencode));
+//                     }
+//                     ComponentTypeDeclaration::Export { name, ty } => {
+//                         new_comp.export(
+//                             name.0,
+//                             do_reencode(
+//                                 *ty,
+//                                 RoundtripReencoder::component_type_ref,
+//                                 reencode,
+//                                 "component type",
+//                             ),
+//                         );
+//                     }
+//                     ComponentTypeDeclaration::Import(imp) => {
+//                         new_comp.import(
+//                             imp.name.0,
+//                             do_reencode(
+//                                 imp.ty,
+//                                 RoundtripReencoder::component_type_ref,
+//                                 reencode,
+//                                 "component type",
+//                             ),
+//                         );
+//                     }
+//                 }
+//             }
+//             enc.component(&new_comp);
+//         }
+//         ComponentType::Instance(inst) => {
+//             let ity = convert_instance_type(inst, component, indices, reencode);
+//             enc.instance(&ity);
+//         }
+//         ComponentType::Resource { rep, dtor } => {
+//             enc.resource(reencode.val_type(*rep).unwrap(), *dtor);
+//         }
+//     }
+// }
 
 pub fn indirect_namemap_parser2encoder(
     namemap: wasmparser::IndirectNameMap,
