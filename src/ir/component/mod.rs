@@ -6,7 +6,7 @@ use crate::encode::component::encode;
 use crate::error::Error;
 use crate::ir::component::alias::Aliases;
 use crate::ir::component::canons::Canons;
-use crate::ir::component::idx_spaces::{ExternalItemKind, IdxSpaces, IndexSpaceOf, Space};
+use crate::ir::component::idx_spaces::{IdxSpaces, IndexSpaceOf, Space};
 use crate::ir::component::types::ComponentTypes;
 use crate::ir::helpers::{
     print_alias, print_component_export, print_component_import, print_component_type,
@@ -129,7 +129,6 @@ impl<'a> Component<'a> {
     }
 
     pub fn add_alias_func(&mut self, alias: ComponentAlias<'a>) -> (AliasFuncId, AliasId) {
-        let kind = ExternalItemKind::from(&alias);
         print!("[add_alias_func] '{}', from instance {}, curr-len: {}, ",
                if let ComponentAlias::InstanceExport {name, ..} | ComponentAlias::CoreInstanceExport {name, ..} = &alias {
                    name

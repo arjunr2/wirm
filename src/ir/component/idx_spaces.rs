@@ -82,7 +82,7 @@ impl IdxSpaces {
     }
 
     pub fn lookup_assumed_id(&self, space: &Space, section: &ComponentSection, vec_idx: usize) -> usize {
-        if let Some(space) = self.new_get_space(space) {
+        if let Some(space) = self.get_space(space) {
             if let Some(assumed_id) = space.lookup_assumed_id(section, vec_idx) {
                 return *assumed_id
             }
@@ -92,7 +92,7 @@ impl IdxSpaces {
 
     pub fn index_from_assumed_id(&self, r: &IndexedRef) -> (SpaceSubtype, usize) {
         // TODO -- this is incredibly inefficient...i just want to move on with my life...
-        if let Some(space) = self.new_get_space(&r.space) {
+        if let Some(space) = self.get_space(&r.space) {
             if let Some((ty, idx)) = space.index_from_assumed_id(r.index as usize) {
                 return (ty, idx)
             } else {
@@ -111,22 +111,13 @@ impl IdxSpaces {
         }
     }
 
-    pub fn new_lookup_actual_id_or_panic(&self, r: &IndexedRef) -> usize {
-        if let Some(space) = self.new_get_space(&r.space) {
+    pub fn lookup_actual_id_or_panic(&self, r: &IndexedRef) -> usize {
+        if let Some(space) = self.get_space(&r.space) {
             if let Some(actual_id) = space.lookup_actual_id(r.index as usize) {
                 return *actual_id;
             }
         }
         panic!("[{:?}] Can't find assumed id {} in id-tracker", r.space, r.index);
-    }
-
-    pub fn lookup_actual_id_or_panic(&self, outer: &ComponentSection, inner: &ExternalItemKind, assumed_id: usize) -> usize {
-        if let Some(space) = self.get_space(outer, inner) {
-            if let Some(actual_id) = space.lookup_actual_id(assumed_id) {
-                return *actual_id;
-            }
-        }
-        panic!("[{:?}::{:?}] Can't find assumed id {assumed_id} in id-tracker", outer, inner);
     }
 
     pub fn visit_section(&mut self, section: &ComponentSection, num: usize) -> usize {
@@ -189,7 +180,7 @@ impl IdxSpaces {
         Some(s)
     }
 
-    fn new_get_space(&self, space: &Space) -> Option<&IdxSpace> {
+    fn get_space(&self, space: &Space) -> Option<&IdxSpace> {
         let s = match space {
             Space::CompFunc => &self.comp_func,
             Space::CompVal => &self.comp_val,
@@ -205,46 +196,6 @@ impl IdxSpaces {
             Space::CoreTag => &self.core_tag,
         };
         Some(s)
-    }
-
-    fn get_space(&self, outer: &ComponentSection, inner: &ExternalItemKind) -> Option<&IdxSpace> {
-        let space = match outer {
-            ComponentSection::Module => &self.module,
-            ComponentSection::CoreType => &self.core_type,
-            ComponentSection::ComponentType => &self.comp_type,
-            ComponentSection::CoreInstance => &self.core_inst,
-            ComponentSection::ComponentInstance => &self.comp_inst,
-            ComponentSection::Canon => match inner {
-                ExternalItemKind::CompFunc => &self.comp_func,
-                ExternalItemKind::CoreFunc => &self.core_func,
-                ExternalItemKind::CoreMemory => &self.core_memory,
-                _ => panic!("shouldn't get here")
-            },
-            ComponentSection::Component => &self.comp_type,
-
-            // These manipulate other index spaces!
-            ComponentSection::Alias |
-            ComponentSection::ComponentImport |
-            ComponentSection::ComponentExport => match inner {
-                ExternalItemKind::CompFunc => &self.comp_func,
-                ExternalItemKind::CompVal => &self.comp_val,
-                ExternalItemKind::CompType => &self.comp_type,
-                ExternalItemKind::CompInst => &self.comp_inst,
-                ExternalItemKind::Comp => &self.comp_type,
-                ExternalItemKind::CoreInst => &self.core_inst,
-                ExternalItemKind::Module => &self.module,
-                ExternalItemKind::CoreType => &self.core_type,
-                ExternalItemKind::CoreFunc => &self.core_func,
-                ExternalItemKind::CoreTable => &self.core_table,
-                ExternalItemKind::CoreMemory => &self.core_memory,
-                ExternalItemKind::CoreGlobal => &self.core_global,
-                ExternalItemKind::CoreTag => &self.core_tag,
-                ExternalItemKind::NA => return None // nothing to do
-            }
-            ComponentSection::ComponentStartSection |
-            ComponentSection::CustomSection => return None // nothing to do for custom or start sections
-        };
-        Some(space)
     }
 }
 
@@ -398,164 +349,6 @@ pub(crate) enum SpaceSubtype {
     // This is only relevant for component types!
     Components,
     Main
-}
-
-#[derive(Clone, Copy, Debug)]
-pub(crate) enum ExternalItemKind {
-    // Component-level spaces
-    CompFunc,
-    CompVal,
-    CompType,
-    CompInst,
-    Comp,
-
-    // Core space (added by component model)
-    CoreInst,
-    Module,
-
-    // Core spaces that exist at the component-level
-    CoreType,
-    CoreFunc,
-    CoreTable,
-    CoreMemory,
-    CoreGlobal,
-    CoreTag,
-
-    // Does not impact an index space
-    NA,
-}
-
-impl From<&ComponentTypeRef> for ExternalItemKind {
-    fn from(value: &ComponentTypeRef) -> Self {
-        match value {
-            ComponentTypeRef::Module(_) => Self::Module,
-            ComponentTypeRef::Func(_) => Self::CompFunc,
-            ComponentTypeRef::Type(_) => Self::CompType,
-            ComponentTypeRef::Instance(_) => Self::CompInst,
-            ComponentTypeRef::Component(_) => Self::CompInst,
-            ComponentTypeRef::Value(_) => Self::CompVal,
-        }
-    }
-}
-impl From<&ExternalKind> for ExternalItemKind {
-    fn from(value: &ExternalKind) -> Self {
-        match value {
-            ExternalKind::Func => ExternalItemKind::CoreFunc,
-            ExternalKind::Table => ExternalItemKind::CoreTable,
-            ExternalKind::Memory => ExternalItemKind::CoreMemory,
-            ExternalKind::Global => ExternalItemKind::CoreGlobal,
-            ExternalKind::Tag => ExternalItemKind::CoreTag,
-            ExternalKind::FuncExact => ExternalItemKind::CoreFunc,
-        }
-    }
-}
-impl From<&ComponentExternalKind> for ExternalItemKind {
-    fn from(value: &ComponentExternalKind) -> Self {
-        match value {
-            ComponentExternalKind::Module => Self::Module,
-            ComponentExternalKind::Func => Self::CompFunc,
-            ComponentExternalKind::Value => Self::CompVal,
-            ComponentExternalKind::Type => Self::CompType,
-            ComponentExternalKind::Instance => Self::CompInst,
-            ComponentExternalKind::Component => Self::Comp
-        }
-    }
-}
-impl From<&Option<ComponentTypeRef>> for ExternalItemKind {
-    fn from(value: &Option<ComponentTypeRef>) -> Self {
-        if let Some(value) = value {
-            Self::from(value)
-        } else {
-            Self::NA
-        }
-    }
-}
-impl From<&ComponentAlias<'_>> for ExternalItemKind {
-    fn from(value: &ComponentAlias) -> Self {
-        match value {
-            ComponentAlias::InstanceExport { kind, .. } => match kind {
-                ComponentExternalKind::Module => Self::Module,
-                ComponentExternalKind::Func => {
-                    Self::CompFunc
-                },
-                ComponentExternalKind::Value => Self::CompVal,
-                ComponentExternalKind::Type => {
-                    Self::CompType
-                },
-                ComponentExternalKind::Instance => Self::CompInst,
-                ComponentExternalKind::Component => Self::Comp
-            },
-            ComponentAlias::Outer { kind, .. } => match kind {
-                ComponentOuterAliasKind::CoreModule => Self::Module,
-                ComponentOuterAliasKind::CoreType => Self::CoreType,
-                ComponentOuterAliasKind::Type => Self::CompType,
-                ComponentOuterAliasKind::Component => Self::Comp
-            },
-            ComponentAlias::CoreInstanceExport { kind, .. } => {
-                match kind {
-                    ExternalKind::Func => Self::CoreFunc,
-                    ExternalKind::Table => Self::CoreTable,
-                    ExternalKind::Memory => Self::CoreMemory,
-                    ExternalKind::Global => Self::CoreGlobal,
-                    ExternalKind::Tag => Self::CoreTag,
-                    ExternalKind::FuncExact => Self::CoreFunc,
-                }
-            }
-        }
-    }
-}
-impl From<&CanonicalFunction> for ExternalItemKind {
-    fn from(value: &CanonicalFunction) -> Self {
-        match value {
-            CanonicalFunction::Lift { .. } => Self::CompFunc,
-            CanonicalFunction::Lower { .. } |
-            CanonicalFunction::ResourceNew { .. } |
-            CanonicalFunction::ResourceDrop { .. } |
-            CanonicalFunction::ResourceDropAsync { .. } |
-            CanonicalFunction::ResourceRep { .. } |
-            CanonicalFunction::ThreadSpawnRef { .. } |
-            CanonicalFunction::ThreadSpawnIndirect { .. } |
-            CanonicalFunction::ThreadAvailableParallelism |
-            CanonicalFunction::BackpressureSet |
-            CanonicalFunction::TaskReturn { .. } |
-            CanonicalFunction::TaskCancel |
-            CanonicalFunction::ContextGet(_) |
-            CanonicalFunction::ContextSet(_) |
-            CanonicalFunction::SubtaskDrop |
-            CanonicalFunction::SubtaskCancel { .. } |
-            CanonicalFunction::StreamNew { .. } |
-            CanonicalFunction::StreamRead { .. } |
-            CanonicalFunction::StreamWrite { .. } |
-            CanonicalFunction::StreamCancelRead { .. } |
-            CanonicalFunction::StreamCancelWrite { .. } |
-            CanonicalFunction::StreamDropReadable { .. } |
-            CanonicalFunction::StreamDropWritable { .. } |
-            CanonicalFunction::FutureNew { .. } |
-            CanonicalFunction::FutureRead { .. } |
-            CanonicalFunction::FutureWrite { .. } |
-            CanonicalFunction::FutureCancelRead { .. } |
-            CanonicalFunction::FutureCancelWrite { .. } |
-            CanonicalFunction::FutureDropReadable { .. } |
-            CanonicalFunction::FutureDropWritable { .. } |
-            CanonicalFunction::ErrorContextNew { .. } |
-            CanonicalFunction::ErrorContextDebugMessage { .. } |
-            CanonicalFunction::ErrorContextDrop |
-            CanonicalFunction::WaitableSetNew |
-            CanonicalFunction::WaitableSetWait { .. } |
-            CanonicalFunction::WaitableSetPoll { .. } |
-            CanonicalFunction::WaitableSetDrop |
-            CanonicalFunction::WaitableJoin => Self::CoreFunc,
-            CanonicalFunction::BackpressureInc |
-            CanonicalFunction::BackpressureDec |
-            CanonicalFunction::ThreadYield { .. } |
-            CanonicalFunction::ThreadIndex |
-            CanonicalFunction::ThreadNewIndirect { .. } |
-            CanonicalFunction::ThreadSwitchTo { .. } |
-            CanonicalFunction::ThreadSuspend { .. } |
-            CanonicalFunction::ThreadResumeLater |
-            CanonicalFunction::ThreadYieldTo { .. } => todo!()
-        }
-    }
 }
 
 // Logic to figure out which index space is being manipulated
