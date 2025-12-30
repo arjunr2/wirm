@@ -259,7 +259,44 @@ impl Encode for ComponentType<'_> {
                             convert_component_type(&(*typ).clone(), enc, component, reencode, indices);
                         }
                         ComponentTypeDeclaration::Alias(a) => {
-                            todo!()
+                            let new_a = match a {
+                                ComponentAlias::InstanceExport { .. } => {
+                                    let ComponentAlias::InstanceExport {
+                                        kind,
+                                        instance_index, name,
+                                    } = a.fix(component, indices, reencode) else { panic!() };
+                                    Alias::InstanceExport {
+                                        instance: instance_index,
+                                        kind: reencode.component_export_kind(kind),
+                                        name,
+                                    }
+                                },
+                                ComponentAlias::CoreInstanceExport { .. } => {
+                                    let ComponentAlias::CoreInstanceExport {
+                                        kind,
+                                        instance_index, name,
+                                    } = a.fix(component, indices, reencode) else { panic!() };
+                                    Alias::CoreInstanceExport {
+                                        instance: instance_index,
+                                        kind: do_reencode(
+                                            kind,
+                                            RoundtripReencoder::export_kind,
+                                            reencode,
+                                            "export kind",
+                                        ),
+                                        name,
+                                    }
+                                },
+                                ComponentAlias::Outer { .. } => {
+                                    let ComponentAlias::Outer {kind, count, index} = a.fix(component, indices, reencode) else { panic!() };
+                                    Alias::Outer {
+                                        kind: reencode.component_outer_alias_kind(kind),
+                                        count,
+                                        index,
+                                    }
+                                },
+                            };
+                            new_comp.alias(new_a);
                         },
                         ComponentTypeDeclaration::Export { name, ty } => {
                             // NOTE: this is self-contained, so theoretically instrumentation should
@@ -697,37 +734,29 @@ impl Encode for CanonicalFunction {
 }
 
 impl Encode for ComponentAlias<'_> {
-    fn do_encode<'a>(&self, component: &mut wasm_encoder::Component, _indices: &IdxSpaces, reencode: &mut RoundtripReencoder) {
+    fn do_encode<'a>(&self, component: &mut wasm_encoder::Component, indices: &IdxSpaces, reencode: &mut RoundtripReencoder) {
         let mut alias = ComponentAliasSection::new();
         let a = match self {
-            ComponentAlias::InstanceExport {
-                kind,
-                instance_index, name,
-            } => {
-                // NOTE: We will not be fixing indices here (complexity)
-                // let Some(Refs { ty: Some(ty),..}) = self.referenced_indices() else {
-                //     panic!()
-                // };
-                // let new_id = indices.new_lookup_actual_id_or_panic(&ty);
+            ComponentAlias::InstanceExport { .. } => {
+                let ComponentAlias::InstanceExport {
+                    kind,
+                    instance_index, name,
+                } = self.fix(component, indices, reencode) else { panic!() };
                 Alias::InstanceExport {
-                    instance: *instance_index,
-                    kind: reencode.component_export_kind(*kind),
+                    instance: instance_index,
+                    kind: reencode.component_export_kind(kind),
                     name,
                 }
             },
-            ComponentAlias::CoreInstanceExport {
-                kind,
-                instance_index, name,
-            } => {
-                // NOTE: We will not be fixing indices here (complexity)
-                // let Some(Refs { ty: Some(ty),..}) = self.referenced_indices() else {
-                //     panic!()
-                // };
-                // let new_id = indices.new_lookup_actual_id_or_panic(&ty);
+            ComponentAlias::CoreInstanceExport { .. } => {
+                let ComponentAlias::CoreInstanceExport {
+                    kind,
+                    instance_index, name,
+                } = self.fix(component, indices, reencode) else { panic!() };
                 Alias::CoreInstanceExport {
-                    instance: *instance_index,
+                    instance: instance_index,
                     kind: do_reencode(
-                        *kind,
+                        kind,
                         RoundtripReencoder::export_kind,
                         reencode,
                         "export kind",
@@ -735,16 +764,12 @@ impl Encode for ComponentAlias<'_> {
                     name,
                 }
             },
-            ComponentAlias::Outer { kind, count, index } => {
-                // NOTE: We will not be fixing indices here (complexity)
-                // let Some(Refs { misc: Some(misc),..}) = self.referenced_indices() else {
-                //     panic!()
-                // };
-                // let new_id = indices.new_lookup_actual_id_or_panic(&misc);
+            ComponentAlias::Outer { .. } => {
+                let ComponentAlias::Outer { kind, count, index } = self.fix(component, indices, reencode) else { panic!() };
                 Alias::Outer {
-                    kind: reencode.component_outer_alias_kind(*kind),
-                    count: *count,
-                    index: *index
+                    kind: reencode.component_outer_alias_kind(kind),
+                    count,
+                    index
                 }
             },
         };
@@ -926,6 +951,13 @@ impl FixIndices for ComponentValType {
         } else {
             self.clone()
         }
+    }
+}
+
+impl FixIndices for ComponentAlias<'_> {
+    fn fix<'a>(&self, _component: &mut wasm_encoder::Component, indices: &IdxSpaces, _reencode: &mut RoundtripReencoder) -> Self {
+        // NOTE: We will not be fixing indices here (complexity due to index spaces with scopes)
+        self.clone()
     }
 }
 
@@ -1245,26 +1277,26 @@ fn convert_instance_type(
                 convert_component_type(ty, enc, component, reencode, indices);
             }
             InstanceTypeDeclaration::Alias(alias) => match alias {
-                ComponentAlias::InstanceExport {
-                    kind,
-                    instance_index,
-                    name,
-                } => {
+                ComponentAlias::InstanceExport { .. } => {
+                    let ComponentAlias::InstanceExport {
+                        kind,
+                        instance_index, name,
+                    } = alias.fix(component, indices, reencode) else { panic!() };
                     ity.alias(Alias::InstanceExport {
-                        instance: *instance_index,
-                        kind: reencode.component_export_kind(*kind),
+                        instance: instance_index,
+                        kind: reencode.component_export_kind(kind),
                         name,
                     });
                 }
-                ComponentAlias::CoreInstanceExport {
-                    kind,
-                    instance_index,
-                    name,
-                } => {
+                ComponentAlias::CoreInstanceExport { .. } => {
+                    let ComponentAlias::CoreInstanceExport {
+                        kind,
+                        instance_index, name,
+                    } = alias.fix(component, indices, reencode) else { panic!() };
                     ity.alias(Alias::CoreInstanceExport {
-                        instance: *instance_index,
+                        instance: instance_index,
                         kind: do_reencode(
-                            *kind,
+                            kind,
                             RoundtripReencoder::export_kind,
                             reencode,
                             "export kind",
@@ -1272,11 +1304,12 @@ fn convert_instance_type(
                         name,
                     });
                 }
-                ComponentAlias::Outer { kind, count, index } => {
+                ComponentAlias::Outer { .. } => {
+                    let ComponentAlias::Outer {kind, count, index} = alias.fix(component, indices, reencode) else { panic!() };
                     ity.alias(Alias::Outer {
-                        kind: reencode.component_outer_alias_kind(*kind),
-                        count: *count,
-                        index: *index,
+                        kind: reencode.component_outer_alias_kind(kind),
+                        count,
+                        index
                     });
                 }
             },
