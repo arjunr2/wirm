@@ -255,49 +255,11 @@ impl Encode for ComponentType<'_> {
                         },
                         ComponentTypeDeclaration::Type(typ) => {
                             // TODO: This needs to be fixed
+                            //       infinite depth??
                             let enc = new_comp.ty();
                             convert_component_type(&(*typ).clone(), enc, component, reencode, indices);
                         }
-                        ComponentTypeDeclaration::Alias(a) => {
-                            let new_a = match a {
-                                ComponentAlias::InstanceExport { .. } => {
-                                    let ComponentAlias::InstanceExport {
-                                        kind,
-                                        instance_index, name,
-                                    } = a.fix(component, indices, reencode) else { panic!() };
-                                    Alias::InstanceExport {
-                                        instance: instance_index,
-                                        kind: reencode.component_export_kind(kind),
-                                        name,
-                                    }
-                                },
-                                ComponentAlias::CoreInstanceExport { .. } => {
-                                    let ComponentAlias::CoreInstanceExport {
-                                        kind,
-                                        instance_index, name,
-                                    } = a.fix(component, indices, reencode) else { panic!() };
-                                    Alias::CoreInstanceExport {
-                                        instance: instance_index,
-                                        kind: do_reencode(
-                                            kind,
-                                            RoundtripReencoder::export_kind,
-                                            reencode,
-                                            "export kind",
-                                        ),
-                                        name,
-                                    }
-                                },
-                                ComponentAlias::Outer { .. } => {
-                                    let ComponentAlias::Outer {kind, count, index} = a.fix(component, indices, reencode) else { panic!() };
-                                    Alias::Outer {
-                                        kind: reencode.component_outer_alias_kind(kind),
-                                        count,
-                                        index,
-                                    }
-                                },
-                            };
-                            new_comp.alias(new_a);
-                        },
+                        ComponentTypeDeclaration::Alias(a) => convert_component_alias(a, component, &mut new_comp, reencode, indices),
                         ComponentTypeDeclaration::Export { name, ty } => {
                             // NOTE: this is self-contained, so theoretically instrumentation should
                             //       insert new types that don't need to be changed.
@@ -1217,7 +1179,7 @@ fn convert_component_type(
                         let enc = new_comp.ty();
                         convert_component_type(typ, enc, component, reencode, indices);
                     }
-                    ComponentTypeDeclaration::Alias(_) => todo!(),
+                    ComponentTypeDeclaration::Alias(a) => convert_component_alias(a, component, &mut new_comp, reencode, indices),
                     ComponentTypeDeclaration::Export { name, ty } => {
                         new_comp.export(
                             name.0,
@@ -1252,6 +1214,53 @@ fn convert_component_type(
             enc.resource(reencode.val_type(*rep).unwrap(), *dtor);
         }
     }
+}
+
+fn convert_component_alias(
+    alias: &ComponentAlias,
+    component: &mut wasm_encoder::Component,
+    comp_ty: &mut wasm_encoder::ComponentType,
+    reencode: &mut RoundtripReencoder,
+    indices: &IdxSpaces
+) {
+    let new_a = match alias {
+        ComponentAlias::InstanceExport { .. } => {
+            let ComponentAlias::InstanceExport {
+                kind,
+                instance_index, name,
+            } = alias.fix(component, indices, reencode) else { panic!() };
+            Alias::InstanceExport {
+                instance: instance_index,
+                kind: reencode.component_export_kind(kind),
+                name,
+            }
+        },
+        ComponentAlias::CoreInstanceExport { .. } => {
+            let ComponentAlias::CoreInstanceExport {
+                kind,
+                instance_index, name,
+            } = alias.fix(component, indices, reencode) else { panic!() };
+            Alias::CoreInstanceExport {
+                instance: instance_index,
+                kind: do_reencode(
+                    kind,
+                    RoundtripReencoder::export_kind,
+                    reencode,
+                    "export kind",
+                ),
+                name,
+            }
+        },
+        ComponentAlias::Outer { .. } => {
+            let ComponentAlias::Outer {kind, count, index} = alias.fix(component, indices, reencode) else { panic!() };
+            Alias::Outer {
+                kind: reencode.component_outer_alias_kind(kind),
+                count,
+                index,
+            }
+        },
+    };
+    comp_ty.alias(new_a);
 }
 
 fn convert_instance_type(
