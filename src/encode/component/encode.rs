@@ -1,5 +1,3 @@
-// Phase 3
-
 use wasm_encoder::{Alias, ComponentAliasSection, ComponentFuncTypeEncoder, ComponentTypeEncoder, CoreTypeEncoder, InstanceType, ModuleArg, ModuleSection, NestedComponentSection};
 use wasm_encoder::reencode::{Reencode, ReencodeComponent, RoundtripReencoder};
 use wasmparser::{CanonicalFunction, CanonicalOption, ComponentAlias, ComponentExport, ComponentImport, ComponentInstance, ComponentInstantiationArg, ComponentType, ComponentTypeDeclaration, ComponentTypeRef, ComponentValType, CoreType, Export, Instance, InstanceTypeDeclaration, InstantiationArg, SubType, TagType, TypeRef};
@@ -9,6 +7,7 @@ use crate::ir::component::idx_spaces::{IdxSpaces, ReferencedIndices, Refs};
 use crate::ir::types::CustomSection;
 use crate::ir::wrappers::{convert_module_type_declaration, convert_recgroup, do_reencode};
 
+/// # PHASE 3 #
 /// Encodes all items in the plan into the output buffer.
 ///
 /// This method contains `unsafe` blocks to dereference raw pointers stored in `ComponentItem`s.
