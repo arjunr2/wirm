@@ -899,7 +899,10 @@ impl Encode for Instance<'_> {
 
 impl Encode for CustomSection<'_> {
     fn do_encode<'a>(&self, component: &mut wasm_encoder::Component, _indices: &IdxSpaces, _reencode: &mut RoundtripReencoder) {
-        todo!()
+        component.section(&wasm_encoder::CustomSection {
+            name: std::borrow::Cow::Borrowed(self.name),
+            data: self.data.clone(),
+        });
     }
 }
 
