@@ -96,16 +96,6 @@ pub(crate) enum ComponentItem<'a> {
     },
     // ... add others as needed
 }
-// impl<'a> ComponentItem<'a> {
-//     pub fn update_comp_metadata(&mut self, new_indices: Indices<'a>, new_map: ScopeStack) {
-//         if let Self::Component { indices, idx_spaces: map, .. } = self {
-//             *indices = new_indices;
-//             *map = new_map;
-//         } else {
-//             panic!()
-//         }
-//     }
-// }
 
 #[derive(Debug, Default)]
 pub(crate) struct ComponentPlan<'a> {

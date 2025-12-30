@@ -308,21 +308,6 @@ impl IdxSpace {
 
     pub fn index_from_assumed_id(&self, assumed_id: usize) -> Option<(SpaceSubtype, usize)> {
         // TODO -- this is EXTREMELY inefficient!!
-        // let (subty, map) = match section {
-        //     ComponentSection::ComponentImport => (SpaceSubtype::Import, &self.imports_assumed_ids),
-        //     ComponentSection::ComponentExport => (SpaceSubtype::Export, &self.exports_assumed_ids),
-        //     ComponentSection::Alias => (SpaceSubtype::Alias, &self.alias_assumed_ids),
-        //
-        //     ComponentSection::Module |
-        //     ComponentSection::CoreType |
-        //     ComponentSection::ComponentType |
-        //     ComponentSection::CoreInstance |
-        //     ComponentSection::ComponentInstance |
-        //     ComponentSection::Canon |
-        //     ComponentSection::CustomSection |
-        //     ComponentSection::Component |
-        //     ComponentSection::ComponentStartSection => (SpaceSubtype::Main, &self.main_assumed_ids)
-        // };
         let maps = vec![
             (SpaceSubtype::Main, &self.main_assumed_ids),
             (SpaceSubtype::Import, &self.imports_assumed_ids),
@@ -636,6 +621,34 @@ pub struct Refs {
     pub others: Vec<Option<Refs>>,
 }
 impl Refs {
+    pub fn comp(&self) -> &IndexedRef {
+        self.comp.as_ref().unwrap()
+    }
+    pub fn inst(&self) -> &IndexedRef {
+        self.inst.as_ref().unwrap()
+    }
+    pub fn module(&self) -> &IndexedRef {
+        self.module.as_ref().unwrap()
+    }
+    pub fn func(&self) -> &IndexedRef {
+        self.func.as_ref().unwrap()
+    }
+    pub fn ty(&self) -> &IndexedRef {
+        self.ty.as_ref().unwrap()
+    }
+    pub fn mem(&self) -> &IndexedRef {
+        self.mem.as_ref().unwrap()
+    }
+    pub fn table(&self) -> &IndexedRef {
+        self.table.as_ref().unwrap()
+    }
+    pub fn misc(&self) -> &IndexedRef {
+        self.misc.as_ref().unwrap()
+    }
+    pub fn others(&self) -> &Vec<Option<Refs>> {
+        &self.others
+    }
+
     pub fn as_list(&self) -> Vec<IndexedRef> {
         let mut res = vec![];
         let Refs {

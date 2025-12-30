@@ -7,8 +7,8 @@ use wasmparser::{
     Instance,
 };
 
-// Phase 2
-/// # Safety of Alias Index Assignment
+/// # Phase 2: ASSIGN #
+/// ## Safety of Alias Index Assignment
 ///
 /// During the assign phase, the encoder determines the final index
 /// (or "actual id") of each component item based on the order in which
@@ -19,7 +19,7 @@ use wasmparser::{
 /// (`*const ComponentAlias`) in order to inspect the alias and compute
 /// its section and external item kind.
 ///
-/// ## Invariants
+/// ### Invariants
 ///
 /// The following invariants guarantee that this operation is sound:
 ///
@@ -53,7 +53,7 @@ use wasmparser::{
 ///    the appropriate component section. This metadata is stable and
 ///    independent of the eventual binary encoding order.
 ///
-/// ## Why this happens in the assign phase
+/// ### Why this happens in the assign phase
 ///
 /// Alias entries may reference items defined earlier in the component,
 /// and their indices depend on the final emission order. The assign
@@ -66,7 +66,7 @@ use wasmparser::{
 /// Dereferencing the alias node here is necessary to compute the
 /// correct `ExternalItemKind` for index assignment.
 ///
-/// ## Safety boundary
+/// ### Safety boundary
 ///
 /// The `unsafe` block marks the point where the encoder relies on the
 /// invariants above. As long as the encode plan does not outlive the IR
@@ -77,7 +77,7 @@ use wasmparser::{
 /// mutably borrowed during the assign phase must re-evaluate this
 /// safety argument.
 ///
-/// ## Summary
+/// ### Summary
 ///
 /// - The alias pointer always refers to a live, immutable IR node
 /// - The pointer has correct type provenance
