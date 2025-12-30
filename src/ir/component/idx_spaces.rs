@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use std::fmt::Debug;
-use wasmparser::{CanonicalFunction, CanonicalOption, ComponentAlias, ComponentDefinedType, ComponentExport, ComponentExternalKind, ComponentImport, ComponentInstance, ComponentInstantiationArg, ComponentOuterAliasKind, ComponentType, ComponentTypeRef, ComponentValType, CoreType, ExternalKind, Instance, TagType, TypeRef, VariantCase};
+use wasmparser::{CanonicalFunction, CanonicalOption, ComponentAlias, ComponentDefinedType, ComponentExport, ComponentExternalKind, ComponentImport, ComponentInstance, ComponentInstantiationArg, ComponentOuterAliasKind, ComponentType, ComponentTypeRef, ComponentValType, CoreType, Export, ExternalKind, Instance, InstantiationArg, InstantiationArgKind, TagType, TypeRef, VariantCase};
 use crate::ir::section::ComponentSection;
 use crate::{Component, Module};
 
@@ -754,6 +754,51 @@ impl IndexSpaceOf for ComponentInstance<'_> {
     }
 }
 
+impl IndexSpaceOf for InstantiationArgKind {
+    fn index_space_of(&self) -> Space {
+        match self {
+            InstantiationArgKind::Instance => Space::CoreInst
+        }
+    }
+}
+
+impl IndexSpaceOf for ExternalKind {
+    fn index_space_of(&self) -> Space {
+        match self {
+            ExternalKind::Func => Space::CompFunc,
+            ExternalKind::Table => Space::CoreTable,
+            ExternalKind::Memory => Space::CoreMemory,
+            ExternalKind::Global => Space::CoreGlobal,
+            ExternalKind::Tag => Space::CoreTag,
+            ExternalKind::FuncExact => Space::CompFunc,
+        }
+    }
+}
+
+impl IndexSpaceOf for ComponentExternalKind {
+    fn index_space_of(&self) -> Space {
+        match self {
+            ComponentExternalKind::Func => Space::CompFunc,
+            ComponentExternalKind::Value => Space::CompVal,
+            ComponentExternalKind::Type => Space::CompType,
+            ComponentExternalKind::Instance => Space::CompInst,
+            ComponentExternalKind::Component => Space::CompType,
+            ComponentExternalKind::Module => Space::CoreModule,
+        }
+    }
+}
+
+impl IndexSpaceOf for ComponentOuterAliasKind {
+    fn index_space_of(&self) -> Space {
+        match self {
+            ComponentOuterAliasKind::CoreModule => Space::CoreModule,
+            ComponentOuterAliasKind::CoreType => Space::CoreType,
+            ComponentOuterAliasKind::Type => Space::CompType,
+            ComponentOuterAliasKind::Component => Space::CompInst,
+        }
+    }
+}
+
 /// To unify how I look up the referenced indices inside an IR node
 pub trait ReferencedIndices {
     fn referenced_indices(&self) -> Option<Refs>;
@@ -762,6 +807,8 @@ pub trait ReferencedIndices {
 #[derive(Default)]
 pub struct Refs {
     pub comp: Option<IndexedRef>,
+    pub inst: Option<IndexedRef>,
+    pub module: Option<IndexedRef>,
     pub func: Option<IndexedRef>,
     pub ty: Option<IndexedRef>,
     pub mem: Option<IndexedRef>,
@@ -772,10 +819,16 @@ pub struct Refs {
 impl Refs {
     pub fn as_list(&self) -> Vec<IndexedRef> {
         let mut res = vec![];
-        let Refs { comp, func, ty, mem, table, misc, others } = self;
+        let Refs { comp, inst, module, func, ty, mem, table, misc, others } = self;
 
         if let Some(comp) = comp {
             res.push(*comp);
+        }
+        if let Some(inst) = inst {
+            res.push(*inst);
+        }
+        if let Some(module) = module {
+            res.push(*module);
         }
         if let Some(func) = func {
             res.push(*func);
@@ -1026,16 +1079,8 @@ impl ReferencedIndices for ComponentValType {
 
 impl ReferencedIndices for ComponentInstantiationArg<'_> {
     fn referenced_indices(&self) -> Option<Refs> {
-        let space = match self.kind {
-            ComponentExternalKind::Func => Space::CompFunc,
-            ComponentExternalKind::Value => Space::CompVal,
-            ComponentExternalKind::Type => Space::CompType,
-            ComponentExternalKind::Instance => Space::CompInst,
-            ComponentExternalKind::Component => Space::CompType,
-            ComponentExternalKind::Module => Space::CoreModule,
-        };
         Some(Refs {
-            ty: Some(IndexedRef { space, index: self.index }),
+            ty: Some(IndexedRef { space: self.kind.index_space_of(), index: self.index }),
             ..Default::default()
         })
     }
@@ -1043,16 +1088,8 @@ impl ReferencedIndices for ComponentInstantiationArg<'_> {
 
 impl ReferencedIndices for ComponentExport<'_> {
     fn referenced_indices(&self) -> Option<Refs> {
-        let space = match self.kind {
-            ComponentExternalKind::Func => Space::CompFunc,
-            ComponentExternalKind::Value => Space::CompVal,
-            ComponentExternalKind::Type => Space::CompType,
-            ComponentExternalKind::Instance => Space::CompInst,
-            ComponentExternalKind::Component => Space::CompType,
-            ComponentExternalKind::Module => Space::CoreModule,
-        };
         Some(Refs {
-            misc: Some(IndexedRef { space, index: self.index }),
+            misc: Some(IndexedRef { space: self.kind.index_space_of(), index: self.index }),
             ty: if let Some(t) = &self.ty {
                 t.referenced_indices()?.ty
             } else {
@@ -1060,6 +1097,54 @@ impl ReferencedIndices for ComponentExport<'_> {
             },
             ..Default::default()
         })
+    }
+}
+
+impl ReferencedIndices for Export<'_> {
+    fn referenced_indices(&self) -> Option<Refs> {
+        Some(Refs {
+            misc: Some(IndexedRef { space: self.kind.index_space_of(), index: self.index }),
+            ..Default::default()
+        })
+    }
+}
+
+impl ReferencedIndices for InstantiationArg<'_> {
+    fn referenced_indices(&self) -> Option<Refs> {
+        Some(Refs {
+            misc: Some(IndexedRef { space: self.kind.index_space_of(), index: self.index }),
+            ..Default::default()
+        })
+    }
+}
+
+impl ReferencedIndices for Instance<'_> {
+    fn referenced_indices(&self) -> Option<Refs> {
+        match self {
+            Instance::Instantiate { module_index, args } => {
+                let mut others = vec![];
+                // Recursively include indices from options
+                for arg in args.iter() {
+                    others.push(arg.referenced_indices());
+                }
+                Some(Refs {
+                    module: Some(IndexedRef { space: Space::CoreModule, index: *module_index }),
+                    others,
+                    ..Default::default()
+                })
+            }
+            Instance::FromExports(exports) => {
+                let mut others = vec![];
+                // Recursively include indices from options
+                for exp in exports.iter() {
+                    others.push(exp.referenced_indices());
+                }
+                Some(Refs {
+                    others,
+                    ..Default::default()
+                })
+            }
+        }
     }
 }
 
@@ -1074,6 +1159,32 @@ impl ReferencedIndices for TypeRef {
                 }
             ),
             _ => None
+        }
+    }
+}
+
+impl ReferencedIndices for ComponentAlias<'_> {
+    fn referenced_indices(&self) -> Option<Refs> {
+        let space = self.index_space_of();
+        match self {
+            ComponentAlias::InstanceExport { instance_index, .. } => Some(
+                Refs {
+                    ty: Some(IndexedRef { space, index: *instance_index }),
+                    ..Default::default()
+                }
+            ),
+            ComponentAlias::CoreInstanceExport { instance_index, .. } => Some(
+                Refs {
+                    ty: Some(IndexedRef { space, index: *instance_index }),
+                    ..Default::default()
+                }
+            ),
+            ComponentAlias::Outer { index, .. } => Some(
+                Refs {
+                    misc: Some(IndexedRef { space, index: *index }),
+                    ..Default::default()
+                }
+            ),
         }
     }
 }

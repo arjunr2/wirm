@@ -137,9 +137,9 @@ impl<'a> Component<'a> {
                    "no-name"
                },
                if let ComponentAlias::InstanceExport {instance_index, ..} | ComponentAlias::CoreInstanceExport {instance_index, ..} = &alias {
-                   &format!("{instance_index}")
+                   format!("{instance_index}")
                } else {
-                   "NA"
+                   "NA".to_string()
                },
                self.canons.items.len()
         );
