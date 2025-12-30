@@ -1,4 +1,3 @@
-
 mod common;
 use common::{write_to_file, WASM_OUTPUT_DIR};
 use wirm::Component;

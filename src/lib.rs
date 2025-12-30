@@ -16,8 +16,8 @@
 //! [Dfinity's IC]: https://github.com/dfinity/ic/tree/master/rs/wasm_transform
 //! [Walrus]: https://github.com/rustwasm/walrus/tree/main
 
-mod error;
 mod encode;
+mod error;
 pub mod ir;
 pub mod iterator;
 pub mod module_builder;

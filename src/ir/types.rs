@@ -245,8 +245,7 @@ impl From<ValType> for DataType {
                     wasmparser::AbstractHeapType::Cont => DataType::Cont,
                     wasmparser::AbstractHeapType::NoCont => DataType::NoCont,
                 },
-                HeapType::Concrete(u)
-                | HeapType::Exact(u) => match u {
+                HeapType::Concrete(u) | HeapType::Exact(u) => match u {
                     UnpackedIndex::Module(idx) => DataType::Module {
                         ty_id: *ModuleID(idx),
                         nullable: ref_type.is_nullable(),
@@ -1875,7 +1874,7 @@ impl InitExpr {
                             } else {
                                 panic!("Did not unpack concrete type!")
                             }
-                        },
+                        }
                         HeapType::Exact(id) => {
                             if let Some(mod_id) = id.as_module_index() {
                                 wasm_encoder::HeapType::Exact(mod_id)
@@ -1886,7 +1885,7 @@ impl InitExpr {
                             } else {
                                 panic!("Did not unpack concrete type!")
                             }
-                        },
+                        }
                     })
                     .encode(&mut bytes)
                 }

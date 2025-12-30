@@ -212,8 +212,6 @@ impl std::ops::DerefMut for ElementID {
     }
 }
 
-
-
 /// ComponentTypeId in a Component
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct ComponentTypeId(pub u32);

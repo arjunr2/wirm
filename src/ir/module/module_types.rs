@@ -375,7 +375,7 @@ impl ModuleTypes {
             shared,
             descriptor,
             describes,
-            Tag::default()
+            Tag::default(),
         )
     }
     pub fn add_func_type_with_params_with_tag(
@@ -389,7 +389,16 @@ impl ModuleTypes {
         describes: Option<u32>,
         tag: Tag,
     ) -> TypeID {
-        self.add_func_type_with_params_internal(param, ret, super_type, is_final, shared, descriptor, describes, Some(tag))
+        self.add_func_type_with_params_internal(
+            param,
+            ret,
+            super_type,
+            is_final,
+            shared,
+            descriptor,
+            describes,
+            Some(tag),
+        )
     }
     pub(crate) fn add_func_type_with_params_internal(
         &mut self,
@@ -420,9 +429,13 @@ impl ModuleTypes {
     }
 
     /// Add a new array type to the module. Assumes no `super_type` and `is_final` is `true`
-    pub fn add_array_type(&mut self, field_type: DataType, mutable: bool,
-                          descriptor: Option<u32>,
-                          describes: Option<u32>) -> TypeID {
+    pub fn add_array_type(
+        &mut self,
+        field_type: DataType,
+        mutable: bool,
+        descriptor: Option<u32>,
+        describes: Option<u32>,
+    ) -> TypeID {
         self.add_array_type_with_tag(field_type, mutable, descriptor, describes, Tag::default())
     }
     pub fn add_array_type_with_tag(
@@ -530,9 +543,13 @@ impl ModuleTypes {
     }
 
     /// Add a new struct type to the module. Assumes no `super_type` and `is_final` is `true`
-    pub fn add_struct_type(&mut self, field_type: Vec<DataType>, mutable: Vec<bool>,
-                           descriptor: Option<u32>,
-                           describes: Option<u32>) -> TypeID {
+    pub fn add_struct_type(
+        &mut self,
+        field_type: Vec<DataType>,
+        mutable: Vec<bool>,
+        descriptor: Option<u32>,
+        describes: Option<u32>,
+    ) -> TypeID {
         self.add_struct_type_with_tag(field_type, mutable, descriptor, describes, Tag::default())
     }
     pub fn add_struct_type_with_tag(

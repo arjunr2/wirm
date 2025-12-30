@@ -56,14 +56,14 @@ pub fn convert_module_type_declaration(
 
 pub fn convert_recgroup(
     recgroup: &RecGroup,
-    reencode: &mut RoundtripReencoder
+    reencode: &mut RoundtripReencoder,
 ) -> Vec<wasm_encoder::SubType> {
     recgroup
         .types()
         .map(|ty| {
-            reencode.sub_type(ty.to_owned()).unwrap_or_else(|_| {
-                panic!("Could not encode type as subtype: {:?}", ty)
-            })
+            reencode
+                .sub_type(ty.to_owned())
+                .unwrap_or_else(|_| panic!("Could not encode type as subtype: {:?}", ty))
         })
         .collect::<Vec<_>>()
 }

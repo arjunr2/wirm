@@ -1,11 +1,19 @@
-use wasm_encoder::{Alias, ComponentAliasSection, ComponentFuncTypeEncoder, ComponentTypeEncoder, CoreTypeEncoder, InstanceType, ModuleArg, ModuleSection, NestedComponentSection};
-use wasm_encoder::reencode::{Reencode, ReencodeComponent, RoundtripReencoder};
-use wasmparser::{CanonicalFunction, CanonicalOption, ComponentAlias, ComponentExport, ComponentImport, ComponentInstance, ComponentInstantiationArg, ComponentStartFunction, ComponentType, ComponentTypeDeclaration, ComponentTypeRef, ComponentValType, CoreType, Export, Instance, InstanceTypeDeclaration, InstantiationArg, SubType, TagType, TypeRef};
-use crate::{Component, Module};
 use crate::encode::component::collect::{ComponentItem, ComponentPlan};
 use crate::ir::component::idx_spaces::{IdxSpaces, ReferencedIndices, Refs};
 use crate::ir::types::CustomSection;
 use crate::ir::wrappers::{convert_module_type_declaration, convert_recgroup, do_reencode};
+use crate::{Component, Module};
+use wasm_encoder::reencode::{Reencode, ReencodeComponent, RoundtripReencoder};
+use wasm_encoder::{
+    Alias, ComponentAliasSection, ComponentFuncTypeEncoder, ComponentTypeEncoder, CoreTypeEncoder,
+    InstanceType, ModuleArg, ModuleSection, NestedComponentSection,
+};
+use wasmparser::{
+    CanonicalFunction, CanonicalOption, ComponentAlias, ComponentExport, ComponentImport,
+    ComponentInstance, ComponentInstantiationArg, ComponentStartFunction, ComponentType,
+    ComponentTypeDeclaration, ComponentTypeRef, ComponentValType, CoreType, Export, Instance,
+    InstanceTypeDeclaration, InstantiationArg, SubType, TagType, TypeRef,
+};
 
 /// # PHASE 3 #
 /// Encodes all items in the plan into the output buffer.
@@ -16,17 +24,26 @@ use crate::ir::wrappers::{convert_module_type_declaration, convert_recgroup, do_
 /// - The IR is immutable and never deallocated during encoding.
 /// - Collection and index assignment phases guarantee that all references exist and are topologically ordered.
 /// - Unsafe blocks are minimal, scoped only to dereference pointers; all other logic is fully safe.
-pub(crate) fn encode_internal<'a>(comp: &Component, plan: &ComponentPlan<'a>, indices: &IdxSpaces) -> wasm_encoder::Component {
+pub(crate) fn encode_internal<'a>(
+    comp: &Component,
+    plan: &ComponentPlan<'a>,
+    indices: &IdxSpaces,
+) -> wasm_encoder::Component {
     let mut component = wasm_encoder::Component::new();
     let mut reencode = RoundtripReencoder;
 
     for item in &plan.items {
         match item {
-            ComponentItem::Component { node, plan: subplan, indices: subindices, .. } => unsafe {
+            ComponentItem::Component {
+                node,
+                plan: subplan,
+                indices: subindices,
+                ..
+            } => unsafe {
                 let subcomp: &Component = &**node;
-                component.section(&NestedComponentSection(
-                    &encode_internal(subcomp, subplan, subindices)
-                ));
+                component.section(&NestedComponentSection(&encode_internal(
+                    subcomp, subplan, subindices,
+                )));
             },
             ComponentItem::Module { node, .. } => unsafe {
                 let t: &Module = &**node;
@@ -104,25 +121,42 @@ pub(crate) fn encode_internal<'a>(comp: &Component, plan: &ComponentPlan<'a>, in
     component
 }
 
-
 trait Encode {
-    fn do_encode<'a>(&self, component: &mut wasm_encoder::Component, indices: &IdxSpaces, reencode: &mut RoundtripReencoder);
+    fn do_encode<'a>(
+        &self,
+        component: &mut wasm_encoder::Component,
+        indices: &IdxSpaces,
+        reencode: &mut RoundtripReencoder,
+    );
 }
 
 pub(crate) trait FixIndices {
-    fn fix<'a>(&self, component: &mut wasm_encoder::Component, indices: &IdxSpaces, reencode: &mut RoundtripReencoder) -> Self;
+    fn fix<'a>(
+        &self,
+        component: &mut wasm_encoder::Component,
+        indices: &IdxSpaces,
+        reencode: &mut RoundtripReencoder,
+    ) -> Self;
 }
 
 impl Encode for Module<'_> {
-    fn do_encode<'a>(&self, component: &mut wasm_encoder::Component, _: &IdxSpaces, _: &mut RoundtripReencoder) {
-        component.section(&ModuleSection(
-            &self.encode_internal(false).0,
-        ));
+    fn do_encode<'a>(
+        &self,
+        component: &mut wasm_encoder::Component,
+        _: &IdxSpaces,
+        _: &mut RoundtripReencoder,
+    ) {
+        component.section(&ModuleSection(&self.encode_internal(false).0));
     }
 }
 
 impl Encode for ComponentType<'_> {
-    fn do_encode<'a>(&self, component: &mut wasm_encoder::Component, indices: &IdxSpaces, reencode: &mut RoundtripReencoder) {
+    fn do_encode<'a>(
+        &self,
+        component: &mut wasm_encoder::Component,
+        indices: &IdxSpaces,
+        reencode: &mut RoundtripReencoder,
+    ) {
         let mut component_ty_section = wasm_encoder::ComponentTypeSection::new();
 
         match &self {
@@ -133,12 +167,10 @@ impl Encode for ComponentType<'_> {
                         enc.primitive(wasm_encoder::PrimitiveValType::from(*p))
                     }
                     wasmparser::ComponentDefinedType::Record(records) => {
-                        enc.record(
-                            records.iter().map(|(n, ty)| {
-                                let fixed_ty = ty.fix(component, indices, reencode);
-                                (*n, reencode.component_val_type(fixed_ty))
-                            }),
-                        );
+                        enc.record(records.iter().map(|(n, ty)| {
+                            let fixed_ty = ty.fix(component, indices, reencode);
+                            (*n, reencode.component_val_type(fixed_ty))
+                        }));
                     }
                     wasmparser::ComponentDefinedType::Variant(variants) => {
                         enc.variant(variants.iter().map(|variant| {
@@ -156,13 +188,12 @@ impl Encode for ComponentType<'_> {
                         let fixed_ty = l.fix(component, indices, reencode);
                         enc.list(reencode.component_val_type(fixed_ty))
                     }
-                    wasmparser::ComponentDefinedType::Tuple(tup) => enc.tuple(
-                        tup.iter()
-                            .map(|val_type| {
-                                let fixed_ty = val_type.fix(component, indices, reencode);
-                                reencode.component_val_type(fixed_ty)
-                            }),
-                    ),
+                    wasmparser::ComponentDefinedType::Tuple(tup) => {
+                        enc.tuple(tup.iter().map(|val_type| {
+                            let fixed_ty = val_type.fix(component, indices, reencode);
+                            reencode.component_val_type(fixed_ty)
+                        }))
+                    }
                     wasmparser::ComponentDefinedType::Flags(flags) => {
                         enc.flags(flags.clone().into_vec().into_iter())
                     }
@@ -184,31 +215,31 @@ impl Encode for ComponentType<'_> {
                         }),
                     ),
                     wasmparser::ComponentDefinedType::Own(_) => {
-                        let Some(Refs { ty: Some(ty), ..}) = comp_ty.referenced_indices() else {
+                        let Some(Refs { ty: Some(ty), .. }) = comp_ty.referenced_indices() else {
                             panic!()
                         };
                         let id = indices.lookup_actual_id_or_panic(&ty);
                         enc.own(id as u32)
-                    },
+                    }
                     wasmparser::ComponentDefinedType::Borrow(_) => {
-                        let Some(Refs { ty: Some(ty), ..}) = comp_ty.referenced_indices() else {
+                        let Some(Refs { ty: Some(ty), .. }) = comp_ty.referenced_indices() else {
                             panic!()
                         };
                         let id = indices.lookup_actual_id_or_panic(&ty);
                         enc.borrow(id as u32)
-                    },
+                    }
                     wasmparser::ComponentDefinedType::Future(opt) => match opt {
                         Some(u) => {
                             let fixed_ty = u.fix(component, indices, reencode);
                             enc.future(Some(reencode.component_val_type(fixed_ty)))
-                        },
+                        }
                         None => enc.future(None),
                     },
                     wasmparser::ComponentDefinedType::Stream(opt) => match opt {
                         Some(u) => {
                             let fixed_ty = u.fix(component, indices, reencode);
                             enc.stream(Some(reencode.component_val_type(fixed_ty)))
-                        },
+                        }
                         None => enc.stream(None),
                     },
                     wasmparser::ComponentDefinedType::FixedSizeList(ty, i) => {
@@ -219,12 +250,10 @@ impl Encode for ComponentType<'_> {
             }
             ComponentType::Func(func_ty) => {
                 let mut enc = component_ty_section.function();
-                enc.params(func_ty.params.iter().map(
-                    |p: &(&str, ComponentValType)| {
-                        let fixed_ty = p.1.fix(component, indices, reencode);
-                        (p.0, reencode.component_val_type(fixed_ty))
-                    },
-                ));
+                enc.params(func_ty.params.iter().map(|p: &(&str, ComponentValType)| {
+                    let fixed_ty = p.1.fix(component, indices, reencode);
+                    (p.0, reencode.component_val_type(fixed_ty))
+                }));
                 enc.result(func_ty.result.map(|v| {
                     let fixed_ty = v.fix(component, indices, reencode);
                     reencode.component_val_type(fixed_ty)
@@ -260,9 +289,17 @@ impl Encode for ComponentType<'_> {
                             // TODO: This needs to be fixed
                             //       infinite depth??
                             let enc = new_comp.ty();
-                            convert_component_type(&(*typ).clone(), enc, component, reencode, indices);
+                            convert_component_type(
+                                &(*typ).clone(),
+                                enc,
+                                component,
+                                reencode,
+                                indices,
+                            );
                         }
-                        ComponentTypeDeclaration::Alias(a) => convert_component_alias(a, component, &mut new_comp, reencode, indices),
+                        ComponentTypeDeclaration::Alias(a) => {
+                            convert_component_alias(a, component, &mut new_comp, reencode, indices)
+                        }
                         ComponentTypeDeclaration::Export { name, ty } => {
                             // NOTE: this is self-contained, so theoretically instrumentation should
                             //       insert new types that don't need to be changed.
@@ -297,7 +334,8 @@ impl Encode for ComponentType<'_> {
             }
             ComponentType::Instance(inst) => {
                 // TODO: This needs to be fixed
-                component_ty_section.instance(&convert_instance_type(inst, component, reencode, indices));
+                component_ty_section
+                    .instance(&convert_instance_type(inst, component, reencode, indices));
             }
             ComponentType::Resource { rep, dtor } => {
                 // TODO: This needs to be fixed (the dtor likely points to a function)
@@ -310,15 +348,20 @@ impl Encode for ComponentType<'_> {
 }
 
 impl Encode for ComponentInstance<'_> {
-    fn do_encode<'a>(&self, component: &mut wasm_encoder::Component, indices: &IdxSpaces, reencode: &mut RoundtripReencoder) {
+    fn do_encode<'a>(
+        &self,
+        component: &mut wasm_encoder::Component,
+        indices: &IdxSpaces,
+        reencode: &mut RoundtripReencoder,
+    ) {
         let mut instances = wasm_encoder::ComponentInstanceSection::new();
 
         match self {
-            ComponentInstance::Instantiate {
-                args,
-                ..
-            } => {
-                let Some(Refs { comp: Some(comp), ..}) = self.referenced_indices() else {
+            ComponentInstance::Instantiate { args, .. } => {
+                let Some(Refs {
+                    comp: Some(comp), ..
+                }) = self.referenced_indices()
+                else {
                     panic!()
                 };
                 let new_id = indices.lookup_actual_id_or_panic(&comp);
@@ -352,7 +395,12 @@ impl Encode for ComponentInstance<'_> {
 }
 
 impl Encode for CanonicalFunction {
-    fn do_encode<'a>(&self, component: &mut wasm_encoder::Component, indices: &IdxSpaces, reencode: &mut RoundtripReencoder) {
+    fn do_encode<'a>(
+        &self,
+        component: &mut wasm_encoder::Component,
+        indices: &IdxSpaces,
+        reencode: &mut RoundtripReencoder,
+    ) {
         let mut canon_sec = wasm_encoder::CanonicalFunctionSection::new();
 
         match self {
@@ -360,7 +408,12 @@ impl Encode for CanonicalFunction {
                 options: options_orig,
                 ..
             } => {
-                let Some(Refs { func: Some(func), ty: Some(ty),..}) = self.referenced_indices() else {
+                let Some(Refs {
+                    func: Some(func),
+                    ty: Some(ty),
+                    ..
+                }) = self.referenced_indices()
+                else {
                     panic!()
                 };
                 let new_fid = indices.lookup_actual_id_or_panic(&func);
@@ -387,7 +440,10 @@ impl Encode for CanonicalFunction {
                 options: options_orig,
                 ..
             } => {
-                let Some(Refs { func: Some(func), ..}) = self.referenced_indices() else {
+                let Some(Refs {
+                    func: Some(func), ..
+                }) = self.referenced_indices()
+                else {
                     panic!()
                 };
                 let mut fixed_options = vec![];
@@ -409,28 +465,28 @@ impl Encode for CanonicalFunction {
                 );
             }
             CanonicalFunction::ResourceNew { .. } => {
-                let Some(Refs { ty: Some(ty),..}) = self.referenced_indices() else {
+                let Some(Refs { ty: Some(ty), .. }) = self.referenced_indices() else {
                     panic!()
                 };
                 let new_tid = indices.lookup_actual_id_or_panic(&ty);
                 canon_sec.resource_new(new_tid as u32);
             }
             CanonicalFunction::ResourceDrop { .. } => {
-                let Some(Refs { ty: Some(ty),..}) = self.referenced_indices() else {
+                let Some(Refs { ty: Some(ty), .. }) = self.referenced_indices() else {
                     panic!()
                 };
                 let new_tid = indices.lookup_actual_id_or_panic(&ty);
                 canon_sec.resource_drop(new_tid as u32);
             }
             CanonicalFunction::ResourceRep { .. } => {
-                let Some(Refs { ty: Some(ty),..}) = self.referenced_indices() else {
+                let Some(Refs { ty: Some(ty), .. }) = self.referenced_indices() else {
                     panic!()
                 };
                 let new_tid = indices.lookup_actual_id_or_panic(&ty);
                 canon_sec.resource_rep(new_tid as u32);
             }
             CanonicalFunction::ResourceDropAsync { .. } => {
-                let Some(Refs { ty: Some(ty),..}) = self.referenced_indices() else {
+                let Some(Refs { ty: Some(ty), .. }) = self.referenced_indices() else {
                     panic!()
                 };
                 let new_tid = indices.lookup_actual_id_or_panic(&ty);
@@ -442,7 +498,10 @@ impl Encode for CanonicalFunction {
             CanonicalFunction::BackpressureSet => {
                 canon_sec.backpressure_set();
             }
-            CanonicalFunction::TaskReturn { result, options: options_orig } => {
+            CanonicalFunction::TaskReturn {
+                result,
+                options: options_orig,
+            } => {
                 let mut fixed_options = vec![];
                 for opt in options_orig.iter() {
                     fixed_options.push(opt.fix(component, indices, reencode).into());
@@ -458,7 +517,7 @@ impl Encode for CanonicalFunction {
             }
             CanonicalFunction::WaitableSetWait { cancellable, .. } => {
                 // NOTE: There's a discrepancy in naming here. `cancellable` refers to the same bit as `async_`
-                let Some(Refs { mem: Some(mem),..}) = self.referenced_indices() else {
+                let Some(Refs { mem: Some(mem), .. }) = self.referenced_indices() else {
                     panic!()
                 };
                 let new_mid = indices.lookup_actual_id_or_panic(&mem);
@@ -466,7 +525,7 @@ impl Encode for CanonicalFunction {
             }
             CanonicalFunction::WaitableSetPoll { cancellable, .. } => {
                 // NOTE: There's a discrepancy in naming here. `cancellable` refers to the same bit as `async_`
-                let Some(Refs { mem: Some(mem),..}) = self.referenced_indices() else {
+                let Some(Refs { mem: Some(mem), .. }) = self.referenced_indices() else {
                     panic!()
                 };
                 let new_mid = indices.lookup_actual_id_or_panic(&mem);
@@ -482,14 +541,17 @@ impl Encode for CanonicalFunction {
                 canon_sec.subtask_drop();
             }
             CanonicalFunction::StreamNew { .. } => {
-                let Some(Refs { ty: Some(ty),..}) = self.referenced_indices() else {
+                let Some(Refs { ty: Some(ty), .. }) = self.referenced_indices() else {
                     panic!()
                 };
                 let new_tid = indices.lookup_actual_id_or_panic(&ty);
                 canon_sec.stream_new(new_tid as u32);
             }
-            CanonicalFunction::StreamRead {options: options_orig, .. } => {
-                let Some(Refs { ty: Some(ty),..}) = self.referenced_indices() else {
+            CanonicalFunction::StreamRead {
+                options: options_orig,
+                ..
+            } => {
+                let Some(Refs { ty: Some(ty), .. }) = self.referenced_indices() else {
                     panic!()
                 };
                 let new_tid = indices.lookup_actual_id_or_panic(&ty);
@@ -499,13 +561,13 @@ impl Encode for CanonicalFunction {
                     fixed_options.push(opt.fix(component, indices, reencode).into());
                 }
 
-                canon_sec.stream_read(
-                    new_tid as u32,
-                    fixed_options
-                );
+                canon_sec.stream_read(new_tid as u32, fixed_options);
             }
-            CanonicalFunction::StreamWrite { options: options_orig, .. } => {
-                let Some(Refs { ty: Some(ty),..}) = self.referenced_indices() else {
+            CanonicalFunction::StreamWrite {
+                options: options_orig,
+                ..
+            } => {
+                let Some(Refs { ty: Some(ty), .. }) = self.referenced_indices() else {
                     panic!()
                 };
                 let new_tid = indices.lookup_actual_id_or_panic(&ty);
@@ -515,34 +577,34 @@ impl Encode for CanonicalFunction {
                     fixed_options.push(opt.fix(component, indices, reencode).into());
                 }
 
-                canon_sec.stream_write(
-                    new_tid as u32,
-                    fixed_options
-                );
+                canon_sec.stream_write(new_tid as u32, fixed_options);
             }
             CanonicalFunction::StreamCancelRead { async_, .. } => {
-                let Some(Refs { ty: Some(ty),..}) = self.referenced_indices() else {
+                let Some(Refs { ty: Some(ty), .. }) = self.referenced_indices() else {
                     panic!()
                 };
                 let new_tid = indices.lookup_actual_id_or_panic(&ty);
                 canon_sec.stream_cancel_read(new_tid as u32, *async_);
             }
             CanonicalFunction::StreamCancelWrite { async_, .. } => {
-                let Some(Refs { ty: Some(ty),..}) = self.referenced_indices() else {
+                let Some(Refs { ty: Some(ty), .. }) = self.referenced_indices() else {
                     panic!()
                 };
                 let new_tid = indices.lookup_actual_id_or_panic(&ty);
                 canon_sec.stream_cancel_write(new_tid as u32, *async_);
             }
             CanonicalFunction::FutureNew { .. } => {
-                let Some(Refs { ty: Some(ty),..}) = self.referenced_indices() else {
+                let Some(Refs { ty: Some(ty), .. }) = self.referenced_indices() else {
                     panic!()
                 };
                 let new_tid = indices.lookup_actual_id_or_panic(&ty);
                 canon_sec.future_new(new_tid as u32);
             }
-            CanonicalFunction::FutureRead { options: options_orig, .. } => {
-                let Some(Refs { ty: Some(ty),..}) = self.referenced_indices() else {
+            CanonicalFunction::FutureRead {
+                options: options_orig,
+                ..
+            } => {
+                let Some(Refs { ty: Some(ty), .. }) = self.referenced_indices() else {
                     panic!()
                 };
                 let new_tid = indices.lookup_actual_id_or_panic(&ty);
@@ -551,13 +613,13 @@ impl Encode for CanonicalFunction {
                 for opt in options_orig.iter() {
                     fixed_options.push(opt.fix(component, indices, reencode).into());
                 }
-                canon_sec.future_read(
-                    new_tid as u32,
-                    fixed_options
-                );
+                canon_sec.future_read(new_tid as u32, fixed_options);
             }
-            CanonicalFunction::FutureWrite { options: options_orig, .. } => {
-                let Some(Refs { ty: Some(ty),..}) = self.referenced_indices() else {
+            CanonicalFunction::FutureWrite {
+                options: options_orig,
+                ..
+            } => {
+                let Some(Refs { ty: Some(ty), .. }) = self.referenced_indices() else {
                     panic!()
                 };
                 let new_tid = indices.lookup_actual_id_or_panic(&ty);
@@ -566,55 +628,57 @@ impl Encode for CanonicalFunction {
                 for opt in options_orig.iter() {
                     fixed_options.push(opt.fix(component, indices, reencode).into());
                 }
-                canon_sec.future_write(
-                    new_tid as u32,
-                    fixed_options
-                );
+                canon_sec.future_write(new_tid as u32, fixed_options);
             }
             CanonicalFunction::FutureCancelRead { async_, .. } => {
-                let Some(Refs { ty: Some(ty),..}) = self.referenced_indices() else {
+                let Some(Refs { ty: Some(ty), .. }) = self.referenced_indices() else {
                     panic!()
                 };
                 let new_tid = indices.lookup_actual_id_or_panic(&ty);
                 canon_sec.future_cancel_read(new_tid as u32, *async_);
             }
             CanonicalFunction::FutureCancelWrite { async_, .. } => {
-                let Some(Refs { ty: Some(ty),..}) = self.referenced_indices() else {
+                let Some(Refs { ty: Some(ty), .. }) = self.referenced_indices() else {
                     panic!()
                 };
                 let new_tid = indices.lookup_actual_id_or_panic(&ty);
                 canon_sec.future_cancel_write(new_tid as u32, *async_);
             }
-            CanonicalFunction::ErrorContextNew { options: options_orig } => {
+            CanonicalFunction::ErrorContextNew {
+                options: options_orig,
+            } => {
                 let mut fixed_options = vec![];
                 for opt in options_orig.iter() {
                     fixed_options.push(opt.fix(component, indices, reencode).into());
                 }
-                canon_sec.error_context_new(
-                    fixed_options
-                );
+                canon_sec.error_context_new(fixed_options);
             }
-            CanonicalFunction::ErrorContextDebugMessage { options: options_orig } => {
+            CanonicalFunction::ErrorContextDebugMessage {
+                options: options_orig,
+            } => {
                 let mut fixed_options = vec![];
                 for opt in options_orig.iter() {
                     fixed_options.push(opt.fix(component, indices, reencode).into());
                 }
-                canon_sec.error_context_debug_message(
-                    fixed_options
-                );
+                canon_sec.error_context_debug_message(fixed_options);
             }
             CanonicalFunction::ErrorContextDrop => {
                 canon_sec.error_context_drop();
             }
             CanonicalFunction::ThreadSpawnRef { .. } => {
-                let Some(Refs { ty: Some(ty),..}) = self.referenced_indices() else {
+                let Some(Refs { ty: Some(ty), .. }) = self.referenced_indices() else {
                     panic!()
                 };
                 let new_tid = indices.lookup_actual_id_or_panic(&ty);
                 canon_sec.thread_spawn_ref(new_tid as u32);
             }
             CanonicalFunction::ThreadSpawnIndirect { .. } => {
-                let Some(Refs { ty: Some(ty), table: Some(table),..}) = self.referenced_indices() else {
+                let Some(Refs {
+                    ty: Some(ty),
+                    table: Some(table),
+                    ..
+                }) = self.referenced_indices()
+                else {
                     panic!()
                 };
                 let new_tid = indices.lookup_actual_id_or_panic(&ty);
@@ -634,28 +698,28 @@ impl Encode for CanonicalFunction {
                 canon_sec.subtask_cancel(*async_);
             }
             CanonicalFunction::StreamDropReadable { .. } => {
-                let Some(Refs { ty: Some(ty),..}) = self.referenced_indices() else {
+                let Some(Refs { ty: Some(ty), .. }) = self.referenced_indices() else {
                     panic!()
                 };
                 let new_tid = indices.lookup_actual_id_or_panic(&ty);
                 canon_sec.stream_drop_readable(new_tid as u32);
             }
             CanonicalFunction::StreamDropWritable { .. } => {
-                let Some(Refs { ty: Some(ty),..}) = self.referenced_indices() else {
+                let Some(Refs { ty: Some(ty), .. }) = self.referenced_indices() else {
                     panic!()
                 };
                 let new_tid = indices.lookup_actual_id_or_panic(&ty);
                 canon_sec.stream_drop_writable(new_tid as u32);
             }
             CanonicalFunction::FutureDropReadable { .. } => {
-                let Some(Refs { ty: Some(ty),..}) = self.referenced_indices() else {
+                let Some(Refs { ty: Some(ty), .. }) = self.referenced_indices() else {
                     panic!()
                 };
                 let new_tid = indices.lookup_actual_id_or_panic(&ty);
                 canon_sec.future_drop_readable(new_tid as u32);
             }
             CanonicalFunction::FutureDropWritable { .. } => {
-                let Some(Refs { ty: Some(ty),..}) = self.referenced_indices() else {
+                let Some(Refs { ty: Some(ty), .. }) = self.referenced_indices() else {
                     panic!()
                 };
                 let new_tid = indices.lookup_actual_id_or_panic(&ty);
@@ -674,7 +738,12 @@ impl Encode for CanonicalFunction {
                 canon_sec.thread_index();
             }
             CanonicalFunction::ThreadNewIndirect { .. } => {
-                let Some(Refs { ty: Some(ty), table: Some(table),..}) = self.referenced_indices() else {
+                let Some(Refs {
+                    ty: Some(ty),
+                    table: Some(table),
+                    ..
+                }) = self.referenced_indices()
+                else {
                     panic!()
                 };
                 let new_tid = indices.lookup_actual_id_or_panic(&ty);
@@ -699,25 +768,38 @@ impl Encode for CanonicalFunction {
 }
 
 impl Encode for ComponentAlias<'_> {
-    fn do_encode<'a>(&self, component: &mut wasm_encoder::Component, indices: &IdxSpaces, reencode: &mut RoundtripReencoder) {
+    fn do_encode<'a>(
+        &self,
+        component: &mut wasm_encoder::Component,
+        indices: &IdxSpaces,
+        reencode: &mut RoundtripReencoder,
+    ) {
         let mut alias = ComponentAliasSection::new();
         let a = match self {
             ComponentAlias::InstanceExport { .. } => {
                 let ComponentAlias::InstanceExport {
                     kind,
-                    instance_index, name,
-                } = self.fix(component, indices, reencode) else { panic!() };
+                    instance_index,
+                    name,
+                } = self.fix(component, indices, reencode)
+                else {
+                    panic!()
+                };
                 Alias::InstanceExport {
                     instance: instance_index,
                     kind: reencode.component_export_kind(kind),
                     name,
                 }
-            },
+            }
             ComponentAlias::CoreInstanceExport { .. } => {
                 let ComponentAlias::CoreInstanceExport {
                     kind,
-                    instance_index, name,
-                } = self.fix(component, indices, reencode) else { panic!() };
+                    instance_index,
+                    name,
+                } = self.fix(component, indices, reencode)
+                else {
+                    panic!()
+                };
                 Alias::CoreInstanceExport {
                     instance: instance_index,
                     kind: do_reencode(
@@ -728,15 +810,19 @@ impl Encode for ComponentAlias<'_> {
                     ),
                     name,
                 }
-            },
+            }
             ComponentAlias::Outer { .. } => {
-                let ComponentAlias::Outer { kind, count, index } = self.fix(component, indices, reencode) else { panic!() };
+                let ComponentAlias::Outer { kind, count, index } =
+                    self.fix(component, indices, reencode)
+                else {
+                    panic!()
+                };
                 Alias::Outer {
                     kind: reencode.component_outer_alias_kind(kind),
                     count,
-                    index
+                    index,
                 }
-            },
+            }
         };
 
         alias.alias(a);
@@ -745,7 +831,12 @@ impl Encode for ComponentAlias<'_> {
 }
 
 impl Encode for ComponentImport<'_> {
-    fn do_encode<'a>(&self, component: &mut wasm_encoder::Component, indices: &IdxSpaces, reencode: &mut RoundtripReencoder) {
+    fn do_encode<'a>(
+        &self,
+        component: &mut wasm_encoder::Component,
+        indices: &IdxSpaces,
+        reencode: &mut RoundtripReencoder,
+    ) {
         let mut imports = wasm_encoder::ComponentImportSection::new();
 
         let fixed_ty = self.ty.fix(component, indices, reencode);
@@ -762,7 +853,12 @@ impl Encode for ComponentImport<'_> {
 }
 
 impl Encode for ComponentExport<'_> {
-    fn do_encode<'a>(&self, component: &mut wasm_encoder::Component, indices: &IdxSpaces, reencode: &mut RoundtripReencoder) {
+    fn do_encode<'a>(
+        &self,
+        component: &mut wasm_encoder::Component,
+        indices: &IdxSpaces,
+        reencode: &mut RoundtripReencoder,
+    ) {
         let mut exports = wasm_encoder::ComponentExportSection::new();
 
         let res = self.ty.map(|ty| {
@@ -792,7 +888,12 @@ impl Encode for ComponentExport<'_> {
 }
 
 impl Encode for CoreType<'_> {
-    fn do_encode<'a>(&self, component: &mut wasm_encoder::Component, indices: &IdxSpaces, reencode: &mut RoundtripReencoder) {
+    fn do_encode<'a>(
+        &self,
+        component: &mut wasm_encoder::Component,
+        indices: &IdxSpaces,
+        reencode: &mut RoundtripReencoder,
+    ) {
         let mut type_section = wasm_encoder::CoreTypeSection::new();
 
         match &self {
@@ -819,12 +920,23 @@ impl Encode for CoreType<'_> {
 }
 
 impl Encode for Instance<'_> {
-    fn do_encode<'a>(&self, component: &mut wasm_encoder::Component, indices: &IdxSpaces, reencode: &mut RoundtripReencoder) {
+    fn do_encode<'a>(
+        &self,
+        component: &mut wasm_encoder::Component,
+        indices: &IdxSpaces,
+        reencode: &mut RoundtripReencoder,
+    ) {
         let mut instances = wasm_encoder::InstanceSection::new();
 
         match self {
-            Instance::Instantiate { args: args_orig, .. } => {
-                let Some(Refs { module: Some(module),..}) = self.referenced_indices() else {
+            Instance::Instantiate {
+                args: args_orig, ..
+            } => {
+                let Some(Refs {
+                    module: Some(module),
+                    ..
+                }) = self.referenced_indices()
+                else {
                     panic!()
                 };
                 let new_id = indices.lookup_actual_id_or_panic(&module);
@@ -836,9 +948,7 @@ impl Encode for Instance<'_> {
                 instances.instantiate(
                     new_id as u32,
                     args.iter()
-                        .map(|arg| {
-                            (arg.name, ModuleArg::Instance(arg.index))
-                        }),
+                        .map(|arg| (arg.name, ModuleArg::Instance(arg.index))),
                 );
             }
             Instance::FromExports(exports) => {
@@ -852,7 +962,7 @@ impl Encode for Instance<'_> {
                     (
                         export.name,
                         wasm_encoder::ExportKind::from(export.kind),
-                        export.index
+                        export.index,
                     )
                 }));
             }
@@ -863,19 +973,29 @@ impl Encode for Instance<'_> {
 }
 
 impl Encode for ComponentStartFunction {
-    fn do_encode<'a>(&self, component: &mut wasm_encoder::Component, _indices: &IdxSpaces, _reencode: &mut RoundtripReencoder) {
+    fn do_encode<'a>(
+        &self,
+        component: &mut wasm_encoder::Component,
+        _indices: &IdxSpaces,
+        _reencode: &mut RoundtripReencoder,
+    ) {
         // TODO: reindex func_index and arguments!
-        
+
         component.section(&wasm_encoder::ComponentStartSection {
             function_index: self.func_index,
             args: self.arguments.clone(),
-            results: self.results
+            results: self.results,
         });
     }
 }
 
 impl Encode for CustomSection<'_> {
-    fn do_encode<'a>(&self, component: &mut wasm_encoder::Component, _indices: &IdxSpaces, _reencode: &mut RoundtripReencoder) {
+    fn do_encode<'a>(
+        &self,
+        component: &mut wasm_encoder::Component,
+        _indices: &IdxSpaces,
+        _reencode: &mut RoundtripReencoder,
+    ) {
         component.section(&wasm_encoder::CustomSection {
             name: std::borrow::Cow::Borrowed(self.name),
             data: self.data.clone(),
@@ -884,8 +1004,13 @@ impl Encode for CustomSection<'_> {
 }
 
 impl FixIndices for ComponentExport<'_> {
-    fn fix<'a>(&self, comp: &mut wasm_encoder::Component, indices: &IdxSpaces, reenc: &mut RoundtripReencoder) -> Self {
-        let Some(Refs { misc: Some(ty), ..}) = self.referenced_indices() else {
+    fn fix<'a>(
+        &self,
+        comp: &mut wasm_encoder::Component,
+        indices: &IdxSpaces,
+        reenc: &mut RoundtripReencoder,
+    ) -> Self {
+        let Some(Refs { misc: Some(ty), .. }) = self.referenced_indices() else {
             panic!()
         };
         let new_id = indices.lookup_actual_id_or_panic(&ty);
@@ -900,14 +1025,19 @@ impl FixIndices for ComponentExport<'_> {
             name: self.name,
             kind: self.kind.clone(),
             index: new_id as u32,
-            ty: fixed_ty
+            ty: fixed_ty,
         }
     }
 }
 
 impl FixIndices for ComponentInstantiationArg<'_> {
-    fn fix<'a>(&self, _: &mut wasm_encoder::Component, indices: &IdxSpaces, _: &mut RoundtripReencoder) -> Self {
-        let Some(Refs { ty: Some(ty), ..}) = self.referenced_indices() else {
+    fn fix<'a>(
+        &self,
+        _: &mut wasm_encoder::Component,
+        indices: &IdxSpaces,
+        _: &mut RoundtripReencoder,
+    ) -> Self {
+        let Some(Refs { ty: Some(ty), .. }) = self.referenced_indices() else {
             panic!()
         };
         let new_id = indices.lookup_actual_id_or_panic(&ty);
@@ -921,9 +1051,14 @@ impl FixIndices for ComponentInstantiationArg<'_> {
 }
 
 impl FixIndices for ComponentValType {
-    fn fix<'a>(&self, _component: &mut wasm_encoder::Component, indices: &IdxSpaces, _reencode: &mut RoundtripReencoder) -> Self {
+    fn fix<'a>(
+        &self,
+        _component: &mut wasm_encoder::Component,
+        indices: &IdxSpaces,
+        _reencode: &mut RoundtripReencoder,
+    ) -> Self {
         if let ComponentValType::Type(_) = self {
-            let Some(Refs { ty: Some(ty), ..}) = self.referenced_indices() else {
+            let Some(Refs { ty: Some(ty), .. }) = self.referenced_indices() else {
                 panic!()
             };
             let new_id = indices.lookup_actual_id_or_panic(&ty);
@@ -935,20 +1070,30 @@ impl FixIndices for ComponentValType {
 }
 
 impl FixIndices for ComponentAlias<'_> {
-    fn fix<'a>(&self, _component: &mut wasm_encoder::Component, indices: &IdxSpaces, _reencode: &mut RoundtripReencoder) -> Self {
+    fn fix<'a>(
+        &self,
+        _component: &mut wasm_encoder::Component,
+        indices: &IdxSpaces,
+        _reencode: &mut RoundtripReencoder,
+    ) -> Self {
         // NOTE: We will not be fixing indices here (complexity due to index spaces with scopes)
         self.clone()
     }
 }
 
 impl FixIndices for ComponentTypeRef {
-    fn fix<'a>(&self, component: &mut wasm_encoder::Component, indices: &IdxSpaces, reencode: &mut RoundtripReencoder) -> Self {
+    fn fix<'a>(
+        &self,
+        component: &mut wasm_encoder::Component,
+        indices: &IdxSpaces,
+        reencode: &mut RoundtripReencoder,
+    ) -> Self {
         match self {
             ComponentTypeRef::Type(_) => self.clone(), // nothing to do
             // The reference is to a core module type.
             // The index is expected to be core type index to a core module type.
             ComponentTypeRef::Module(_) => {
-                let Some(Refs { ty: Some(ty), ..}) = self.referenced_indices() else {
+                let Some(Refs { ty: Some(ty), .. }) = self.referenced_indices() else {
                     panic!()
                 };
                 let new_id = indices.lookup_actual_id_or_panic(&ty);
@@ -956,23 +1101,23 @@ impl FixIndices for ComponentTypeRef {
             }
             ComponentTypeRef::Value(ty) => {
                 ComponentTypeRef::Value(ty.fix(component, indices, reencode))
-            },
+            }
             ComponentTypeRef::Func(_) => {
-                let Some(Refs { ty: Some(ty), ..}) = self.referenced_indices() else {
+                let Some(Refs { ty: Some(ty), .. }) = self.referenced_indices() else {
                     panic!()
                 };
                 let new_id = indices.lookup_actual_id_or_panic(&ty);
                 ComponentTypeRef::Func(new_id as u32)
             }
             ComponentTypeRef::Instance(_) => {
-                let Some(Refs { ty: Some(ty), ..}) = self.referenced_indices() else {
+                let Some(Refs { ty: Some(ty), .. }) = self.referenced_indices() else {
                     panic!()
                 };
                 let new_id = indices.lookup_actual_id_or_panic(&ty);
                 ComponentTypeRef::Instance(new_id as u32)
             }
             ComponentTypeRef::Component(_) => {
-                let Some(Refs { ty: Some(ty), ..}) = self.referenced_indices() else {
+                let Some(Refs { ty: Some(ty), .. }) = self.referenced_indices() else {
                     panic!()
                 };
                 let new_id = indices.lookup_actual_id_or_panic(&ty);
@@ -983,13 +1128,20 @@ impl FixIndices for ComponentTypeRef {
 }
 
 impl FixIndices for CanonicalOption {
-    fn fix<'a>(&self, _: &mut wasm_encoder::Component, indices: &IdxSpaces, _: &mut RoundtripReencoder) -> Self {
-
+    fn fix<'a>(
+        &self,
+        _: &mut wasm_encoder::Component,
+        indices: &IdxSpaces,
+        _: &mut RoundtripReencoder,
+    ) -> Self {
         match self {
-            CanonicalOption::Realloc(_) |
-            CanonicalOption::PostReturn(_) |
-            CanonicalOption::Callback(_) => {
-                let Some(Refs { func: Some(func), ..}) = self.referenced_indices() else {
+            CanonicalOption::Realloc(_)
+            | CanonicalOption::PostReturn(_)
+            | CanonicalOption::Callback(_) => {
+                let Some(Refs {
+                    func: Some(func), ..
+                }) = self.referenced_indices()
+                else {
                     panic!()
                 };
                 let new_fid = indices.lookup_actual_id_or_panic(&func);
@@ -997,11 +1149,11 @@ impl FixIndices for CanonicalOption {
                     CanonicalOption::Realloc(_) => CanonicalOption::Realloc(new_fid as u32),
                     CanonicalOption::PostReturn(_) => CanonicalOption::PostReturn(new_fid as u32),
                     CanonicalOption::Callback(_) => CanonicalOption::Callback(new_fid as u32),
-                    _ => unreachable!()
+                    _ => unreachable!(),
                 }
             }
             CanonicalOption::CoreType(_) => {
-                let Some(Refs { ty: Some(ty), ..}) = self.referenced_indices() else {
+                let Some(Refs { ty: Some(ty), .. }) = self.referenced_indices() else {
                     panic!()
                 };
                 let new_tid = indices.lookup_actual_id_or_panic(&ty);
@@ -1009,51 +1161,72 @@ impl FixIndices for CanonicalOption {
             }
 
             CanonicalOption::Memory(_) => {
-                let Some(Refs { mem: Some(mem), ..}) = self.referenced_indices() else {
+                let Some(Refs { mem: Some(mem), .. }) = self.referenced_indices() else {
                     panic!()
                 };
                 let new_mid = indices.lookup_actual_id_or_panic(&mem);
                 CanonicalOption::Memory(new_mid as u32)
-            },
-            CanonicalOption::UTF8 |
-            CanonicalOption::UTF16 |
-            CanonicalOption::CompactUTF16 |
-            CanonicalOption::Async |
-            CanonicalOption::Gc => self.clone(),
+            }
+            CanonicalOption::UTF8
+            | CanonicalOption::UTF16
+            | CanonicalOption::CompactUTF16
+            | CanonicalOption::Async
+            | CanonicalOption::Gc => self.clone(),
         }
     }
 }
 
 impl FixIndices for InstantiationArg<'_> {
-    fn fix<'a>(&self, _component: &mut wasm_encoder::Component, indices: &IdxSpaces, _reencode: &mut RoundtripReencoder) -> Self {
-        let Some(Refs { misc: Some(misc), ..}) = self.referenced_indices() else {
+    fn fix<'a>(
+        &self,
+        _component: &mut wasm_encoder::Component,
+        indices: &IdxSpaces,
+        _reencode: &mut RoundtripReencoder,
+    ) -> Self {
+        let Some(Refs {
+            misc: Some(misc), ..
+        }) = self.referenced_indices()
+        else {
             panic!()
         };
         let new_id = indices.lookup_actual_id_or_panic(&misc);
         Self {
             name: self.name,
             kind: self.kind.clone(),
-            index: new_id as u32
+            index: new_id as u32,
         }
     }
 }
 
 impl FixIndices for Export<'_> {
-    fn fix<'a>(&self, _component: &mut wasm_encoder::Component, indices: &IdxSpaces, _reencode: &mut RoundtripReencoder) -> Self {
-        let Some(Refs { misc: Some(misc), ..}) = self.referenced_indices() else {
+    fn fix<'a>(
+        &self,
+        _component: &mut wasm_encoder::Component,
+        indices: &IdxSpaces,
+        _reencode: &mut RoundtripReencoder,
+    ) -> Self {
+        let Some(Refs {
+            misc: Some(misc), ..
+        }) = self.referenced_indices()
+        else {
             panic!()
         };
         let new_id = indices.lookup_actual_id_or_panic(&misc);
         Self {
             name: self.name,
             kind: self.kind.clone(),
-            index: new_id as u32
+            index: new_id as u32,
         }
     }
 }
 
 impl FixIndices for InstanceTypeDeclaration<'_> {
-    fn fix<'a>(&self, component: &mut wasm_encoder::Component, indices: &IdxSpaces, reencode: &mut RoundtripReencoder) -> Self {
+    fn fix<'a>(
+        &self,
+        component: &mut wasm_encoder::Component,
+        indices: &IdxSpaces,
+        reencode: &mut RoundtripReencoder,
+    ) -> Self {
         match self {
             InstanceTypeDeclaration::CoreType(core_type) => match core_type {
                 CoreType::Rec(_) => todo!(),
@@ -1067,27 +1240,36 @@ impl FixIndices for InstanceTypeDeclaration<'_> {
 }
 
 impl FixIndices for TypeRef {
-    fn fix<'a>(&self, _component: &mut wasm_encoder::Component, indices: &IdxSpaces, _reencode: &mut RoundtripReencoder) -> Self {
+    fn fix<'a>(
+        &self,
+        _component: &mut wasm_encoder::Component,
+        indices: &IdxSpaces,
+        _reencode: &mut RoundtripReencoder,
+    ) -> Self {
         match self {
             TypeRef::Func(_) => {
-                let Some(Refs { ty: Some(ty), ..}) = self.referenced_indices() else {
+                let Some(Refs { ty: Some(ty), .. }) = self.referenced_indices() else {
                     panic!()
                 };
                 let new_id = indices.lookup_actual_id_or_panic(&ty);
                 TypeRef::Func(new_id as u32)
             }
-            TypeRef::Tag(TagType { kind, func_type_idx: _ }) => {
-                let Some(Refs { ty: Some(ty), ..}) = self.referenced_indices() else {
+            TypeRef::Tag(TagType {
+                kind,
+                func_type_idx: _,
+            }) => {
+                let Some(Refs { ty: Some(ty), .. }) = self.referenced_indices() else {
                     panic!()
                 };
                 let new_id = indices.lookup_actual_id_or_panic(&ty);
-                TypeRef::Tag(TagType { kind: kind.clone(), func_type_idx: new_id as u32 })
+                TypeRef::Tag(TagType {
+                    kind: kind.clone(),
+                    func_type_idx: new_id as u32,
+                })
             }
-            TypeRef::Table(_)
-            | TypeRef::Memory(_)
-            | TypeRef::Global(_) => self.clone(),
+            TypeRef::Table(_) | TypeRef::Memory(_) | TypeRef::Global(_) => self.clone(),
             TypeRef::FuncExact(_) => {
-                let Some(Refs { ty: Some(ty), ..}) = self.referenced_indices() else {
+                let Some(Refs { ty: Some(ty), .. }) = self.referenced_indices() else {
                     panic!()
                 };
                 let new_id = indices.lookup_actual_id_or_panic(&ty);
@@ -1102,7 +1284,7 @@ fn convert_component_type(
     enc: ComponentTypeEncoder,
     component: &mut wasm_encoder::Component,
     reencode: &mut RoundtripReencoder,
-    indices: &IdxSpaces
+    indices: &IdxSpaces,
 ) {
     match ty {
         ComponentType::Defined(comp_ty) => {
@@ -1194,7 +1376,9 @@ fn convert_component_type(
                         let enc = new_comp.ty();
                         convert_component_type(typ, enc, component, reencode, indices);
                     }
-                    ComponentTypeDeclaration::Alias(a) => convert_component_alias(a, component, &mut new_comp, reencode, indices),
+                    ComponentTypeDeclaration::Alias(a) => {
+                        convert_component_alias(a, component, &mut new_comp, reencode, indices)
+                    }
                     ComponentTypeDeclaration::Export { name, ty } => {
                         new_comp.export(
                             name.0,
@@ -1236,25 +1420,33 @@ fn convert_component_alias(
     component: &mut wasm_encoder::Component,
     comp_ty: &mut wasm_encoder::ComponentType,
     reencode: &mut RoundtripReencoder,
-    indices: &IdxSpaces
+    indices: &IdxSpaces,
 ) {
     let new_a = match alias {
         ComponentAlias::InstanceExport { .. } => {
             let ComponentAlias::InstanceExport {
                 kind,
-                instance_index, name,
-            } = alias.fix(component, indices, reencode) else { panic!() };
+                instance_index,
+                name,
+            } = alias.fix(component, indices, reencode)
+            else {
+                panic!()
+            };
             Alias::InstanceExport {
                 instance: instance_index,
                 kind: reencode.component_export_kind(kind),
                 name,
             }
-        },
+        }
         ComponentAlias::CoreInstanceExport { .. } => {
             let ComponentAlias::CoreInstanceExport {
                 kind,
-                instance_index, name,
-            } = alias.fix(component, indices, reencode) else { panic!() };
+                instance_index,
+                name,
+            } = alias.fix(component, indices, reencode)
+            else {
+                panic!()
+            };
             Alias::CoreInstanceExport {
                 instance: instance_index,
                 kind: do_reencode(
@@ -1265,15 +1457,19 @@ fn convert_component_alias(
                 ),
                 name,
             }
-        },
+        }
         ComponentAlias::Outer { .. } => {
-            let ComponentAlias::Outer {kind, count, index} = alias.fix(component, indices, reencode) else { panic!() };
+            let ComponentAlias::Outer { kind, count, index } =
+                alias.fix(component, indices, reencode)
+            else {
+                panic!()
+            };
             Alias::Outer {
                 kind: reencode.component_outer_alias_kind(kind),
                 count,
                 index,
             }
-        },
+        }
     };
     comp_ty.alias(new_a);
 }
@@ -1282,7 +1478,7 @@ fn convert_instance_type(
     instance: &[InstanceTypeDeclaration],
     component: &mut wasm_encoder::Component,
     reencode: &mut RoundtripReencoder,
-    indices: &IdxSpaces
+    indices: &IdxSpaces,
 ) -> InstanceType {
     let mut ity = InstanceType::new();
     for value in instance.iter() {
@@ -1307,8 +1503,12 @@ fn convert_instance_type(
                 ComponentAlias::InstanceExport { .. } => {
                     let ComponentAlias::InstanceExport {
                         kind,
-                        instance_index, name,
-                    } = alias.fix(component, indices, reencode) else { panic!() };
+                        instance_index,
+                        name,
+                    } = alias.fix(component, indices, reencode)
+                    else {
+                        panic!()
+                    };
                     ity.alias(Alias::InstanceExport {
                         instance: instance_index,
                         kind: reencode.component_export_kind(kind),
@@ -1318,8 +1518,12 @@ fn convert_instance_type(
                 ComponentAlias::CoreInstanceExport { .. } => {
                     let ComponentAlias::CoreInstanceExport {
                         kind,
-                        instance_index, name,
-                    } = alias.fix(component, indices, reencode) else { panic!() };
+                        instance_index,
+                        name,
+                    } = alias.fix(component, indices, reencode)
+                    else {
+                        panic!()
+                    };
                     ity.alias(Alias::CoreInstanceExport {
                         instance: instance_index,
                         kind: do_reencode(
@@ -1332,11 +1536,15 @@ fn convert_instance_type(
                     });
                 }
                 ComponentAlias::Outer { .. } => {
-                    let ComponentAlias::Outer {kind, count, index} = alias.fix(component, indices, reencode) else { panic!() };
+                    let ComponentAlias::Outer { kind, count, index } =
+                        alias.fix(component, indices, reencode)
+                    else {
+                        panic!()
+                    };
                     ity.alias(Alias::Outer {
                         kind: reencode.component_outer_alias_kind(kind),
                         count,
-                        index
+                        index,
                     });
                 }
             },

@@ -1,7 +1,6 @@
 use log::{debug, trace};
 use std::collections::{HashMap, HashSet};
 use wasmparser::Operator;
-use wirm::Component;
 use wirm::ir::id::{FunctionID, ModuleID};
 use wirm::ir::module::Module;
 use wirm::ir::types::Location;
@@ -10,6 +9,7 @@ use wirm::iterator::iterator_trait::{IteratingInstrumenter, Iterator};
 use wirm::iterator::module_iterator::ModuleIterator;
 use wirm::module_builder::AddLocal;
 use wirm::opcode::Instrumenter;
+use wirm::Component;
 
 #[test]
 fn test_iterator_count() {

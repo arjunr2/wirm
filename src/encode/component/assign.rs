@@ -1,8 +1,11 @@
-use wasmparser::{CanonicalFunction, ComponentAlias, ComponentImport, ComponentInstance, ComponentType, CoreType, Instance};
-use crate::{Component, Module};
 use crate::encode::component::collect::{ComponentItem, ComponentPlan};
 use crate::ir::component::idx_spaces::{IdxSpaces, IndexSpaceOf};
 use crate::ir::section::ComponentSection;
+use crate::{Component, Module};
+use wasmparser::{
+    CanonicalFunction, ComponentAlias, ComponentImport, ComponentInstance, ComponentType, CoreType,
+    Instance,
+};
 
 // Phase 2
 /// # Safety of Alias Index Assignment
@@ -85,37 +88,54 @@ use crate::ir::section::ComponentSection;
 pub(crate) fn assign_indices<'a>(plan: &mut ComponentPlan<'a>, indices: &mut IdxSpaces) {
     for item in &mut plan.items {
         match item {
-            ComponentItem::Component{ node, plan: subplan, indices: subindices, idx } => unsafe {
+            ComponentItem::Component {
+                node,
+                plan: subplan,
+                indices: subindices,
+                idx,
+            } => unsafe {
                 // Visit this component's internals
                 subindices.reset_ids();
                 assign_indices(subplan, subindices);
 
                 let ptr: &Component = &**node;
                 indices.assign_actual_id(&ptr.index_space_of(), &ComponentSection::Component, *idx);
-            }
+            },
             ComponentItem::Module { node, idx } => unsafe {
                 let ptr: &Module = &**node;
                 indices.assign_actual_id(&ptr.index_space_of(), &ComponentSection::Module, *idx);
-            }
+            },
             ComponentItem::CompType { node, idx } => unsafe {
                 let ptr: &ComponentType = &**node;
-                indices.assign_actual_id(&ptr.index_space_of(), &ComponentSection::ComponentType, *idx);
-            }
-            ComponentItem::CompInst { node, idx} => unsafe {
+                indices.assign_actual_id(
+                    &ptr.index_space_of(),
+                    &ComponentSection::ComponentType,
+                    *idx,
+                );
+            },
+            ComponentItem::CompInst { node, idx } => unsafe {
                 let ptr: &ComponentInstance = &**node;
-                indices.assign_actual_id(&ptr.index_space_of(), &ComponentSection::ComponentInstance, *idx);
-            }
+                indices.assign_actual_id(
+                    &ptr.index_space_of(),
+                    &ComponentSection::ComponentInstance,
+                    *idx,
+                );
+            },
             ComponentItem::CanonicalFunc { node, idx } => unsafe {
                 let ptr: &CanonicalFunction = &**node;
                 indices.assign_actual_id(&ptr.index_space_of(), &ComponentSection::Canon, *idx);
-            }
+            },
             ComponentItem::Alias { node, idx } => unsafe {
                 let ptr: &ComponentAlias = &**node;
                 indices.assign_actual_id(&ptr.index_space_of(), &ComponentSection::Alias, *idx);
-            }
+            },
             ComponentItem::Import { node, idx } => unsafe {
                 let ptr: &ComponentImport = &**node;
-                indices.assign_actual_id(&ptr.index_space_of(), &ComponentSection::ComponentImport, *idx);
+                indices.assign_actual_id(
+                    &ptr.index_space_of(),
+                    &ComponentSection::ComponentImport,
+                    *idx,
+                );
             },
             ComponentItem::CoreType { node, idx } => unsafe {
                 let ptr: &CoreType = &**node;
@@ -130,8 +150,12 @@ pub(crate) fn assign_indices<'a>(plan: &mut ComponentPlan<'a>, indices: &mut Idx
                 // }
             },
             ComponentItem::Inst { node, idx } => unsafe {
-                    let ptr: &Instance = &**node;
-                    indices.assign_actual_id(&ptr.index_space_of(), &ComponentSection::CoreInstance, *idx);
+                let ptr: &Instance = &**node;
+                indices.assign_actual_id(
+                    &ptr.index_space_of(),
+                    &ComponentSection::CoreInstance,
+                    *idx,
+                );
             },
             ComponentItem::Export { .. } => {
                 // NA: exports don't get IDs

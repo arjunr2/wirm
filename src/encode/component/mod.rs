@@ -1,10 +1,10 @@
-use crate::Component;
 use crate::encode::component::assign::assign_indices;
 use crate::encode::component::collect::CollectCtx;
 use crate::encode::component::encode::encode_internal;
+use crate::Component;
 
-mod collect;
 mod assign;
+mod collect;
 pub(crate) mod encode;
 
 /// Encode this IR into a WebAssembly binary.
@@ -109,7 +109,6 @@ pub(crate) mod encode;
 /// This design keeps encoding deterministic and avoids implicit cross-scope
 /// rewriting that would be difficult to reason about or validate.
 pub fn encode(comp: &Component) -> Vec<u8> {
-
     // Phase 1: Collect
     let mut ctx = CollectCtx::new(comp);
     comp.collect_root(&mut ctx);

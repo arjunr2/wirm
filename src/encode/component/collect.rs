@@ -1,9 +1,12 @@
-use std::collections::HashMap;
-use wasmparser::{CanonicalFunction, ComponentAlias, ComponentExport, ComponentImport, ComponentInstance, ComponentStartFunction, ComponentType, CoreType, Instance};
-use crate::{Component, Module};
 use crate::ir::component::idx_spaces::{IdxSpaces, ReferencedIndices, Space, SpaceSubtype};
 use crate::ir::section::ComponentSection;
 use crate::ir::types::CustomSection;
+use crate::{Component, Module};
+use std::collections::HashMap;
+use wasmparser::{
+    CanonicalFunction, ComponentAlias, ComponentExport, ComponentImport, ComponentInstance,
+    ComponentStartFunction, ComponentType, CoreType, Instance,
+};
 
 /// `ComponentItem` stores raw pointers to IR nodes (e.g., `CanonicalFunction`, `Module`, `Component`)
 /// rather than `&T` references directly.
@@ -40,24 +43,57 @@ pub(crate) enum ComponentItem<'a> {
     Component {
         node: *const Component<'a>,
         plan: ComponentPlan<'a>,
-        idx: usize,                 // TODO: I don't think I need idx here!
+        idx: usize, // TODO: I don't think I need idx here!
         // indices: Indices<'a>,
         indices: IdxSpaces, // store nested component’s IndexMap
     },
-    Module {node: *const Module<'a>, idx: usize },
-    CompType { node: *const ComponentType<'a>, idx: usize },
-    CompInst { node: *const ComponentInstance<'a>, idx: usize },
-    CanonicalFunc { node: *const CanonicalFunction, idx: usize },
+    Module {
+        node: *const Module<'a>,
+        idx: usize,
+    },
+    CompType {
+        node: *const ComponentType<'a>,
+        idx: usize,
+    },
+    CompInst {
+        node: *const ComponentInstance<'a>,
+        idx: usize,
+    },
+    CanonicalFunc {
+        node: *const CanonicalFunction,
+        idx: usize,
+    },
 
-    Alias { node: *const ComponentAlias<'a>, idx: usize },
-    Import { node: *const ComponentImport<'a>, idx: usize },
-    Export { node: *const ComponentExport<'a>, idx: usize },
+    Alias {
+        node: *const ComponentAlias<'a>,
+        idx: usize,
+    },
+    Import {
+        node: *const ComponentImport<'a>,
+        idx: usize,
+    },
+    Export {
+        node: *const ComponentExport<'a>,
+        idx: usize,
+    },
 
-    CoreType { node: *const CoreType<'a>, idx: usize },
-    Inst { node: *const Instance<'a>, idx: usize },
+    CoreType {
+        node: *const CoreType<'a>,
+        idx: usize,
+    },
+    Inst {
+        node: *const Instance<'a>,
+        idx: usize,
+    },
 
-    Start { node: *const ComponentStartFunction, idx: usize },
-    CustomSection { node: *const CustomSection<'a>, idx: usize },
+    Start {
+        node: *const ComponentStartFunction,
+        idx: usize,
+    },
+    CustomSection {
+        node: *const CustomSection<'a>,
+        idx: usize,
+    },
     // ... add others as needed
 }
 // impl<'a> ComponentItem<'a> {
@@ -94,7 +130,7 @@ struct Seen<'a> {
     instances: HashMap<*const Instance<'a>, usize>,
 
     start: HashMap<*const ComponentStartFunction, usize>,
-    custom_sections: HashMap<*const CustomSection<'a>, usize>
+    custom_sections: HashMap<*const CustomSection<'a>, usize>,
 }
 
 pub(crate) struct CollectCtx<'a> {
@@ -107,7 +143,7 @@ impl CollectCtx<'_> {
         Self {
             indices: comp.indices.clone(),
             plan: ComponentPlan::default(),
-            seen: Seen::default()
+            seen: Seen::default(),
         }
     }
 }
@@ -144,7 +180,13 @@ impl<'a> Collect<'a> for Component<'a> {
                     collect_vec(start_idx, *num as usize, &self.core_types, ctx, &self);
                 }
                 ComponentSection::ComponentType => {
-                    collect_vec(start_idx, *num as usize, &self.component_types.items, ctx, &self);
+                    collect_vec(
+                        start_idx,
+                        *num as usize,
+                        &self.component_types.items,
+                        ctx,
+                        &self,
+                    );
                 }
                 ComponentSection::ComponentImport => {
                     collect_vec(start_idx, *num as usize, &self.imports, ctx, &self);
@@ -153,7 +195,13 @@ impl<'a> Collect<'a> for Component<'a> {
                     collect_vec(start_idx, *num as usize, &self.exports, ctx, &self);
                 }
                 ComponentSection::ComponentInstance => {
-                    collect_vec(start_idx, *num as usize, &self.component_instance, ctx, &self);
+                    collect_vec(
+                        start_idx,
+                        *num as usize,
+                        &self.component_instance,
+                        ctx,
+                        &self,
+                    );
                 }
                 ComponentSection::CoreInstance => {
                     collect_vec(start_idx, *num as usize, &self.instances, ctx, &self);
@@ -168,7 +216,13 @@ impl<'a> Collect<'a> for Component<'a> {
                     collect_vec(start_idx, *num as usize, &self.start_section, ctx, &self);
                 }
                 ComponentSection::CustomSection => {
-                    collect_vec(start_idx, *num as usize, &self.custom_sections.custom_sections, ctx, &self);
+                    collect_vec(
+                        start_idx,
+                        *num as usize,
+                        &self.custom_sections.custom_sections,
+                        ctx,
+                        &self,
+                    );
                 }
                 ComponentSection::Component => {
                     assert!(start_idx + *num as usize <= self.components.len());
@@ -191,7 +245,7 @@ impl<'a> Collect<'a> for Component<'a> {
                             node: c as *const _,
                             plan: subctx.plan,
                             idx,
-                            indices: subctx.indices
+                            indices: subctx.indices,
                         });
 
                         // Remember that I've seen this component before in MY plan
@@ -216,7 +270,9 @@ impl<'a> Collect<'a> for Module<'a> {
         // collect_deps(self, ctx, comp);
 
         // push to ordered plan
-        ctx.plan.items.push(ComponentItem::Module { node: ptr, idx });
+        ctx.plan
+            .items
+            .push(ComponentItem::Module { node: ptr, idx });
     }
 }
 
@@ -233,7 +289,9 @@ impl<'a> Collect<'a> for ComponentType<'a> {
         // collect_deps(self, ctx, comp);
 
         // push to ordered plan
-        ctx.plan.items.push(ComponentItem::CompType { node: ptr, idx });
+        ctx.plan
+            .items
+            .push(ComponentItem::CompType { node: ptr, idx });
     }
 }
 
@@ -250,7 +308,9 @@ impl<'a> Collect<'a> for ComponentInstance<'a> {
         // collect_deps(self, ctx, comp);
 
         // push to ordered plan
-        ctx.plan.items.push(ComponentItem::CompInst { node: ptr, idx });
+        ctx.plan
+            .items
+            .push(ComponentItem::CompInst { node: ptr, idx });
     }
 }
 
@@ -267,7 +327,9 @@ impl<'a> Collect<'a> for CanonicalFunction {
         collect_deps(self, ctx, comp);
 
         // push to ordered plan
-        ctx.plan.items.push(ComponentItem::CanonicalFunc { node: ptr, idx });
+        ctx.plan
+            .items
+            .push(ComponentItem::CanonicalFunc { node: ptr, idx });
     }
 }
 
@@ -300,7 +362,9 @@ impl<'a> Collect<'a> for ComponentImport<'a> {
         collect_deps(self, ctx, comp);
 
         // push to ordered plan
-        ctx.plan.items.push(ComponentItem::Import { node: ptr, idx });
+        ctx.plan
+            .items
+            .push(ComponentItem::Import { node: ptr, idx });
     }
 }
 
@@ -317,7 +381,9 @@ impl<'a> Collect<'a> for ComponentExport<'a> {
         // collect_deps(self, ctx, comp);
 
         // push to ordered plan
-        ctx.plan.items.push(ComponentItem::Export { node: ptr, idx });
+        ctx.plan
+            .items
+            .push(ComponentItem::Export { node: ptr, idx });
     }
 }
 
@@ -334,7 +400,9 @@ impl<'a> Collect<'a> for CoreType<'a> {
         // collect_deps(self, ctx, comp);
 
         // push to ordered plan
-        ctx.plan.items.push(ComponentItem::CoreType { node: ptr, idx });
+        ctx.plan
+            .items
+            .push(ComponentItem::CoreType { node: ptr, idx });
     }
 }
 
@@ -368,7 +436,9 @@ impl<'a> Collect<'a> for CustomSection<'a> {
         // collect_deps(self, ctx, comp);
 
         // push to ordered plan
-        ctx.plan.items.push(ComponentItem::CustomSection { node: ptr, idx });
+        ctx.plan
+            .items
+            .push(ComponentItem::CustomSection { node: ptr, idx });
     }
 }
 
@@ -389,7 +459,13 @@ impl<'a> Collect<'a> for ComponentStartFunction {
     }
 }
 
-fn collect_vec<'a, T: Collect<'a> + 'a>(start: usize, num: usize, all: &'a Vec<T>, ctx: &mut CollectCtx<'a>, comp: &'a Component<'a>) {
+fn collect_vec<'a, T: Collect<'a> + 'a>(
+    start: usize,
+    num: usize,
+    all: &'a Vec<T>,
+    ctx: &mut CollectCtx<'a>,
+    comp: &'a Component<'a>,
+) {
     assert!(start + num <= all.len());
     for i in 0..num {
         let idx = start + i;
@@ -397,7 +473,11 @@ fn collect_vec<'a, T: Collect<'a> + 'a>(start: usize, num: usize, all: &'a Vec<T
     }
 }
 
-fn collect_deps<'a, T: ReferencedIndices + 'a>(item: &T, ctx: &mut CollectCtx<'a>, comp: &'a Component<'a>) {
+fn collect_deps<'a, T: ReferencedIndices + 'a>(
+    item: &T,
+    ctx: &mut CollectCtx<'a>,
+    comp: &'a Component<'a>,
+) {
     if let Some(refs) = item.referenced_indices() {
         for r in refs.as_list().iter() {
             let (vec, idx) = ctx.indices.index_from_assumed_id(r);
@@ -409,20 +489,22 @@ fn collect_deps<'a, T: ReferencedIndices + 'a>(item: &T, ctx: &mut CollectCtx<'a
                     Space::CoreInst => comp.instances[idx].collect(idx, ctx, comp),
                     Space::CoreModule => comp.modules[idx].collect(idx, ctx, comp),
                     Space::CoreType => comp.core_types[idx].collect(idx, ctx, comp),
-                    Space::CompFunc
-                    | Space::CoreFunc => comp.canons.items[idx].collect(idx, ctx, comp),
+                    Space::CompFunc | Space::CoreFunc => {
+                        comp.canons.items[idx].collect(idx, ctx, comp)
+                    }
                     Space::CompVal
                     | Space::CoreMemory
                     | Space::CoreTable
                     | Space::CoreGlobal
-                    | Space::CoreTag => unreachable!("This spaces don't exist in a main vector on the component IR: {vec:?}"),
+                    | Space::CoreTag => unreachable!(
+                        "This spaces don't exist in a main vector on the component IR: {vec:?}"
+                    ),
                 },
                 SpaceSubtype::Export => comp.exports[idx].collect(idx, ctx, comp),
                 SpaceSubtype::Import => comp.imports[idx].collect(idx, ctx, comp),
                 SpaceSubtype::Alias => comp.alias.items[idx].collect(idx, ctx, comp),
                 SpaceSubtype::Components => comp.components[idx].collect(idx, ctx, comp),
             }
-            
         }
     }
 }
