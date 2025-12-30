@@ -1,5 +1,4 @@
 use std::collections::HashMap;
-use wasm_encoder::StartSection;
 use wasmparser::{CanonicalFunction, ComponentAlias, ComponentExport, ComponentImport, ComponentInstance, ComponentStartFunction, ComponentType, CoreType, Instance};
 use crate::{Component, Module};
 use crate::ir::component::idx_spaces::{IdxSpaces, ReferencedIndices, Space, SpaceSubtype};

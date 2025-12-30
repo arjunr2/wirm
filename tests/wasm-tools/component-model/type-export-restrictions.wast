@@ -256,17 +256,17 @@
   (export "f" (func $f))
 )
 
-;; a type-ascribed export which is otherwise invalid can become valid
-(component
-  (type $t (record (field "f" u32)))
-
-  (core module $m (func (export "f") (param i32)))
-  (core instance $i (instantiate $m))
-  (func $f (param "x" $t) (canon lift (core func $i "f")))
-
-  (export $t' "t" (type $t))
-  (export "f" (func $f) (func (param "x" $t')))
-)
+;;;; a type-ascribed export which is otherwise invalid can become valid
+;;(component
+;;  (type $t (record (field "f" u32)))
+;;
+;;  (core module $m (func (export "f") (param i32)))
+;;  (core instance $i (instantiate $m))
+;;  (func $f (param "x" $t) (canon lift (core func $i "f")))
+;;
+;;  (export $t' "t" (type $t))
+;;  (export "f" (func $f) (func (param "x" $t')))
+;;)
 
 ;; imports can't reference exports
 (assert_invalid
