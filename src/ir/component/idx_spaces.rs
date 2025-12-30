@@ -764,13 +764,14 @@ pub struct Refs {
     pub func: Option<IndexedRef>,
     pub ty: Option<IndexedRef>,
     pub mem: Option<IndexedRef>,
+    pub table: Option<IndexedRef>,
     pub misc: Option<IndexedRef>,
     pub others: Vec<Option<Refs>>,
 }
 impl Refs {
     pub fn as_list(&self) -> Vec<IndexedRef> {
         let mut res = vec![];
-        let Refs { comp, func, ty, mem, misc, others } = self;
+        let Refs { comp, func, ty, mem, table, misc, others } = self;
 
         if let Some(comp) = comp {
             res.push(*comp);
@@ -783,6 +784,9 @@ impl Refs {
         }
         if let Some(mem) = mem {
             res.push(*mem);
+        }
+        if let Some(table) = table {
+            res.push(*table);
         }
         if let Some(misc) = misc {
             res.push(*misc);
@@ -917,6 +921,16 @@ impl ReferencedIndices for CanonicalFunction {
             | CanonicalFunction::ResourceRep { resource }=> Some(
                 Refs {
                     ty: Some(IndexedRef { space: Space::CompType, index: *resource }),
+                    ..Default::default()
+                }),
+
+            CanonicalFunction::ThreadSpawnIndirect {
+                func_ty_index,
+                table_index,
+            } => Some(
+                Refs {
+                    ty: Some(IndexedRef { space: Space::CompType, index: *func_ty_index }),
+                    table: Some(IndexedRef { space: Space::CoreTable, index: *table_index }),
                     ..Default::default()
                 }),
 

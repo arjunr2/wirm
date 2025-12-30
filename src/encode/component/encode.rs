@@ -456,12 +456,20 @@ impl Encode for CanonicalFunction {
             CanonicalFunction::WaitableSetNew => {
                 canon_sec.waitable_set_new();
             }
-            // CanonicalFunction::WaitableSetWait { async_, memory } => {
-            //     canon_sec.waitable_set_wait(*async_, *memory);
-            // }
-            // CanonicalFunction::WaitableSetPoll { async_, memory } => {
-            //     canon_sec.waitable_set_poll(*async_, *memory);
-            // }
+            CanonicalFunction::WaitableSetWait { cancellable, .. } => {
+                let Some(Refs { mem: Some(mem),..}) = self.referenced_indices() else {
+                    todo!()
+                };
+                let new_mid = indices.new_lookup_actual_id_or_panic(&mem);
+                canon_sec.waitable_set_wait(todo!(), new_mid as u32);
+            }
+            CanonicalFunction::WaitableSetPoll { cancellable, .. } => {
+                let Some(Refs { mem: Some(mem),..}) = self.referenced_indices() else {
+                    todo!()
+                };
+                let new_mid = indices.new_lookup_actual_id_or_panic(&mem);
+                canon_sec.waitable_set_poll(todo!(), new_mid as u32);
+            }
             CanonicalFunction::WaitableSetDrop => {
                 canon_sec.waitable_set_drop();
             }
@@ -603,16 +611,14 @@ impl Encode for CanonicalFunction {
                 let new_tid = indices.new_lookup_actual_id_or_panic(&ty);
                 canon_sec.thread_spawn_ref(new_tid as u32);
             }
-            // CanonicalFunction::ThreadSpawnIndirect {
-            //     func_ty_index,
-            //     table_index,
-            // } => {
-            //     let Some(Refs { ty: Some(ty),..}) = self.referenced_indices() else {
-            //         todo!()
-            //     };
-            //     let new_tid = indices.new_lookup_actual_id_or_panic(&ty);
-            //     canon_sec.thread_spawn_indirect(new_tid as u32, *table_index);
-            // }
+            CanonicalFunction::ThreadSpawnIndirect { .. } => {
+                let Some(Refs { ty: Some(ty), table: Some(table),..}) = self.referenced_indices() else {
+                    todo!()
+                };
+                let new_tid = indices.new_lookup_actual_id_or_panic(&ty);
+                let new_tbl_id = indices.new_lookup_actual_id_or_panic(&table);
+                canon_sec.thread_spawn_indirect(new_tid as u32, new_tbl_id as u32);
+            }
             CanonicalFunction::TaskCancel => {
                 canon_sec.task_cancel();
             }
@@ -625,28 +631,28 @@ impl Encode for CanonicalFunction {
             CanonicalFunction::SubtaskCancel { async_ } => {
                 canon_sec.subtask_cancel(*async_);
             }
-            CanonicalFunction::StreamDropReadable { ty } => {
+            CanonicalFunction::StreamDropReadable { .. } => {
                 let Some(Refs { ty: Some(ty),..}) = self.referenced_indices() else {
                     todo!()
                 };
                 let new_tid = indices.new_lookup_actual_id_or_panic(&ty);
                 canon_sec.stream_drop_readable(new_tid as u32);
             }
-            CanonicalFunction::StreamDropWritable { ty } => {
+            CanonicalFunction::StreamDropWritable { .. } => {
                 let Some(Refs { ty: Some(ty),..}) = self.referenced_indices() else {
                     todo!()
                 };
                 let new_tid = indices.new_lookup_actual_id_or_panic(&ty);
                 canon_sec.stream_drop_writable(new_tid as u32);
             }
-            CanonicalFunction::FutureDropReadable { ty } => {
+            CanonicalFunction::FutureDropReadable { .. } => {
                 let Some(Refs { ty: Some(ty),..}) = self.referenced_indices() else {
                     todo!()
                 };
                 let new_tid = indices.new_lookup_actual_id_or_panic(&ty);
                 canon_sec.future_drop_readable(new_tid as u32);
             }
-            CanonicalFunction::FutureDropWritable { ty } => {
+            CanonicalFunction::FutureDropWritable { .. } => {
                 let Some(Refs { ty: Some(ty),..}) = self.referenced_indices() else {
                     todo!()
                 };
