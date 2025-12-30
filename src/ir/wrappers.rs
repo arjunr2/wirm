@@ -5,7 +5,6 @@ use std::collections::HashMap;
 use wasm_encoder::reencode::{Reencode, ReencodeComponent, RoundtripReencoder};
 use wasm_encoder::{Alias, ComponentCoreTypeEncoder, ComponentFuncTypeEncoder, ComponentTypeEncoder, CoreTypeEncoder, InstanceType};
 use wasmparser::{ComponentAlias, ComponentType, ComponentTypeDeclaration, ComponentValType, CoreType, InstanceTypeDeclaration, Operator, RecGroup, SubType};
-use crate::encode::component::encode::FixIndices;
 use crate::ir::component::idx_spaces::IdxSpaces;
 
 // Not added to wasm-tools

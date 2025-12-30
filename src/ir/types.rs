@@ -12,7 +12,7 @@ use wasm_encoder::reencode::Reencode;
 use wasm_encoder::{AbstractHeapType, Encode, Ieee32, Ieee64};
 
 use wasmparser::types::TypeIdentifier;
-use wasmparser::{ConstExpr, HeapType, Operator, RefType, ValType};
+use wasmparser::{ConstExpr, HeapType, Operator, RefType, UnpackedIndex, ValType};
 
 use crate::error::Error;
 use crate::ir::id::{CustomSectionID, FunctionID, GlobalID, ModuleID, TypeID};
@@ -245,13 +245,14 @@ impl From<ValType> for DataType {
                     wasmparser::AbstractHeapType::Cont => DataType::Cont,
                     wasmparser::AbstractHeapType::NoCont => DataType::NoCont,
                 },
-                HeapType::Concrete(u) => match u {
-                    wasmparser::UnpackedIndex::Module(idx) => DataType::Module {
+                HeapType::Concrete(u)
+                | HeapType::Exact(u) => match u {
+                    UnpackedIndex::Module(idx) => DataType::Module {
                         ty_id: *ModuleID(idx),
                         nullable: ref_type.is_nullable(),
                     },
-                    wasmparser::UnpackedIndex::RecGroup(idx) => DataType::RecGroup(idx),
-                    wasmparser::UnpackedIndex::Id(_id) => panic!("Not supported yet!"),
+                    UnpackedIndex::RecGroup(idx) => DataType::RecGroup(idx),
+                    UnpackedIndex::Id(_id) => panic!("Not supported yet!"),
                 },
             },
         }
@@ -1874,7 +1875,18 @@ impl InitExpr {
                             } else {
                                 panic!("Did not unpack concrete type!")
                             }
-                        }
+                        },
+                        HeapType::Exact(id) => {
+                            if let Some(mod_id) = id.as_module_index() {
+                                wasm_encoder::HeapType::Exact(mod_id)
+                            } else if let Some(rg_id) = id.as_rec_group_index() {
+                                wasm_encoder::HeapType::Exact(rg_id)
+                            } else if let Some(core) = id.as_core_type_id() {
+                                wasm_encoder::HeapType::Exact(core.index() as u32)
+                            } else {
+                                panic!("Did not unpack concrete type!")
+                            }
+                        },
                     })
                     .encode(&mut bytes)
                 }

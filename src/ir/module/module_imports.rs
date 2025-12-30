@@ -148,7 +148,8 @@ impl<'a> ModuleImports<'a> {
         // using a match instead of import.is_*() to make sure that we're
         // exhaustive due to the compiler guarantees.
         match import.ty {
-            TypeRef::Func(..) => {
+            TypeRef::Func(..)
+            | TypeRef::FuncExact(..) => {
                 self.num_funcs += 1;
                 self.num_funcs_added += 1;
             }

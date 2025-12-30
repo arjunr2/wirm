@@ -444,7 +444,8 @@ impl From<&ExternalKind> for ExternalItemKind {
             ExternalKind::Table => ExternalItemKind::CoreTable,
             ExternalKind::Memory => ExternalItemKind::CoreMemory,
             ExternalKind::Global => ExternalItemKind::CoreGlobal,
-            ExternalKind::Tag => ExternalItemKind::CoreTag
+            ExternalKind::Tag => ExternalItemKind::CoreTag,
+            ExternalKind::FuncExact => ExternalItemKind::CoreFunc,
         }
     }
 }
@@ -492,13 +493,12 @@ impl From<&ComponentAlias<'_>> for ExternalItemKind {
             },
             ComponentAlias::CoreInstanceExport { kind, .. } => {
                 match kind {
-                    ExternalKind::Func => {
-                        Self::CoreFunc
-                    },
+                    ExternalKind::Func => Self::CoreFunc,
                     ExternalKind::Table => Self::CoreTable,
                     ExternalKind::Memory => Self::CoreMemory,
                     ExternalKind::Global => Self::CoreGlobal,
                     ExternalKind::Tag => Self::CoreTag,
+                    ExternalKind::FuncExact => Self::CoreFunc,
                 }
             }
         }
@@ -639,6 +639,7 @@ impl<'a> IndexSpaceOf for ComponentAlias<'a> {
                 ExternalKind::Table => Space::CoreTable,
                 ExternalKind::Global => Space::CoreGlobal,
                 ExternalKind::Tag => Space::CoreTag,
+                ExternalKind::FuncExact => Space::CoreFunc,
             },
 
             // Aliasing an outer item

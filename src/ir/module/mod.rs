@@ -32,10 +32,7 @@ use std::borrow::Cow;
 use std::collections::HashMap;
 use wasm_encoder::reencode::{Reencode, RoundtripReencoder};
 use wasm_encoder::TagSection;
-use wasmparser::{
-    CompositeInnerType, ExternalKind, GlobalType, MemoryType, Operator, Parser, Payload, TagType,
-    TypeRef,
-};
+use wasmparser::{CompositeInnerType, ExternalKind, GlobalType, MemoryType, Operator, PackedIndex, Parser, Payload, TagType, TypeRef};
 
 pub mod module_exports;
 pub mod module_functions;
@@ -279,6 +276,8 @@ impl<'a> Module<'a> {
                                         super_type: subtype.supertype_idx,
                                         is_final: subtype.is_final,
                                         shared: subtype.composite_type.shared,
+                                        descriptor: unpack(subtype.composite_type.descriptor_idx),
+                                        describes: unpack(subtype.composite_type.describes_idx),
                                         tag: None,
                                     });
                                 }
@@ -289,6 +288,8 @@ impl<'a> Module<'a> {
                                         super_type: subtype.supertype_idx,
                                         is_final: subtype.is_final,
                                         shared: subtype.composite_type.shared,
+                                        descriptor: unpack(subtype.composite_type.descriptor_idx),
+                                        describes: unpack(subtype.composite_type.describes_idx),
                                         tag: None,
                                     });
                                 }
@@ -307,6 +308,8 @@ impl<'a> Module<'a> {
                                         super_type: subtype.supertype_idx,
                                         is_final: subtype.is_final,
                                         shared: subtype.composite_type.shared,
+                                        descriptor: unpack(subtype.composite_type.descriptor_idx),
+                                        describes: unpack(subtype.composite_type.describes_idx),
                                         tag: None,
                                     });
                                 }
@@ -316,9 +319,22 @@ impl<'a> Module<'a> {
                                         super_type: subtype.supertype_idx,
                                         is_final: subtype.is_final,
                                         shared: subtype.composite_type.shared,
+                                        descriptor: unpack(subtype.composite_type.descriptor_idx),
+                                        describes: unpack(subtype.composite_type.describes_idx),
                                         tag: None,
                                     });
                                 }
+                            }
+                        }
+                        fn unpack(packed: Option<PackedIndex>) -> Option<u32> {
+                            if let Some(i) = packed {
+                                let idx = i.unpack().as_module_index();
+                                if !idx.is_some() {
+                                    panic!("I just made an assumption on how to unpack this. If I'm wrong, create a GH issue.")
+                                }
+                                idx
+                            } else {
+                                None
                             }
                         }
                         let mut ids = vec![];
@@ -1095,7 +1111,9 @@ impl<'a> Module<'a> {
                 super_type,
                 is_final,
                 shared,
-                ..
+                descriptor,
+                describes,
+                tag,
             } => {
                 let params = params
                     .iter()
@@ -1115,6 +1133,8 @@ impl<'a> Module<'a> {
                     composite_type: wasm_encoder::CompositeType {
                         inner: wasm_encoder::CompositeInnerType::Func(fty),
                         shared: *shared,
+                        descriptor: descriptor.clone(),
+                        describes: describes.clone(),
                     },
                 }
             }
@@ -1124,6 +1144,8 @@ impl<'a> Module<'a> {
                 super_type,
                 is_final,
                 shared,
+                descriptor,
+                describes,
                 ..
             } => wasm_encoder::SubType {
                 is_final: *is_final,
@@ -1139,6 +1161,8 @@ impl<'a> Module<'a> {
                         },
                     )),
                     shared: *shared,
+                    descriptor: descriptor.clone(),
+                    describes: describes.clone(),
                 },
             },
             Types::StructType {
@@ -1147,6 +1171,8 @@ impl<'a> Module<'a> {
                 super_type,
                 is_final,
                 shared,
+                descriptor,
+                describes,
                 ..
             } => {
                 let mut encoded_fields: Vec<wasm_encoder::FieldType> = vec![];
@@ -1167,6 +1193,8 @@ impl<'a> Module<'a> {
                             fields: Box::from(encoded_fields),
                         }),
                         shared: *shared,
+                        descriptor: descriptor.clone(),
+                        describes: describes.clone(),
                     },
                 }
             }
@@ -1886,6 +1914,11 @@ impl<'a> Module<'a> {
                 self.num_local_memories,
                 self.imports.num_memories,
                 self.memories.as_vec().len() as u32,
+            ),
+            TypeRef::FuncExact(..) => (
+                self.num_local_functions,
+                self.imports.num_funcs,
+                self.functions.as_vec().len() as u32,
             ),
         };
 

@@ -17,8 +17,8 @@ log = "0.4.22"
 rayon = { version = "1.8", optional = true }
 serde_json = "1.0.121"
 tempfile = "3.10.1"
-wasm-encoder = { version = "0.240.0", features = ["wasmparser"] }
-wasmparser = "0.240.0"
+wasm-encoder = { version = "0.243.0", features = ["wasmparser"] }
+wasmparser = "0.243.0"
 
 [dev-dependencies]
 wasmprinter = "0.240.0"
