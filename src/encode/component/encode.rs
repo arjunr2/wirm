@@ -783,14 +783,15 @@ impl Encode for ComponentExport<'_> {
             )
         });
 
-        let Some(Refs { misc: Some(misc),..}) = self.referenced_indices() else {
-            panic!()
-        };
-        let new_id = indices.new_lookup_actual_id_or_panic(&misc);
+        // NOTE: We will not be fixing indices here (complexity)
+        // let Some(Refs { misc: Some(misc),..}) = self.referenced_indices() else {
+        //     panic!()
+        // };
+        // let new_id = indices.new_lookup_actual_id_or_panic(&misc);
         exports.export(
             self.name.0,
             reencode.component_export_kind(self.kind),
-            new_id as u32,
+            self.index,
             res,
         );
 
