@@ -73,12 +73,11 @@ impl IdxSpaces {
     pub fn assign_assumed_id_for<I: Debug + IndexSpaceOf>(
         &mut self,
         items: &Vec<I>,
-        next_id: usize,
+        curr_idx: usize,
         section: &ComponentSection,
     ) {
         for (i, item) in items.iter().enumerate() {
-            let curr_idx = next_id + i;
-            self.assign_assumed_id(&item.index_space_of(), section, curr_idx);
+            self.assign_assumed_id(&item.index_space_of(), section, curr_idx + i);
         }
     }
 
@@ -289,7 +288,7 @@ impl IdxSpace {
     pub fn lookup_assumed_id(&self, section: &ComponentSection, vec_idx: usize) -> Option<&usize> {
         let (_group, vector) = match section {
             ComponentSection::ComponentImport => ("imports", &self.imports_assumed_ids),
-            ComponentSection::ComponentExport => todo!(), // ("exports", &self.exports_assumed_ids),
+            ComponentSection::ComponentExport => ("exports", &self.exports_assumed_ids),
             ComponentSection::Alias => ("aliases", &self.alias_assumed_ids),
             ComponentSection::Component => ("components", &self.components_assumed_ids),
 
@@ -418,6 +417,21 @@ impl IndexSpaceOf for ComponentImport<'_> {
     }
 }
 
+impl IndexSpaceOf for ComponentExport<'_> {
+    fn index_space_of(&self) -> Space {
+        // This is the index space of THIS EXPORT!
+        // Not what space to use for the IDs of the typeref!
+        match self.kind {
+            ComponentExternalKind::Module => Space::CoreModule,
+            ComponentExternalKind::Func => Space::CompFunc,
+            ComponentExternalKind::Value => Space::CompVal,
+            ComponentExternalKind::Type => Space::CompType,
+            ComponentExternalKind::Instance => Space::CompInst,
+            ComponentExternalKind::Component => Space::CompInst,
+        }
+    }
+}
+
 impl IndexSpaceOf for Instance<'_> {
     fn index_space_of(&self) -> Space {
         Space::CoreInst
@@ -464,11 +478,15 @@ impl IndexSpaceOf for CanonicalFunction {
             CanonicalFunction::Lower { .. } => Space::CoreFunc,
             CanonicalFunction::Lift { .. } => Space::CompFunc,
 
+            // TODO: These actually don't create core functions!
+            // I'm just doing this as a workaround. The core function
+            // is generated IF the IR node is referenced and exported
+            // somehow...
             // Resource-related functions reference a resource type
             CanonicalFunction::ResourceNew { .. }
             | CanonicalFunction::ResourceDrop { .. }
             | CanonicalFunction::ResourceDropAsync { .. }
-            | CanonicalFunction::ResourceRep { .. } => Space::CompFunc,
+            | CanonicalFunction::ResourceRep { .. } => Space::CoreFunc,
 
             // Thread spawn / new indirect → function type
             CanonicalFunction::ThreadSpawnRef { .. }

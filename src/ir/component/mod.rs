@@ -5,14 +5,16 @@ use crate::encode::component::encode;
 use crate::error::Error;
 use crate::ir::component::alias::Aliases;
 use crate::ir::component::canons::Canons;
-use crate::ir::component::idx_spaces::{IdxSpaces, IndexSpaceOf, Space};
+use crate::ir::component::idx_spaces::{
+    IdxSpaces, IndexSpaceOf, ReferencedIndices, Space, SpaceSubtype,
+};
 use crate::ir::component::types::ComponentTypes;
 use crate::ir::helpers::{
     print_alias, print_component_export, print_component_import, print_component_type,
     print_core_type,
 };
 use crate::ir::id::{
-    AliasFuncId, AliasId, CanonicalFuncId, ComponentTypeFuncId, ComponentTypeId,
+    AliasFuncId, AliasId, CanonicalFuncId, ComponentExportId, ComponentTypeFuncId, ComponentTypeId,
     ComponentTypeInstanceId, CoreInstanceId, FunctionID, GlobalID, ModuleID,
 };
 use crate::ir::module::module_functions::FuncKind;
@@ -325,14 +327,6 @@ impl<'a> Component<'a> {
                         .into_iter()
                         .collect::<Result<_, _>>()?;
                     let l = temp.len();
-                    // let num_imps = imports.len();
-                    // // indices.assign_assumed_id_for(&temp, imports.len(), &ComponentSection::ComponentImport, &ExternalItemKind::from(&imp.ty));
-                    // for (i, imp) in temp.iter().enumerate() {
-                    //     let curr_idx = num_imps + i;
-                    //     // println!("[parse-import] idx: {curr_idx}, {temp:?}");
-                    //     let assumed_id = indices.assign_assumed_id(&ComponentSection::ComponentImport, &ExternalItemKind::from(&imp.ty), curr_idx);
-                    //     // println!("  ==> ID: {assumed_id:?}");
-                    // }
                     indices.assign_assumed_id_for(
                         &temp,
                         imports.len(),
@@ -351,6 +345,11 @@ impl<'a> Component<'a> {
                         .into_iter()
                         .collect::<Result<_, _>>()?;
                     let l = temp.len();
+                    indices.assign_assumed_id_for(
+                        &temp,
+                        exports.len(),
+                        &ComponentSection::ComponentExport,
+                    );
                     exports.append(temp);
                     Self::add_to_sections(
                         &mut sections,
@@ -587,7 +586,8 @@ impl<'a> Component<'a> {
                     contents: _,
                     range: _,
                 } => return Err(Error::UnknownSection { section_id: id }),
-                _ => {}
+                Payload::Version { .. } | Payload::End { .. } => {} // nothing to do
+                other => println!("TODO: Not sure what to do for: {:?}", other),
             }
         }
 
@@ -624,7 +624,7 @@ impl<'a> Component<'a> {
         })
     }
 
-    /// Encode a `Component` to bytes..
+    /// Encode a `Component` to bytes.
     ///
     /// # Example
     ///
@@ -637,8 +637,53 @@ impl<'a> Component<'a> {
     /// let result = comp.encode();
     /// ```
     pub fn encode(&mut self) -> Vec<u8> {
-        // self.encode_comp().finish()
         encode(&self)
+    }
+
+    pub fn get_type_of_exported_lift_func(
+        &self,
+        export_id: ComponentExportId,
+    ) -> Option<&ComponentType<'a>> {
+        if let Some(export) = self.exports.get(*export_id as usize) {
+            println!(
+                "[get_type_of_exported_func] @{} export: {:?}",
+                *export_id, export
+            );
+            if let Some(refs) = export.referenced_indices() {
+                let list = refs.as_list();
+                assert_eq!(1, list.len());
+
+                let (vec, f_idx) = self.indices.index_from_assumed_id(&list[0]);
+                // assert!(matches!(vec, SpaceSubtype::Main), "wasn't in the main! {vec:?}");
+
+                let func = match vec {
+                    SpaceSubtype::Export | SpaceSubtype::Components | SpaceSubtype::Import => {
+                        unreachable!()
+                    }
+                    SpaceSubtype::Alias => {
+                        self.alias.items.get(f_idx).unwrap().referenced_indices()
+                    }
+                    SpaceSubtype::Main => {
+                        self.canons.items.get(f_idx).unwrap().referenced_indices()
+                    }
+                };
+                if let Some(func_refs) = func {
+                    let (ty, t_idx) = self.indices.index_from_assumed_id(func_refs.ty());
+                    if !matches!(ty, SpaceSubtype::Main) {
+                        panic!("Should've been an main space!")
+                    }
+
+                    let res = self.component_types.items.get(t_idx);
+                    res
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
+        } else {
+            None
+        }
     }
 
     /// Print a rudimentary textual representation of a `Component`

@@ -3,8 +3,8 @@ use crate::ir::component::idx_spaces::{IdxSpaces, IndexSpaceOf};
 use crate::ir::section::ComponentSection;
 use crate::{Component, Module};
 use wasmparser::{
-    CanonicalFunction, ComponentAlias, ComponentImport, ComponentInstance, ComponentType, CoreType,
-    Instance,
+    CanonicalFunction, ComponentAlias, ComponentExport, ComponentImport, ComponentInstance,
+    ComponentType, CoreType, Instance,
 };
 
 /// # Phase 2: ASSIGN #
@@ -157,9 +157,15 @@ pub(crate) fn assign_indices<'a>(plan: &mut ComponentPlan<'a>, indices: &mut Idx
                     *idx,
                 );
             },
-            ComponentItem::Export { .. } => {
+            ComponentItem::Export { node, idx } => unsafe {
+                let ptr: &ComponentExport = &**node;
                 // NA: exports don't get IDs
-            }
+                indices.assign_actual_id(
+                    &ptr.index_space_of(),
+                    &ComponentSection::ComponentExport,
+                    *idx,
+                );
+            },
             ComponentItem::Start { .. } => {
                 // NA: Start sections don't get IDs
             }
