@@ -587,12 +587,12 @@ impl IndexSpaceOf for InstantiationArgKind {
 impl IndexSpaceOf for ExternalKind {
     fn index_space_of(&self) -> Space {
         match self {
-            ExternalKind::Func => Space::CompFunc,
+            ExternalKind::Func => Space::CoreFunc,
             ExternalKind::Table => Space::CoreTable,
             ExternalKind::Memory => Space::CoreMemory,
             ExternalKind::Global => Space::CoreGlobal,
             ExternalKind::Tag => Space::CoreTag,
-            ExternalKind::FuncExact => Space::CompFunc,
+            ExternalKind::FuncExact => Space::CoreFunc,
         }
     }
 }
@@ -1086,25 +1086,24 @@ impl ReferencedIndices for TypeRef {
 
 impl ReferencedIndices for ComponentAlias<'_> {
     fn referenced_indices(&self) -> Option<Refs> {
-        let space = self.index_space_of();
         match self {
             ComponentAlias::InstanceExport { instance_index, .. } => Some(Refs {
                 ty: Some(IndexedRef {
-                    space,
+                    space: Space::CompInst,
                     index: *instance_index,
                 }),
                 ..Default::default()
             }),
             ComponentAlias::CoreInstanceExport { instance_index, .. } => Some(Refs {
                 ty: Some(IndexedRef {
-                    space,
+                    space: Space::CoreInst,
                     index: *instance_index,
                 }),
                 ..Default::default()
             }),
             ComponentAlias::Outer { index, .. } => Some(Refs {
                 misc: Some(IndexedRef {
-                    space,
+                    space: Space::CompType,
                     index: *index,
                 }),
                 ..Default::default()

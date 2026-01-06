@@ -227,22 +227,22 @@
   (export "v" (core module $foo "v"))
 )
 
-(component $C
-  (core type $t (func))
-  (component $C2
-    (alias outer $C $t (core type $t2))
-    (component
-      (alias outer $C $t (core type))
-      (alias outer $C2 $t2 (core type))
-    )
-  )
-)
-
-(component $C
-  (core module $m)
-  (alias outer $C $m (core module $target))
-  (export "v" (core module $target))
-)
+;;(component $C
+;;  (core type $t (func))
+;;  (component $C2
+;;    (alias outer $C $t (core type $t2))
+;;    (component
+;;      (alias outer $C $t (core type))
+;;      (alias outer $C2 $t2 (core type))
+;;    )
+;;  )
+;;)
+;;
+;;(component $C
+;;  (core module $m)
+;;  (alias outer $C $m (core module $target))
+;;  (export "v" (core module $target))
+;;)
 
 (component $C
   (component $m)

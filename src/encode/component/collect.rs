@@ -324,7 +324,7 @@ impl<'a> Collect<'a> for CanonicalFunction {
 }
 
 impl<'a> Collect<'a> for ComponentAlias<'a> {
-    fn collect(&'a self, idx: usize, ctx: &mut CollectCtx<'a>, _comp: &'a Component<'a>) {
+    fn collect(&'a self, idx: usize, ctx: &mut CollectCtx<'a>, comp: &'a Component<'a>) {
         let ptr = self as *const _;
         if ctx.seen.aliases.contains_key(&ptr) {
             return;
@@ -333,7 +333,7 @@ impl<'a> Collect<'a> for ComponentAlias<'a> {
         ctx.seen.aliases.insert(ptr, idx);
 
         // TODO: Collect dependencies first
-        // collect_deps(self, ctx, comp);
+        collect_deps(self, ctx, comp);
 
         // push to ordered plan
         ctx.plan.items.push(ComponentItem::Alias { node: ptr, idx });
@@ -397,7 +397,7 @@ impl<'a> Collect<'a> for CoreType<'a> {
 }
 
 impl<'a> Collect<'a> for Instance<'a> {
-    fn collect(&'a self, idx: usize, ctx: &mut CollectCtx<'a>, _comp: &'a Component<'a>) {
+    fn collect(&'a self, idx: usize, ctx: &mut CollectCtx<'a>, comp: &'a Component<'a>) {
         let ptr = self as *const _;
         if ctx.seen.instances.contains_key(&ptr) {
             return;
@@ -406,7 +406,7 @@ impl<'a> Collect<'a> for Instance<'a> {
         ctx.seen.instances.insert(ptr, idx);
 
         // TODO: Collect dependencies first
-        // collect_deps(self, ctx, comp);
+        collect_deps(self, ctx, comp);
 
         // push to ordered plan
         ctx.plan.items.push(ComponentItem::Inst { node: ptr, idx });
@@ -470,6 +470,10 @@ fn collect_deps<'a, T: ReferencedIndices + 'a>(
 ) {
     if let Some(refs) = item.referenced_indices() {
         for r in refs.as_list().iter() {
+            println!("Looking up: {r:?}");
+            if r.index == 80 {
+                println!("here")
+            }
             let (vec, idx) = ctx.indices.index_from_assumed_id(r);
             let space = r.space;
             match vec {
