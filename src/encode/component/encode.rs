@@ -1000,8 +1000,30 @@ impl FixIndices for ComponentAlias<'_> {
         indices: &IdxSpaces,
         _reencode: &mut RoundtripReencoder,
     ) -> Self {
-        // NOTE: We will not be fixing indices here (complexity due to index spaces with scopes)
-        self.clone()
+        match self {
+            ComponentAlias::InstanceExport { kind, name, .. } => {
+                let refs = self.referenced_indices();
+                let inst = refs.as_ref().unwrap().inst();
+                let new_id = indices.lookup_actual_id_or_panic(&inst);
+                Self::InstanceExport {
+                    kind: kind.clone(),
+                    name,
+                    instance_index: new_id as u32,
+                }
+            }
+            ComponentAlias::CoreInstanceExport { kind, name, .. } => {
+                let refs = self.referenced_indices();
+                let inst = refs.as_ref().unwrap().inst();
+                let new_id = indices.lookup_actual_id_or_panic(&inst);
+                Self::CoreInstanceExport {
+                    kind: kind.clone(),
+                    name,
+                    instance_index: new_id as u32,
+                }
+            }
+            // NOTE: We will not be fixing indices here (complexity due to index spaces with scopes)
+            ComponentAlias::Outer { .. } => self.clone(),
+        }
     }
 }
 

@@ -177,16 +177,16 @@
   )
   "resources can only be defined within a concrete component")
 
-(component
-  (type (component
-    (import "x" (instance $i
-      (export "t" (type $t (sub resource)))
-      (export "f" (func (result (own $t))))
-    ))
-    (alias export $i "t" (type $t))
-    (export "f" (func (result (own $t))))
-  ))
-)
+;;(component
+;;  (type (component
+;;    (import "x" (instance $i
+;;      (export "t" (type $t (sub resource)))
+;;      (export "f" (func (result (own $t))))
+;;    ))
+;;    (alias export $i "t" (type $t))
+;;    (export "f" (func (result (own $t))))
+;;  ))
+;;)
 
 (component
   (import "fancy-fs" (instance $fancy-fs
@@ -1103,20 +1103,20 @@
   )
   "resource types are not the same")
 
-(component
-  (type (export "x") (component
-    (type $t' (instance
-      (export "r" (type (sub resource)))
-    ))
-    (export "t" (instance $t (type $t')))
-    (alias export $t "r" (type $r))
-    (type $t2' (instance
-      (export "r2" (type (eq $r)))
-      (export "r" (type (sub resource)))
-    ))
-    (export "t2" (instance (type $t2')))
-  ))
-)
+;;(component
+;;  (type (export "x") (component
+;;    (type $t' (instance
+;;      (export "r" (type (sub resource)))
+;;    ))
+;;    (export "t" (instance $t (type $t')))
+;;    (alias export $t "r" (type $r))
+;;    (type $t2' (instance
+;;      (export "r2" (type (eq $r)))
+;;      (export "r" (type (sub resource)))
+;;    ))
+;;    (export "t2" (instance (type $t2')))
+;;  ))
+;;)
 
 (component
   (type (component

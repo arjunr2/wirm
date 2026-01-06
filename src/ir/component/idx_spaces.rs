@@ -1088,14 +1088,14 @@ impl ReferencedIndices for ComponentAlias<'_> {
     fn referenced_indices(&self) -> Option<Refs> {
         match self {
             ComponentAlias::InstanceExport { instance_index, .. } => Some(Refs {
-                ty: Some(IndexedRef {
+                inst: Some(IndexedRef {
                     space: Space::CompInst,
                     index: *instance_index,
                 }),
                 ..Default::default()
             }),
             ComponentAlias::CoreInstanceExport { instance_index, .. } => Some(Refs {
-                ty: Some(IndexedRef {
+                inst: Some(IndexedRef {
                     space: Space::CoreInst,
                     index: *instance_index,
                 }),
