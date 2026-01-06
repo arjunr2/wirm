@@ -803,15 +803,17 @@ impl Encode for ComponentExport<'_> {
             )
         });
 
-        // NOTE: We will not be fixing indices here (complexity)
-        // let Some(Refs { misc: Some(misc),..}) = self.referenced_indices() else {
-        //     panic!()
-        // };
-        // let new_id = indices.new_lookup_actual_id_or_panic(&misc);
+        let Some(Refs {
+            misc: Some(misc), ..
+        }) = self.referenced_indices()
+        else {
+            panic!()
+        };
+        let new_id = indices.lookup_actual_id_or_panic(&misc);
         exports.export(
             self.name.0,
             reencode.component_export_kind(self.kind),
-            self.index,
+            new_id as u32,
             res,
         );
 
@@ -878,12 +880,12 @@ impl Encode for Instance<'_> {
                         .map(|arg| (arg.name, ModuleArg::Instance(arg.index))),
                 );
             }
-            Instance::FromExports(exports) => {
-                // NOTE: We will not be fixing indices here (complexity)
-                // let mut exports = vec![];
-                // for export in exports_orig.iter() {
-                //     exports.push(export.fix(component, indices, reencode));
-                // }
+            Instance::FromExports(exports_orig) => {
+                // NOTE: We will not be fixing ALL indices here (complexity)
+                let mut exports = vec![];
+                for export in exports_orig.iter() {
+                    exports.push(export.fix(component, indices, reencode));
+                }
 
                 instances.export_items(exports.iter().map(|export| {
                     (
