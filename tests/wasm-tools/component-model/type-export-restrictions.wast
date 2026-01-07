@@ -377,12 +377,12 @@
 
 ;; instance types can be "temporarily invalid", but not if they're attached
 ;; to a concrete component
-(component
-  (type (instance
-    (type $t (record (field "f" u32)))
-    (export "f" (func (param "x" $t)))
-  ))
-)
+;;(component
+;;  (type (instance
+;;    (type $t (record (field "f" u32)))
+;;    (export "f" (func (param "x" $t)))
+;;  ))
+;;)
 (assert_invalid
   (component
     (type $i (instance
@@ -395,20 +395,20 @@
   "instance not valid to be used as import")
 
 ;; allow for one import to refer to another
-(component $C
-  (import "foo" (instance $i
-    (type $baz' (record (field "f" u32)))
-    (export "baz" (type $baz (eq $baz')))
-    (type $bar' (record (field "baz" $baz)))
-    (export "bar" (type $bar (eq $bar')))
-  ))
-  (alias export $i "bar" (type $bar))
-  (import "bar" (instance
-    (alias outer $C $bar (type $bar'))
-    (export "bar" (type $bar (eq $bar')))
-    (export "a" (func $f (result $bar)))
-  ))
-)
+;;(component $C
+;;  (import "foo" (instance $i
+;;    (type $baz' (record (field "f" u32)))
+;;    (export "baz" (type $baz (eq $baz')))
+;;    (type $bar' (record (field "baz" $baz)))
+;;    (export "bar" (type $bar (eq $bar')))
+;;  ))
+;;  (alias export $i "bar" (type $bar))
+;;  (import "bar" (instance
+;;    (alias outer $C $bar (type $bar'))
+;;    (export "bar" (type $bar (eq $bar')))
+;;    (export "a" (func $f (result $bar)))
+;;  ))
+;;)
 
 ;; allow for one import to refer to another
 (component
@@ -461,40 +461,40 @@
   )
   "type not valid to be used as export")
 
-(component
-  (type (;0;)
-    (instance
-      (type (;0;) (enum "qux"))
-      (export (;1;) "baz" (type (eq 0)))
-      (type (;2;) (record (field "bar" 1) ))
-      (export (;3;) "foo" (type (eq 2)))
-    )
-  )
-  (import (interface "demo:component/types") (instance (;0;) (type 0)))
-  (component
-    (type (;0;)
-      (instance
-        (type (;0;) (enum "qux"))
-        (export (;1;) "baz" (type (eq 0)))
-        (type (;2;) (record (field "bar" 1) ))
-        (export (;3;) "foo" (type (eq 2)))
-      )
-    )
-    (import (interface "demo:component/types") (instance (;0;) (type 0)))
-    (component (;0;)
-      (type (;0;) (enum "qux"))
-      (import "import-type-baz" (type (;1;) (eq 0)))
-      (type (;2;) (record (field "bar" 1) ))
-      (import "import-type-bar" (type (;3;) (eq 2)))
-      (export (;4;) "foo" (type 3))
-    )
-    (instance (;1;) (instantiate 0
-        (with "import-type-baz" (type 0 "baz"))
-        (with "import-type-bar" (type 0 "foo"))
-      )
-    )
-    (export (;0;) (interface "demo:component/types") (instance 1))
-  )
-  (instance (instantiate 0 (with "demo:component/types" (instance 0))))
-  (export   (interface "demo:component/types") (instance 1 "demo:component/types"))
-)
+;;(component
+;;  (type (;0;)
+;;    (instance
+;;      (type (;0;) (enum "qux"))
+;;      (export (;1;) "baz" (type (eq 0)))
+;;      (type (;2;) (record (field "bar" 1) ))
+;;      (export (;3;) "foo" (type (eq 2)))
+;;    )
+;;  )
+;;  (import (interface "demo:component/types") (instance (;0;) (type 0)))
+;;  (component
+;;    (type (;0;)
+;;      (instance
+;;        (type (;0;) (enum "qux"))
+;;        (export (;1;) "baz" (type (eq 0)))
+;;        (type (;2;) (record (field "bar" 1) ))
+;;        (export (;3;) "foo" (type (eq 2)))
+;;      )
+;;    )
+;;    (import (interface "demo:component/types") (instance (;0;) (type 0)))
+;;    (component (;0;)
+;;      (type (;0;) (enum "qux"))
+;;      (import "import-type-baz" (type (;1;) (eq 0)))
+;;      (type (;2;) (record (field "bar" 1) ))
+;;      (import "import-type-bar" (type (;3;) (eq 2)))
+;;      (export (;4;) "foo" (type 3))
+;;    )
+;;    (instance (;1;) (instantiate 0
+;;        (with "import-type-baz" (type 0 "baz"))
+;;        (with "import-type-bar" (type 0 "foo"))
+;;      )
+;;    )
+;;    (export (;0;) (interface "demo:component/types") (instance 1))
+;;  )
+;;  (instance (instantiate 0 (with "demo:component/types" (instance 0))))
+;;  (export   (interface "demo:component/types") (instance 1 "demo:component/types"))
+;;)

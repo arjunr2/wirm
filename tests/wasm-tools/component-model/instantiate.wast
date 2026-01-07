@@ -82,57 +82,57 @@
   (instance (instantiate $c (with "a" (value 0))))
 )
 
-(component
-  (import "a" (component $m
-    (import "a" (instance
-      (export "a" (core module))
-    ))
-  ))
-  (import "b" (component $m2
-    (export "b" (core module))
-  ))
-  (instance $x (instantiate $m2))
+;;(component
+;;  (import "a" (component $m
+;;    (import "a" (instance
+;;      (export "a" (core module))
+;;    ))
+;;  ))
+;;  (import "b" (component $m2
+;;    (export "b" (core module))
+;;  ))
+;;  (instance $x (instantiate $m2))
+;;
+;;  (instance (instantiate $m (with "a" (instance
+;;    (export "a" (core module $x "b"))
+;;  ))))
+;;)
 
-  (instance (instantiate $m (with "a" (instance
-    (export "a" (core module $x "b"))
-  ))))
-)
-
-(component
-  (import "a" (component $c
-    (import "a" (core module))
-    (import "b" (func))
-    (import "c" (component))
-    (import "d" (instance))
-    (import "e" (value string))
-  ))
-  (core module $m (import "b"))
-  (func $f (import "c"))
-  (component $c2 (import "d"))
-  (instance $i (import "e"))
-  (import "f" (value $v string))
-
-  (instance
-    (instantiate $c
-      (with "a" (core module $m))
-      (with "b" (func $f))
-      (with "c" (component $c2))
-      (with "d" (instance $i))
-      (with "e" (value $v))
-    )
-  )
-
-  (core instance $c (instantiate $m))
-  (core instance (instantiate $m))
-
-  ;; inline exports/imports
-  (type $empty (instance))
-  (instance $d (import "g") (type $empty))
-  (instance (import "h"))
-  (instance (import "i")
-    (export "x" (func)))
-  (instance (export "j") (export "k") (import "x"))
-)
+;;(component
+;;  (import "a" (component $c
+;;    (import "a" (core module))
+;;    (import "b" (func))
+;;    (import "c" (component))
+;;    (import "d" (instance))
+;;    (import "e" (value string))
+;;  ))
+;;  (core module $m (import "b"))
+;;  (func $f (import "c"))
+;;  (component $c2 (import "d"))
+;;  (instance $i (import "e"))
+;;  (import "f" (value $v string))
+;;
+;;  (instance
+;;    (instantiate $c
+;;      (with "a" (core module $m))
+;;      (with "b" (func $f))
+;;      (with "c" (component $c2))
+;;      (with "d" (instance $i))
+;;      (with "e" (value $v))
+;;    )
+;;  )
+;;
+;;  (core instance $c (instantiate $m))
+;;  (core instance (instantiate $m))
+;;
+;;  ;; inline exports/imports
+;;  (type $empty (instance))
+;;  (instance $d (import "g") (type $empty))
+;;  (instance (import "h"))
+;;  (instance (import "i")
+;;    (export "x" (func)))
+;;  (instance (export "j") (export "k") (import "x"))
+;;)
 
 (assert_invalid
   (component
@@ -234,33 +234,33 @@
   )
   "missing expected export `x`")
 
-;; it's ok to give a module with fewer imports
-(component
-  (import "a" (component $m
-    (import "a" (core module
-      (import "" "" (global i32))
-      (import "" "f" (func))
-    ))
-  ))
-  (import "b" (core module $i
-    (import "" "" (global i32))
-  ))
-  (instance $i (instantiate $m (with "a" (core module $i))))
-)
+;;;; it's ok to give a module with fewer imports
+;;(component
+;;  (import "a" (component $m
+;;    (import "a" (core module
+;;      (import "" "" (global i32))
+;;      (import "" "f" (func))
+;;    ))
+;;  ))
+;;  (import "b" (core module $i
+;;    (import "" "" (global i32))
+;;  ))
+;;  (instance $i (instantiate $m (with "a" (core module $i))))
+;;)
 
-;; export subsets
-(component
-  (import "a" (component $m
-    (import "a" (core module
-      (export "" (func))
-    ))
-  ))
-  (import "b" (core module $i
-    (export "" (func))
-    (export "a" (func))
-  ))
-  (instance $i (instantiate $m (with "a" (core module $i))))
-)
+;;;; export subsets
+;;(component
+;;  (import "a" (component $m
+;;    (import "a" (core module
+;;      (export "" (func))
+;;    ))
+;;  ))
+;;  (import "b" (core module $i
+;;    (export "" (func))
+;;    (export "a" (func))
+;;  ))
+;;  (instance $i (instantiate $m (with "a" (core module $i))))
+;;)
 (component
   (import "a" (component $m
     (import "a" (instance

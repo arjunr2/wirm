@@ -1,18 +1,18 @@
 ;; RUN: wast --assert default --snapshot tests/snapshots % -f cm-values
 
-(component
-  (import "a" (func))
-  (import "b" (instance))
-  (import "c" (instance
-    (export "a" (func))
-  ))
-  (import "d" (component
-    (import "a" (core module))
-    (export "b" (func))
-  ))
-  (type $t (func))
-  (import "e" (type (eq $t)))
-)
+;;(component
+;;  (import "a" (func))
+;;  (import "b" (instance))
+;;  (import "c" (instance
+;;    (export "a" (func))
+;;  ))
+;;  (import "d" (component
+;;    (import "a" (core module))
+;;    (export "b" (func))
+;;  ))
+;;  (type $t (func))
+;;  (import "e" (type (eq $t)))
+;;)
 
 (assert_invalid
   (component

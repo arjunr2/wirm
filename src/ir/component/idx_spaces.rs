@@ -2,12 +2,8 @@ use crate::ir::section::ComponentSection;
 use crate::{Component, Module};
 use std::collections::HashMap;
 use std::fmt::Debug;
-use wasmparser::{
-    CanonicalFunction, CanonicalOption, ComponentAlias, ComponentDefinedType, ComponentExport,
-    ComponentExternalKind, ComponentImport, ComponentInstance, ComponentInstantiationArg,
-    ComponentOuterAliasKind, ComponentType, ComponentTypeRef, ComponentValType, CoreType, Export,
-    ExternalKind, Instance, InstantiationArg, InstantiationArgKind, TagType, TypeRef, VariantCase,
-};
+use wasmparser::{CanonicalFunction, CanonicalOption, ComponentAlias, ComponentDefinedType, ComponentExport, ComponentExternalKind, ComponentFuncType, ComponentImport, ComponentInstance, ComponentInstantiationArg, ComponentOuterAliasKind, ComponentStartFunction, ComponentType, ComponentTypeDeclaration, ComponentTypeRef, ComponentValType, CompositeInnerType, CompositeType, CoreType, Export, ExternalKind, FieldType, Instance, InstanceTypeDeclaration, InstantiationArg, InstantiationArgKind, ModuleTypeDeclaration, RecGroup, RefType, StorageType, SubType, TagType, TypeRef, ValType, VariantCase};
+use crate::ir::types::CustomSection;
 
 #[derive(Clone, Debug, Default)]
 pub(crate) struct IdxSpaces {
@@ -633,6 +629,7 @@ pub struct Refs {
     pub module: Option<IndexedRef>,
     pub func: Option<IndexedRef>,
     pub ty: Option<IndexedRef>,
+    pub val: Option<IndexedRef>,
     pub mem: Option<IndexedRef>,
     pub table: Option<IndexedRef>,
     pub misc: Option<IndexedRef>,
@@ -653,6 +650,9 @@ impl Refs {
     }
     pub fn ty(&self) -> &IndexedRef {
         self.ty.as_ref().unwrap()
+    }
+    pub fn val(&self) -> &IndexedRef {
+        self.val.as_ref().unwrap()
     }
     pub fn mem(&self) -> &IndexedRef {
         self.mem.as_ref().unwrap()
@@ -675,6 +675,7 @@ impl Refs {
             module,
             func,
             ty,
+            val,
             mem,
             table,
             misc,
@@ -695,6 +696,9 @@ impl Refs {
         }
         if let Some(ty) = ty {
             res.push(*ty);
+        }
+        if let Some(val) = val {
+            res.push(*val);
         }
         if let Some(mem) = mem {
             res.push(*mem);
@@ -720,6 +724,65 @@ impl Refs {
 pub struct IndexedRef {
     pub space: Space,
     pub index: u32,
+}
+
+impl ReferencedIndices for Module<'_> {
+    fn referenced_indices(&self) -> Option<Refs> {
+        None
+    }
+}
+
+impl ReferencedIndices for ComponentType<'_> {
+    fn referenced_indices(&self) -> Option<Refs> {
+        match self {
+            ComponentType::Defined(ty) => ty.referenced_indices(),
+            ComponentType::Func(ComponentFuncType { params, result, ..}) => {
+                let mut others = vec![];
+                for (_, ty) in params.iter() {
+                    others.push(ty.referenced_indices());
+                }
+                if let Some(ty) = result {
+                    others.push(ty.referenced_indices());
+                }
+                Some(Refs {
+                    others,
+                    ..Default::default()
+                })
+            },
+            ComponentType::Component(tys) => {
+                let mut others = vec![];
+                for ty in tys.iter() {
+                    others.push(ty.referenced_indices());
+                }
+                Some(Refs {
+                    others,
+                    ..Default::default()
+                })
+            },
+            ComponentType::Instance(tys) => {
+                let mut others = vec![];
+                for ty in tys.iter() {
+                    others.push(ty.referenced_indices());
+                }
+                Some(Refs {
+                    others,
+                    ..Default::default()
+                })
+            },
+            ComponentType::Resource { rep, dtor } => Some(Refs {
+                ty: rep.referenced_indices()?.ty,
+                func: if let Some(id) = dtor {
+                    Some(IndexedRef {
+                        space: Space::CompFunc,
+                        index: *id,
+                    })
+                } else {
+                    None
+                },
+                ..Default::default()
+            }),
+        }
+    }
 }
 
 impl ReferencedIndices for ComponentDefinedType<'_> {
@@ -804,6 +867,196 @@ impl ReferencedIndices for ComponentDefinedType<'_> {
                 }
             }
         }
+    }
+}
+
+impl ReferencedIndices for ComponentTypeDeclaration<'_> {
+    fn referenced_indices(&self) -> Option<Refs> {
+        match self {
+            ComponentTypeDeclaration::CoreType(ty) => ty.referenced_indices(),
+            ComponentTypeDeclaration::Type(ty) => ty.referenced_indices(),
+            ComponentTypeDeclaration::Alias(ty) => ty.referenced_indices(),
+            ComponentTypeDeclaration::Export { ty, .. } => ty.referenced_indices(),
+            ComponentTypeDeclaration::Import(import) => import.referenced_indices()
+        }
+    }
+}
+
+impl ReferencedIndices for InstanceTypeDeclaration<'_> {
+    fn referenced_indices(&self) -> Option<Refs> {
+        match self {
+            InstanceTypeDeclaration::CoreType(ty) => ty.referenced_indices(),
+            InstanceTypeDeclaration::Type(ty) => ty.referenced_indices(),
+            InstanceTypeDeclaration::Alias(ty) => ty.referenced_indices(),
+            InstanceTypeDeclaration::Export { ty, .. } => ty.referenced_indices(),
+        }
+    }
+}
+
+impl ReferencedIndices for CoreType<'_> {
+    fn referenced_indices(&self) -> Option<Refs> {
+        match self {
+            CoreType::Rec(group) => group.referenced_indices(),
+            CoreType::Module(tys) => {
+                let mut others = vec![];
+                for ty in tys.iter() {
+                    others.push(ty.referenced_indices());
+                }
+                Some(Refs {
+                    others,
+                    ..Default::default()
+                })
+            }
+        }
+    }
+}
+
+impl ReferencedIndices for RecGroup {
+    fn referenced_indices(&self) -> Option<Refs> {
+        let mut others = vec![];
+        self.types().for_each(|subty| {
+            others.push(Some(Refs {
+                others: vec![subty.referenced_indices()],
+                ..Default::default()
+            }));
+        });
+        Some(Refs {
+            others,
+            ..Default::default()
+        })
+    }
+}
+
+impl ReferencedIndices for SubType {
+    fn referenced_indices(&self) -> Option<Refs> {
+        let mut others = vec![];
+
+        if let Some(packed) = self.supertype_idx {
+            others.push(Some(Refs {
+                ty: Some(IndexedRef {
+                    space: Space::CoreType,
+                    index: packed.unpack().as_module_index().unwrap()
+                }),
+                ..Default::default()
+            }))
+        }
+        others.push(self.composite_type.referenced_indices());
+
+        Some(Refs {
+            others,
+            ..Default::default()
+        })
+    }
+}
+
+impl ReferencedIndices for CompositeType {
+    fn referenced_indices(&self) -> Option<Refs> {
+        let mut others = vec![];
+
+        others.push(self.inner.referenced_indices());
+        if let Some(_descriptor) = self.descriptor_idx {
+            todo!()
+        }
+        if let Some(_describes) = self.describes_idx {
+            todo!()
+        }
+
+        Some(Refs {
+            others,
+            ..Default::default()
+        })
+    }
+}
+
+impl ReferencedIndices for CompositeInnerType {
+    fn referenced_indices(&self) -> Option<Refs> {
+        match self {
+            CompositeInnerType::Func(f) => {
+                let mut others = vec![];
+                for ty in f.params().iter() {
+                    others.push(ty.referenced_indices());
+                }
+                for ty in f.results().iter() {
+                    others.push(ty.referenced_indices());
+                }
+                Some(Refs {
+                    others,
+                    ..Default::default()
+                })
+            }
+            CompositeInnerType::Array(a) => {
+                a.0.referenced_indices()
+            }
+            CompositeInnerType::Struct(s) => {
+                let mut others = vec![];
+                for ty in s.fields.iter() {
+                    others.push(ty.referenced_indices());
+                }
+                Some(Refs {
+                    others,
+                    ..Default::default()
+                })
+            }
+            CompositeInnerType::Cont(ty) => Some(Refs {
+                ty: Some(IndexedRef {
+                    space: Space::CompType,
+                    index: todo!()
+                }),
+                ..Default::default()
+            })
+        }
+    }
+}
+
+impl ReferencedIndices for FieldType {
+    fn referenced_indices(&self) -> Option<Refs> {
+        self.element_type.referenced_indices()
+    }
+}
+
+impl ReferencedIndices for StorageType {
+    fn referenced_indices(&self) -> Option<Refs> {
+        match self {
+            StorageType::I8
+            | StorageType::I16 => None,
+            StorageType::Val(value) => value.referenced_indices()
+        }
+    }
+}
+
+impl ReferencedIndices for ModuleTypeDeclaration<'_> {
+    fn referenced_indices(&self) -> Option<Refs> {
+        match self {
+            ModuleTypeDeclaration::Type(group) => group.referenced_indices(),
+            ModuleTypeDeclaration::Export { ty, .. } => ty.referenced_indices(),
+            ModuleTypeDeclaration::Import(i) => i.ty.referenced_indices(),
+            ModuleTypeDeclaration::OuterAlias { .. } => todo!(),
+        }
+    }
+}
+
+impl ReferencedIndices for ValType {
+    fn referenced_indices(&self) -> Option<Refs> {
+        match self {
+            ValType::I32
+            | ValType::I64
+            | ValType::F32
+            | ValType::F64
+            | ValType::V128 => None,
+            ValType::Ref(r) => r.referenced_indices(),
+        }
+    }
+}
+
+impl ReferencedIndices for RefType {
+    fn referenced_indices(&self) -> Option<Refs> {
+        Some(Refs {
+            ty: Some(IndexedRef {
+                space: Space::CoreType,
+                index: self.type_index().unwrap().unpack().as_module_index().unwrap()
+            }),
+            ..Default::default()
+        })
     }
 }
 
@@ -1152,5 +1405,36 @@ impl ReferencedIndices for ComponentInstance<'_> {
                 }
             }
         }
+    }
+}
+
+impl ReferencedIndices for CustomSection<'_> {
+    fn referenced_indices(&self) -> Option<Refs> {
+        None
+    }
+}
+
+impl ReferencedIndices for ComponentStartFunction {
+    fn referenced_indices(&self) -> Option<Refs> {
+        let mut others = vec![];
+
+        for v in self.arguments.iter() {
+            others.push(Some(Refs {
+                ty: Some(IndexedRef {
+                    space: Space::CompVal,
+                    index: *v,
+                }),
+                ..Default::default()
+            }));
+        }
+
+        Some(Refs {
+            func: Some(IndexedRef {
+                space: Space::CompFunc,
+                index: self.func_index,
+            }),
+            others,
+            ..Default::default()
+        })
     }
 }

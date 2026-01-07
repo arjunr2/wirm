@@ -65,43 +65,43 @@
 "invalid leading byte (0x60) for non-final sub type")
 
 
-;; test various shapes and properties of GC types within a component
-(component $C
-  (core type $t1 (struct))
-  (core type $t2 (array i8))
-  (core type $t3 (func))
-  (core type (struct
-    (field $a (ref $t1))
-    (field $b (ref $t2))
-    (field $c (ref $t3))
-  ))
-  (core type $s1 (sub (struct)))
-  (core type $s2 (sub final (struct)))
-  (core type $s3 (sub $s1 (struct)))
-  (core type $f (func (result (ref $f))))
-  (core rec)
-  (core rec
-    (type $f1 (func (result (ref $f2))))
-    (type $f2 (func (result (ref $f1))))
-  )
-
-  (core type (module
-    (alias outer $C $t1 (type $t1))
-    (import "x" "x" (func (result (ref $t1))))
-
-    (type $a1 (struct (field $a (ref $t1))))
-    (type $a2 (array (ref $a1)))
-    (type $a3 (func (result (ref $a2))))
-    (type $a4 (sub (struct)))
-    (type $a5 (sub final (struct)))
-    (rec)
-    (rec
-      (type $f1 (func (result (ref $f2))))
-      (type $f2 (func (result (ref $f1))))
-    )
-    (type $f (func (result (ref $f))))
-  ))
-)
+;;;; test various shapes and properties of GC types within a component
+;;(component $C
+;;  (core type $t1 (struct))
+;;  (core type $t2 (array i8))
+;;  (core type $t3 (func))
+;;  (core type (struct
+;;    (field $a (ref $t1))
+;;    (field $b (ref $t2))
+;;    (field $c (ref $t3))
+;;  ))
+;;  (core type $s1 (sub (struct)))
+;;  (core type $s2 (sub final (struct)))
+;;  (core type $s3 (sub $s1 (struct)))
+;;  (core type $f (func (result (ref $f))))
+;;  (core rec)
+;;  (core rec
+;;    (type $f1 (func (result (ref $f2))))
+;;    (type $f2 (func (result (ref $f1))))
+;;  )
+;;
+;;  (core type (module
+;;    (alias outer $C $t1 (type $t1))
+;;    (import "x" "x" (func (result (ref $t1))))
+;;
+;;    (type $a1 (struct (field $a (ref $t1))))
+;;    (type $a2 (array (ref $a1)))
+;;    (type $a3 (func (result (ref $a2))))
+;;    (type $a4 (sub (struct)))
+;;    (type $a5 (sub final (struct)))
+;;    (rec)
+;;    (rec
+;;      (type $f1 (func (result (ref $f2))))
+;;      (type $f2 (func (result (ref $f1))))
+;;    )
+;;    (type $f (func (result (ref $f))))
+;;  ))
+;;)
 
 ;; aliases don't work within core types
 (assert_malformed

@@ -1,3 +1,6 @@
+// I want this file to be a bunch of oneliners (easier to read)!
+#[rustfmt::skip]
+
 use crate::ir::component::idx_spaces::{IdxSpaces, ReferencedIndices, Space, SpaceSubtype};
 use crate::ir::section::ComponentSection;
 use crate::ir::types::CustomSection;
@@ -7,136 +10,6 @@ use wasmparser::{
     CanonicalFunction, ComponentAlias, ComponentExport, ComponentImport, ComponentInstance,
     ComponentStartFunction, ComponentType, CoreType, Instance,
 };
-
-/// `ComponentItem` stores raw pointers to IR nodes (e.g., `CanonicalFunction`, `Module`, `Component`)
-/// rather than `&T` references directly.
-///
-/// # Safety
-///
-/// This is safe under the following conditions:
-///
-/// 1. **The IR outlives the plan** (`'a` lifetime):
-///    All IR nodes are borrowed from a buffer (e.g., the wasm module bytes) that lives at least
-///    as long as the `EncodePlan<'a>` and `Indices<'a>`. Therefore, the raw pointers will always
-///    point to valid memory for the lifetime `'a`.
-///
-/// 2. **Pointers are not mutated or deallocated**:
-///    The IR is immutable, so dereferencing the pointers for read-only operations (like `encode`)
-///    cannot cause undefined behavior.
-///
-/// 3. **Dereference only occurs inside `unsafe` blocks**:
-///    Rust requires `unsafe` to dereference `*const T`. We carefully ensure that all dereferences
-///    happen while the IR is still alive and valid.
-///
-/// 4. **Phase separation is respected**:
-///    - **Collect phase** builds a linear plan of IR nodes, storing raw pointers as handles.
-///    - **Assign indices phase** assigns numeric IDs to nodes in the order they appear in the plan.
-///    - **Encode phase** dereferences pointers to emit bytes.
-///
-/// By storing raw pointers instead of `&'a T`, we avoid lifetime and variance conflicts that would
-/// occur if `EncodePlan<'a>` were mutably borrowed while simultaneously pushing `&'a T` references.
-///
-/// The `'a` lifetime ensures the underlying IR node lives long enough, making this `unsafe`
-/// dereference sound.
-#[derive(Debug)]
-pub(crate) enum ComponentItem<'a> {
-    Component {
-        node: *const Component<'a>,
-        plan: ComponentPlan<'a>,
-        idx: usize, // TODO: I don't think I need idx here!
-        // indices: Indices<'a>,
-        indices: IdxSpaces, // store nested component’s IndexMap
-    },
-    Module {
-        node: *const Module<'a>,
-        idx: usize,
-    },
-    CompType {
-        node: *const ComponentType<'a>,
-        idx: usize,
-    },
-    CompInst {
-        node: *const ComponentInstance<'a>,
-        idx: usize,
-    },
-    CanonicalFunc {
-        node: *const CanonicalFunction,
-        idx: usize,
-    },
-
-    Alias {
-        node: *const ComponentAlias<'a>,
-        idx: usize,
-    },
-    Import {
-        node: *const ComponentImport<'a>,
-        idx: usize,
-    },
-    Export {
-        node: *const ComponentExport<'a>,
-        idx: usize,
-    },
-
-    CoreType {
-        node: *const CoreType<'a>,
-        idx: usize,
-    },
-    Inst {
-        node: *const Instance<'a>,
-        idx: usize,
-    },
-
-    Start {
-        node: *const ComponentStartFunction,
-        idx: usize,
-    },
-    CustomSection {
-        node: *const CustomSection<'a>,
-        idx: usize,
-    },
-    // ... add others as needed
-}
-
-#[derive(Debug, Default)]
-pub(crate) struct ComponentPlan<'a> {
-    pub(crate) items: Vec<ComponentItem<'a>>,
-}
-
-#[derive(Default)]
-struct Seen<'a> {
-    /// Points to a TEMPORARY ID -- this is just for bookkeeping, not the final ID
-    /// The final ID is assigned during the "Assign" phase.
-    components: HashMap<*const Component<'a>, usize>,
-    modules: HashMap<*const Module<'a>, usize>,
-    comp_types: HashMap<*const ComponentType<'a>, usize>,
-    comp_instances: HashMap<*const ComponentInstance<'a>, usize>,
-    canon_funcs: HashMap<*const CanonicalFunction, usize>,
-
-    aliases: HashMap<*const ComponentAlias<'a>, usize>,
-    imports: HashMap<*const ComponentImport<'a>, usize>,
-    exports: HashMap<*const ComponentExport<'a>, usize>,
-
-    core_types: HashMap<*const CoreType<'a>, usize>,
-    instances: HashMap<*const Instance<'a>, usize>,
-
-    start: HashMap<*const ComponentStartFunction, usize>,
-    custom_sections: HashMap<*const CustomSection<'a>, usize>,
-}
-
-pub(crate) struct CollectCtx<'a> {
-    pub(crate) plan: ComponentPlan<'a>,
-    pub(crate) indices: IdxSpaces,
-    seen: Seen<'a>,
-}
-impl CollectCtx<'_> {
-    pub fn new(comp: &Component) -> Self {
-        Self {
-            indices: comp.indices.clone(),
-            plan: ComponentPlan::default(),
-            seen: Seen::default(),
-        }
-    }
-}
 
 /// A trait for each IR node to implement --> The node knows how to `collect` itself.
 /// Passes the collection context AND a pointer to the containing Component
@@ -247,205 +120,87 @@ impl<'a> Collect<'a> for Component<'a> {
     }
 }
 
+fn collect_section<'a, N: ReferencedIndices + 'a>(node: &'a N, idx: usize, ctx: &mut CollectCtx<'a>, comp: &'a Component<'a>, create_ptr: fn(*const N) -> TrackedItem<'a>, create_item: fn(*const N, usize) -> ComponentItem<'a>) {
+    let ptr = node as *const _;
+    let r = create_ptr(ptr);
+    if ctx.seen.contains_key(&r) {
+        return;
+    }
+    // assign a temporary index during collection
+    ctx.seen.insert(r, idx);
+
+    // Collect dependencies first
+    collect_deps(node, ctx, comp);
+
+    // push to ordered plan
+    ctx.plan
+        .items
+        .push(create_item(ptr, idx));
+}
+
 impl<'a> Collect<'a> for Module<'a> {
-    fn collect(&'a self, idx: usize, ctx: &mut CollectCtx<'a>, _comp: &'a Component<'a>) {
-        let ptr = self as *const _;
-        if ctx.seen.modules.contains_key(&ptr) {
-            return;
-        }
-        // assign a temporary index during collection
-        ctx.seen.modules.insert(ptr, idx);
-
-        // TODO: Collect dependencies first
-        // collect_deps(self, ctx, comp);
-
-        // push to ordered plan
-        ctx.plan
-            .items
-            .push(ComponentItem::Module { node: ptr, idx });
+    fn collect(&'a self, idx: usize, ctx: &mut CollectCtx<'a>, comp: &'a Component<'a>) {
+        collect_section(self, idx, ctx, comp, TrackedItem::new_module, ComponentItem::new_module);
     }
 }
 
 impl<'a> Collect<'a> for ComponentType<'a> {
-    fn collect(&'a self, idx: usize, ctx: &mut CollectCtx<'a>, _comp: &'a Component<'a>) {
-        let ptr = self as *const _;
-        if ctx.seen.comp_types.contains_key(&ptr) {
-            return;
-        }
-        // assign a temporary index during collection
-        ctx.seen.comp_types.insert(ptr, idx);
-
-        // TODO: collect dependencies first
-        // collect_deps(self, ctx, comp);
-
-        // push to ordered plan
-        ctx.plan
-            .items
-            .push(ComponentItem::CompType { node: ptr, idx });
+    fn collect(&'a self, idx: usize, ctx: &mut CollectCtx<'a>, comp: &'a Component<'a>) {
+        collect_section(self, idx, ctx, comp, TrackedItem::new_comp_type, ComponentItem::new_comp_type);
     }
 }
 
 impl<'a> Collect<'a> for ComponentInstance<'a> {
-    fn collect(&'a self, idx: usize, ctx: &mut CollectCtx<'a>, _comp: &'a Component<'a>) {
-        let ptr = self as *const _;
-        if ctx.seen.comp_instances.contains_key(&ptr) {
-            return;
-        }
-        // assign a temporary index during collection
-        ctx.seen.comp_instances.insert(ptr, idx);
-
-        // TODO: Collect dependencies first
-        // collect_deps(self, ctx, comp);
-
-        // push to ordered plan
-        ctx.plan
-            .items
-            .push(ComponentItem::CompInst { node: ptr, idx });
+    fn collect(&'a self, idx: usize, ctx: &mut CollectCtx<'a>, comp: &'a Component<'a>) {
+        collect_section(self, idx, ctx, comp, TrackedItem::new_comp_inst, ComponentItem::new_comp_inst);
     }
 }
 
 impl<'a> Collect<'a> for CanonicalFunction {
     fn collect(&'a self, idx: usize, ctx: &mut CollectCtx<'a>, comp: &'a Component<'a>) {
-        let ptr = self as *const _;
-        if ctx.seen.canon_funcs.contains_key(&ptr) {
-            return;
-        }
-        // assign a temporary index during collection
-        ctx.seen.canon_funcs.insert(ptr, idx);
-
-        // Collect dependencies first
-        collect_deps(self, ctx, comp);
-
-        // push to ordered plan
-        ctx.plan
-            .items
-            .push(ComponentItem::CanonicalFunc { node: ptr, idx });
+        collect_section(self, idx, ctx, comp, TrackedItem::new_canon, ComponentItem::new_canon);
     }
 }
 
 impl<'a> Collect<'a> for ComponentAlias<'a> {
     fn collect(&'a self, idx: usize, ctx: &mut CollectCtx<'a>, comp: &'a Component<'a>) {
-        let ptr = self as *const _;
-        if ctx.seen.aliases.contains_key(&ptr) {
-            return;
-        }
-        // assign a temporary index during collection
-        ctx.seen.aliases.insert(ptr, idx);
-
-        // TODO: Collect dependencies first
-        collect_deps(self, ctx, comp);
-
-        // push to ordered plan
-        ctx.plan.items.push(ComponentItem::Alias { node: ptr, idx });
+        collect_section(self, idx, ctx, comp, TrackedItem::new_alias, ComponentItem::new_alias);
     }
 }
 
 impl<'a> Collect<'a> for ComponentImport<'a> {
     fn collect(&'a self, idx: usize, ctx: &mut CollectCtx<'a>, comp: &'a Component<'a>) {
-        let ptr = self as *const _;
-        if ctx.seen.imports.contains_key(&ptr) {
-            return;
-        }
-        // assign a temporary index during collection
-        ctx.seen.imports.insert(ptr, idx);
-
-        collect_deps(self, ctx, comp);
-
-        // push to ordered plan
-        ctx.plan
-            .items
-            .push(ComponentItem::Import { node: ptr, idx });
+        collect_section(self, idx, ctx, comp, TrackedItem::new_import, ComponentItem::new_import);
     }
 }
 
 impl<'a> Collect<'a> for ComponentExport<'a> {
-    fn collect(&'a self, idx: usize, ctx: &mut CollectCtx<'a>, _comp: &'a Component<'a>) {
-        let ptr = self as *const _;
-        if ctx.seen.exports.contains_key(&ptr) {
-            return;
-        }
-        // assign a temporary index during collection
-        ctx.seen.exports.insert(ptr, idx);
-
-        // TODO: Collect dependencies first
-        // collect_deps(self, ctx, comp);
-
-        // push to ordered plan
-        ctx.plan
-            .items
-            .push(ComponentItem::Export { node: ptr, idx });
+    fn collect(&'a self, idx: usize, ctx: &mut CollectCtx<'a>, comp: &'a Component<'a>) {
+        collect_section(self, idx, ctx, comp, TrackedItem::new_export, ComponentItem::new_export);
     }
 }
 
 impl<'a> Collect<'a> for CoreType<'a> {
-    fn collect(&'a self, idx: usize, ctx: &mut CollectCtx<'a>, _comp: &'a Component<'a>) {
-        let ptr = self as *const _;
-        if ctx.seen.core_types.contains_key(&ptr) {
-            return;
-        }
-        // assign a temporary index during collection
-        ctx.seen.core_types.insert(ptr, idx);
-
-        // TODO: Collect dependencies first
-        // collect_deps(self, ctx, comp);
-
-        // push to ordered plan
-        ctx.plan
-            .items
-            .push(ComponentItem::CoreType { node: ptr, idx });
+    fn collect(&'a self, idx: usize, ctx: &mut CollectCtx<'a>, comp: &'a Component<'a>) {
+        collect_section(self, idx, ctx, comp, TrackedItem::new_core_type, ComponentItem::new_core_type);
     }
 }
 
 impl<'a> Collect<'a> for Instance<'a> {
     fn collect(&'a self, idx: usize, ctx: &mut CollectCtx<'a>, comp: &'a Component<'a>) {
-        let ptr = self as *const _;
-        if ctx.seen.instances.contains_key(&ptr) {
-            return;
-        }
-        // assign a temporary index during collection
-        ctx.seen.instances.insert(ptr, idx);
-
-        // TODO: Collect dependencies first
-        collect_deps(self, ctx, comp);
-
-        // push to ordered plan
-        ctx.plan.items.push(ComponentItem::Inst { node: ptr, idx });
+        collect_section(self, idx, ctx, comp, TrackedItem::new_inst, ComponentItem::new_inst);
     }
 }
 
 impl<'a> Collect<'a> for CustomSection<'a> {
-    fn collect(&'a self, idx: usize, ctx: &mut CollectCtx<'a>, _comp: &'a Component<'a>) {
-        let ptr = self as *const _;
-        if ctx.seen.custom_sections.contains_key(&ptr) {
-            return;
-        }
-        // assign a temporary index during collection
-        ctx.seen.custom_sections.insert(ptr, idx);
-
-        // TODO: collect dependencies first
-        // collect_deps(self, ctx, comp);
-
-        // push to ordered plan
-        ctx.plan
-            .items
-            .push(ComponentItem::CustomSection { node: ptr, idx });
+    fn collect(&'a self, idx: usize, ctx: &mut CollectCtx<'a>, comp: &'a Component<'a>) {
+        collect_section(self, idx, ctx, comp, TrackedItem::new_custom, ComponentItem::new_custom);
     }
 }
 
 impl<'a> Collect<'a> for ComponentStartFunction {
-    fn collect(&'a self, idx: usize, ctx: &mut CollectCtx<'a>, _comp: &'a Component<'a>) {
-        let ptr = self as *const _;
-        if ctx.seen.start.contains_key(&ptr) {
-            return;
-        }
-        // assign a temporary index during collection
-        ctx.seen.start.insert(ptr, idx);
-
-        // TODO: Collect dependencies first
-        // collect_deps(self, ctx, comp);
-
-        // push to ordered plan
-        ctx.plan.items.push(ComponentItem::Start { node: ptr, idx });
+    fn collect(&'a self, idx: usize, ctx: &mut CollectCtx<'a>, comp: &'a Component<'a>) {
+        collect_section(self, idx, ctx, comp, TrackedItem::new_start, ComponentItem::new_start);
     }
 }
 
@@ -500,6 +255,256 @@ fn collect_deps<'a, T: ReferencedIndices + 'a>(
                 SpaceSubtype::Alias => comp.alias.items[idx].collect(idx, ctx, comp),
                 SpaceSubtype::Components => comp.components[idx].collect(idx, ctx, comp),
             }
+        }
+    }
+}
+
+/// `ComponentItem` stores raw pointers to IR nodes (e.g., `CanonicalFunction`, `Module`, `Component`)
+/// rather than `&T` references directly.
+///
+/// # Safety
+///
+/// This is safe under the following conditions:
+///
+/// 1. **The IR outlives the plan** (`'a` lifetime):
+///    All IR nodes are borrowed from a buffer (e.g., the wasm module bytes) that lives at least
+///    as long as the `EncodePlan<'a>` and `Indices<'a>`. Therefore, the raw pointers will always
+///    point to valid memory for the lifetime `'a`.
+///
+/// 2. **Pointers are not mutated or deallocated**:
+///    The IR is immutable, so dereferencing the pointers for read-only operations (like `encode`)
+///    cannot cause undefined behavior.
+///
+/// 3. **Dereference only occurs inside `unsafe` blocks**:
+///    Rust requires `unsafe` to dereference `*const T`. We carefully ensure that all dereferences
+///    happen while the IR is still alive and valid.
+///
+/// 4. **Phase separation is respected**:
+///    - **Collect phase** builds a linear plan of IR nodes, storing raw pointers as handles.
+///    - **Assign indices phase** assigns numeric IDs to nodes in the order they appear in the plan.
+///    - **Encode phase** dereferences pointers to emit bytes.
+///
+/// By storing raw pointers instead of `&'a T`, we avoid lifetime and variance conflicts that would
+/// occur if `EncodePlan<'a>` were mutably borrowed while simultaneously pushing `&'a T` references.
+///
+/// The `'a` lifetime ensures the underlying IR node lives long enough, making this `unsafe`
+/// dereference sound.
+#[derive(Debug)]
+pub(crate) enum ComponentItem<'a> {
+    Component {
+        node: *const Component<'a>,
+        plan: ComponentPlan<'a>,
+        idx: usize,
+        indices: IdxSpaces, // store nested component’s IndexMap
+    },
+    Module {
+        node: *const Module<'a>,
+        idx: usize,
+    },
+    CompType {
+        node: *const ComponentType<'a>,
+        idx: usize,
+    },
+    CompInst {
+        node: *const ComponentInstance<'a>,
+        idx: usize,
+    },
+    CanonicalFunc {
+        node: *const CanonicalFunction,
+        idx: usize,
+    },
+
+    Alias {
+        node: *const ComponentAlias<'a>,
+        idx: usize,
+    },
+    Import {
+        node: *const ComponentImport<'a>,
+        idx: usize,
+    },
+    Export {
+        node: *const ComponentExport<'a>,
+        idx: usize,
+    },
+
+    CoreType {
+        node: *const CoreType<'a>,
+        idx: usize,
+    },
+    Inst {
+        node: *const Instance<'a>,
+        idx: usize,
+    },
+
+    Start {
+        node: *const ComponentStartFunction,
+        // idx: usize,
+    },
+    CustomSection {
+        node: *const CustomSection<'a>,
+        // idx: usize,
+    },
+    // ... add others as needed
+}
+impl<'a> ComponentItem<'a> {
+    fn new_module(node: *const Module<'a>, idx: usize) -> Self {
+        Self::Module { node, idx }
+    }
+    fn new_comp_type(node: *const ComponentType<'a>, idx: usize) -> Self {
+        Self::CompType { node, idx }
+    }
+    fn new_comp_inst(node: *const ComponentInstance<'a>, idx: usize) -> Self {
+        Self::CompInst { node, idx }
+    }
+    fn new_canon(node: *const CanonicalFunction, idx: usize) -> Self {
+        Self::CanonicalFunc { node, idx }
+    }
+    fn new_alias(node: *const ComponentAlias<'a>, idx: usize) -> Self {
+        Self::Alias { node, idx }
+    }
+    fn new_import(node: *const ComponentImport<'a>, idx: usize) -> Self {
+        Self::Import { node, idx }
+    }
+    fn new_export(node: *const ComponentExport<'a>, idx: usize) -> Self {
+        Self::Export { node, idx }
+    }
+    fn new_core_type(node: *const CoreType<'a>, idx: usize) -> Self {
+        Self::CoreType { node, idx }
+    }
+    fn new_inst(node: *const Instance<'a>, idx: usize) -> Self {
+        Self::Inst { node, idx }
+    }
+    fn new_custom(node: *const CustomSection<'a>, _idx: usize) -> Self {
+        Self::CustomSection { node }
+    }
+    fn new_start(node: *const ComponentStartFunction, _idx: usize) -> Self {
+        Self::Start { node }
+    }
+}
+
+#[derive(Debug, Default)]
+pub(crate) struct ComponentPlan<'a> {
+    pub(crate) items: Vec<ComponentItem<'a>>,
+}
+
+/// This is just used to unify the `collect` logic into a generic function.
+/// Should be the same items as `ComponentItem`, but without state.
+enum TrackedItem<'a> {
+    // unnecessary since this is handled in a non-generic way
+    // Component(*const Component<'a>),
+    Module(*const Module<'a>),
+    CompType(*const ComponentType<'a>),
+    CompInst(*const ComponentInstance<'a>),
+    CanonicalFunc(*const CanonicalFunction),
+    Alias(*const ComponentAlias<'a>),
+    Import(*const ComponentImport<'a>),
+    Export(*const ComponentExport<'a>),
+    CoreType(*const CoreType<'a>),
+    Inst(*const Instance<'a>),
+    Start(*const ComponentStartFunction),
+    CustomSection(*const CustomSection<'a>),
+    // ... add others as needed
+}
+impl<'a> TrackedItem<'a> {
+    fn new_module(node: *const Module<'a>) -> Self {
+        Self::Module(node)
+    }
+    fn new_comp_type(node: *const ComponentType<'a>) -> Self {
+        Self::CompType(node)
+    }
+    fn new_comp_inst(node: *const ComponentInstance<'a>) -> Self {
+        Self::CompInst(node)
+    }
+    fn new_canon(node: *const CanonicalFunction) -> Self {
+        Self::CanonicalFunc(node)
+    }
+    fn new_alias(node: *const ComponentAlias<'a>) -> Self {
+        Self::Alias(node)
+    }
+    fn new_import(node: *const ComponentImport<'a>) -> Self {
+        Self::Import(node)
+    }
+    fn new_export(node: *const ComponentExport<'a>) -> Self {
+        Self::Export(node)
+    }
+    fn new_core_type(node: *const CoreType<'a>) -> Self {
+        Self::CoreType(node)
+    }
+    fn new_inst(node: *const Instance<'a>) -> Self {
+        Self::Inst(node)
+    }
+    fn new_custom(node: *const CustomSection<'a>) -> Self {
+        Self::CustomSection(node)
+    }
+    fn new_start(node: *const ComponentStartFunction) -> Self {
+        Self::Start(node)
+    }
+}
+
+#[derive(Default)]
+struct Seen<'a> {
+    /// Points to a TEMPORARY ID -- this is just for bookkeeping, not the final ID
+    /// The final ID is assigned during the "Assign" phase.
+    components: HashMap<*const Component<'a>, usize>,
+    modules: HashMap<*const Module<'a>, usize>,
+    comp_types: HashMap<*const ComponentType<'a>, usize>,
+    comp_instances: HashMap<*const ComponentInstance<'a>, usize>,
+    canon_funcs: HashMap<*const CanonicalFunction, usize>,
+
+    aliases: HashMap<*const ComponentAlias<'a>, usize>,
+    imports: HashMap<*const ComponentImport<'a>, usize>,
+    exports: HashMap<*const ComponentExport<'a>, usize>,
+
+    core_types: HashMap<*const CoreType<'a>, usize>,
+    instances: HashMap<*const Instance<'a>, usize>,
+
+    start: HashMap<*const ComponentStartFunction, usize>,
+    custom_sections: HashMap<*const CustomSection<'a>, usize>,
+}
+impl<'a> Seen<'a> {
+    pub fn contains_key(&self, ty: &TrackedItem) -> bool{
+        match ty {
+            TrackedItem::Module(node) => self.modules.contains_key(node),
+            TrackedItem::CompType(node) => self.comp_types.contains_key(node),
+            TrackedItem::CompInst(node) => self.comp_instances.contains_key(node),
+            TrackedItem::CanonicalFunc(node) => self.canon_funcs.contains_key(node),
+            TrackedItem::Alias(node) => self.aliases.contains_key(node),
+            TrackedItem::Import(node) => self.imports.contains_key(node),
+            TrackedItem::Export(node) => self.exports.contains_key(node),
+            TrackedItem::CoreType(node) => self.core_types.contains_key(node),
+            TrackedItem::Inst(node) => self.instances.contains_key(node),
+            TrackedItem::Start(node) => self.start.contains_key(node),
+            TrackedItem::CustomSection(node) => self.custom_sections.contains_key(node),
+        }
+    }
+    pub fn insert(&mut self, ty: TrackedItem<'a>, idx: usize) -> Option<usize> {
+        match ty {
+            TrackedItem::Module(node) => self.modules.insert(node, idx),
+            TrackedItem::CompType(node) => self.comp_types.insert(node, idx),
+            TrackedItem::CompInst(node) => self.comp_instances.insert(node, idx),
+            TrackedItem::CanonicalFunc(node) => self.canon_funcs.insert(node, idx),
+            TrackedItem::Alias(node) => self.aliases.insert(node, idx),
+            TrackedItem::Import(node) => self.imports.insert(node, idx),
+            TrackedItem::Export(node) => self.exports.insert(node, idx),
+            TrackedItem::CoreType(node) => self.core_types.insert(node, idx),
+            TrackedItem::Inst(node) => self.instances.insert(node, idx),
+            TrackedItem::Start(node) => self.start.insert(node, idx),
+            TrackedItem::CustomSection(node) => self.custom_sections.insert(node, idx),
+        }
+    }
+}
+
+pub(crate) struct CollectCtx<'a> {
+    pub(crate) plan: ComponentPlan<'a>,
+    pub(crate) indices: IdxSpaces,
+    seen: Seen<'a>,
+}
+impl CollectCtx<'_> {
+    pub fn new(comp: &Component) -> Self {
+        Self {
+            indices: comp.indices.clone(),
+            plan: ComponentPlan::default(),
+            seen: Seen::default(),
         }
     }
 }

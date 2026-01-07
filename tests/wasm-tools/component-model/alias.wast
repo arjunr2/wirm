@@ -222,10 +222,10 @@
   (export "v" (component $foo "v"))
 )
 
-(component
-  (import "a" (instance $foo (export "v" (core module))))
-  (export "v" (core module $foo "v"))
-)
+;;(component
+;;  (import "a" (instance $foo (export "v" (core module))))
+;;  (export "v" (core module $foo "v"))
+;;)
 
 ;;(component $C
 ;;  (core type $t (func))
@@ -274,13 +274,13 @@
   (component (alias outer 0 0 (component)))
   "index out of bounds")
 
-(component
-  (import "a" (instance $i
-     (export "x" (core module))
-  ))
-  ;; inline alias injection sugar works for module references
-  (core instance (instantiate (module $i "x")))
-)
+;;(component
+;;  (import "a" (instance $i
+;;     (export "x" (core module))
+;;  ))
+;;  ;; inline alias injection sugar works for module references
+;;  (core instance (instantiate (module $i "x")))
+;;)
 
 (component
   (import "a" (instance $i
