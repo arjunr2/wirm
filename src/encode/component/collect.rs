@@ -35,6 +35,7 @@ impl<'a> Collect<'a> for Component<'a> {
         for (num, section) in self.sections.iter() {
             let start_idx = ctx.indices.visit_section(section, *num as usize);
 
+            println!("{section:?} Collecting {num} nodes starting @{start_idx}");
             match section {
                 ComponentSection::Module => {
                     collect_vec(start_idx, *num as usize, &self.modules, ctx, &self);
@@ -221,7 +222,7 @@ fn collect_vec<'a, T: Collect<'a> + 'a>(
     ctx: &mut CollectCtx<'a>,
     comp: &'a Component<'a>,
 ) {
-    assert!(start + num <= all.len());
+    assert!(start + num <= all.len(), "{start} + {num} > {}", all.len());
     for i in 0..num {
         let idx = start + i;
         all[idx].collect(idx, ctx, comp);
@@ -235,10 +236,7 @@ fn collect_deps<'a, T: ReferencedIndices + 'a>(
 ) {
     if let Some(refs) = item.referenced_indices() {
         for r in refs.as_list().iter() {
-            println!("Looking up: {r:?}");
-            if r.index == 80 {
-                println!("here")
-            }
+            println!("\tLooking up: {r:?}");
             let (vec, idx) = ctx.indices.index_from_assumed_id(r);
             let space = r.space;
             match vec {
