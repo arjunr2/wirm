@@ -6,6 +6,7 @@ use crate::Component;
 mod assign;
 mod collect;
 pub(crate) mod encode;
+mod fix_indices;
 
 /// Encode this IR into a WebAssembly binary.
 /// Encoding a component gets split into 3 phases (the first two are for planning, the final

@@ -13,8 +13,7 @@ use wasmparser::{Operator, RecGroup};
 /// ones. And it must make sure that the dependencies are added in-order.
 pub fn convert_module_type_declaration(
     module: &[wasmparser::ModuleTypeDeclaration],
-    enc: ComponentCoreTypeEncoder,
-    reencode: &mut RoundtripReencoder,
+    enc: ComponentCoreTypeEncoder, reencode: &mut RoundtripReencoder
 ) {
     let mut mty = wasm_encoder::ModuleType::new();
     for m in module.iter() {
@@ -55,14 +54,14 @@ pub fn convert_module_type_declaration(
 }
 
 pub fn convert_recgroup(
-    recgroup: &RecGroup,
-    reencode: &mut RoundtripReencoder,
+    recgroup: &RecGroup, reencode: &mut RoundtripReencoder
 ) -> Vec<wasm_encoder::SubType> {
     recgroup
         .types()
         .map(|ty| {
+            // let new_ty = ty.fix(component, indices, reencode);
             reencode
-                .sub_type(ty.to_owned())
+                .sub_type(ty.clone())
                 .unwrap_or_else(|_| panic!("Could not encode type as subtype: {:?}", ty))
         })
         .collect::<Vec<_>>()

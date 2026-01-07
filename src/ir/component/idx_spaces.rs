@@ -641,6 +641,8 @@ pub struct Refs {
     pub mem: Option<IndexedRef>,
     pub table: Option<IndexedRef>,
     pub misc: Option<IndexedRef>,
+    pub params: Vec<Option<Refs>>,
+    pub results: Vec<Option<Refs>>,
     pub others: Vec<Option<Refs>>,
 }
 impl Refs {
@@ -671,6 +673,12 @@ impl Refs {
     pub fn misc(&self) -> &IndexedRef {
         self.misc.as_ref().unwrap()
     }
+    pub fn params(&self) -> &Vec<Option<Refs>> {
+        &self.params
+    }
+    pub fn results(&self) -> &Vec<Option<Refs>> {
+        &self.results
+    }
     pub fn others(&self) -> &Vec<Option<Refs>> {
         &self.others
     }
@@ -687,6 +695,8 @@ impl Refs {
             mem,
             table,
             misc,
+            params,
+            results,
             others,
         } = self;
 
@@ -717,6 +727,16 @@ impl Refs {
         if let Some(misc) = misc {
             res.push(*misc);
         }
+        params.iter().for_each(|o| {
+            if let Some(o) = o {
+                res.extend(o.as_list());
+            }
+        });
+        results.iter().for_each(|o| {
+            if let Some(o) = o {
+                res.extend(o.as_list());
+            }
+        });
         others.iter().for_each(|o| {
             if let Some(o) = o {
                 res.extend(o.as_list());
@@ -744,19 +764,7 @@ impl ReferencedIndices for ComponentType<'_> {
     fn referenced_indices(&self) -> Option<Refs> {
         match self {
             ComponentType::Defined(ty) => ty.referenced_indices(),
-            ComponentType::Func(ComponentFuncType { params, result, .. }) => {
-                let mut others = vec![];
-                for (_, ty) in params.iter() {
-                    others.push(ty.referenced_indices());
-                }
-                if let Some(ty) = result {
-                    others.push(ty.referenced_indices());
-                }
-                Some(Refs {
-                    others,
-                    ..Default::default()
-                })
-            }
+            ComponentType::Func(ty) => ty.referenced_indices(),
             ComponentType::Component(tys) => {
                 let mut others = vec![];
                 for ty in tys.iter() {
@@ -790,6 +798,24 @@ impl ReferencedIndices for ComponentType<'_> {
                 ..Default::default()
             }),
         }
+    }
+}
+
+impl ReferencedIndices for ComponentFuncType<'_> {
+    fn referenced_indices(&self) -> Option<Refs> {
+        let mut params = vec![];
+        for (_, ty) in self.params.iter() {
+            params.push(ty.referenced_indices());
+        }
+        let mut results = vec![];
+        if let Some(ty) = self.result {
+            results.push(ty.referenced_indices());
+        }
+        Some(Refs {
+            params,
+            results,
+            ..Default::default()
+        })
     }
 }
 
@@ -923,10 +949,7 @@ impl ReferencedIndices for RecGroup {
     fn referenced_indices(&self) -> Option<Refs> {
         let mut others = vec![];
         self.types().for_each(|subty| {
-            others.push(Some(Refs {
-                others: vec![subty.referenced_indices()],
-                ..Default::default()
-            }));
+            others.push(subty.referenced_indices());
         });
         Some(Refs {
             others,
@@ -938,19 +961,17 @@ impl ReferencedIndices for RecGroup {
 impl ReferencedIndices for SubType {
     fn referenced_indices(&self) -> Option<Refs> {
         let mut others = vec![];
-
-        if let Some(packed) = self.supertype_idx {
-            others.push(Some(Refs {
-                ty: Some(IndexedRef {
-                    space: Space::CoreType,
-                    index: packed.unpack().as_module_index().unwrap(),
-                }),
-                ..Default::default()
-            }))
-        }
         others.push(self.composite_type.referenced_indices());
 
         Some(Refs {
+            ty: if let Some(packed) = self.supertype_idx {
+                Some(IndexedRef {
+                    space: Space::CoreType,
+                    index: packed.unpack().as_module_index().unwrap(),
+                })
+            } else {
+                None
+            },
             others,
             ..Default::default()
         })
@@ -980,15 +1001,17 @@ impl ReferencedIndices for CompositeInnerType {
     fn referenced_indices(&self) -> Option<Refs> {
         match self {
             CompositeInnerType::Func(f) => {
-                let mut others = vec![];
+                let mut params = vec![];
                 for ty in f.params().iter() {
-                    others.push(ty.referenced_indices());
+                    params.push(ty.referenced_indices());
                 }
+                let mut results = vec![];
                 for ty in f.results().iter() {
-                    others.push(ty.referenced_indices());
+                    results.push(ty.referenced_indices());
                 }
                 Some(Refs {
-                    others,
+                    params,
+                    results,
                     ..Default::default()
                 })
             }
