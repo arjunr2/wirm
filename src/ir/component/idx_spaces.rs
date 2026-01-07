@@ -1,9 +1,17 @@
 use crate::ir::section::ComponentSection;
+use crate::ir::types::CustomSection;
 use crate::{Component, Module};
 use std::collections::HashMap;
 use std::fmt::Debug;
-use wasmparser::{CanonicalFunction, CanonicalOption, ComponentAlias, ComponentDefinedType, ComponentExport, ComponentExternalKind, ComponentFuncType, ComponentImport, ComponentInstance, ComponentInstantiationArg, ComponentOuterAliasKind, ComponentStartFunction, ComponentType, ComponentTypeDeclaration, ComponentTypeRef, ComponentValType, CompositeInnerType, CompositeType, CoreType, Export, ExternalKind, FieldType, Instance, InstanceTypeDeclaration, InstantiationArg, InstantiationArgKind, ModuleTypeDeclaration, RecGroup, RefType, StorageType, SubType, TagType, TypeRef, ValType, VariantCase};
-use crate::ir::types::CustomSection;
+use wasmparser::{
+    CanonicalFunction, CanonicalOption, ComponentAlias, ComponentDefinedType, ComponentExport,
+    ComponentExternalKind, ComponentFuncType, ComponentImport, ComponentInstance,
+    ComponentInstantiationArg, ComponentOuterAliasKind, ComponentStartFunction, ComponentType,
+    ComponentTypeDeclaration, ComponentTypeRef, ComponentValType, CompositeInnerType,
+    CompositeType, CoreType, Export, ExternalKind, FieldType, Instance, InstanceTypeDeclaration,
+    InstantiationArg, InstantiationArgKind, ModuleTypeDeclaration, RecGroup, RefType, StorageType,
+    SubType, TagType, TypeRef, ValType, VariantCase,
+};
 
 #[derive(Clone, Debug, Default)]
 pub(crate) struct IdxSpaces {
@@ -736,7 +744,7 @@ impl ReferencedIndices for ComponentType<'_> {
     fn referenced_indices(&self) -> Option<Refs> {
         match self {
             ComponentType::Defined(ty) => ty.referenced_indices(),
-            ComponentType::Func(ComponentFuncType { params, result, ..}) => {
+            ComponentType::Func(ComponentFuncType { params, result, .. }) => {
                 let mut others = vec![];
                 for (_, ty) in params.iter() {
                     others.push(ty.referenced_indices());
@@ -748,7 +756,7 @@ impl ReferencedIndices for ComponentType<'_> {
                     others,
                     ..Default::default()
                 })
-            },
+            }
             ComponentType::Component(tys) => {
                 let mut others = vec![];
                 for ty in tys.iter() {
@@ -758,7 +766,7 @@ impl ReferencedIndices for ComponentType<'_> {
                     others,
                     ..Default::default()
                 })
-            },
+            }
             ComponentType::Instance(tys) => {
                 let mut others = vec![];
                 for ty in tys.iter() {
@@ -768,7 +776,7 @@ impl ReferencedIndices for ComponentType<'_> {
                     others,
                     ..Default::default()
                 })
-            },
+            }
             ComponentType::Resource { rep, dtor } => Some(Refs {
                 ty: rep.referenced_indices()?.ty,
                 func: if let Some(id) = dtor {
@@ -877,7 +885,7 @@ impl ReferencedIndices for ComponentTypeDeclaration<'_> {
             ComponentTypeDeclaration::Type(ty) => ty.referenced_indices(),
             ComponentTypeDeclaration::Alias(ty) => ty.referenced_indices(),
             ComponentTypeDeclaration::Export { ty, .. } => ty.referenced_indices(),
-            ComponentTypeDeclaration::Import(import) => import.referenced_indices()
+            ComponentTypeDeclaration::Import(import) => import.referenced_indices(),
         }
     }
 }
@@ -935,7 +943,7 @@ impl ReferencedIndices for SubType {
             others.push(Some(Refs {
                 ty: Some(IndexedRef {
                     space: Space::CoreType,
-                    index: packed.unpack().as_module_index().unwrap()
+                    index: packed.unpack().as_module_index().unwrap(),
                 }),
                 ..Default::default()
             }))
@@ -984,9 +992,7 @@ impl ReferencedIndices for CompositeInnerType {
                     ..Default::default()
                 })
             }
-            CompositeInnerType::Array(a) => {
-                a.0.referenced_indices()
-            }
+            CompositeInnerType::Array(a) => a.0.referenced_indices(),
             CompositeInnerType::Struct(s) => {
                 let mut others = vec![];
                 for ty in s.fields.iter() {
@@ -1000,10 +1006,10 @@ impl ReferencedIndices for CompositeInnerType {
             CompositeInnerType::Cont(ty) => Some(Refs {
                 ty: Some(IndexedRef {
                     space: Space::CompType,
-                    index: todo!()
+                    index: todo!(),
                 }),
                 ..Default::default()
-            })
+            }),
         }
     }
 }
@@ -1017,9 +1023,8 @@ impl ReferencedIndices for FieldType {
 impl ReferencedIndices for StorageType {
     fn referenced_indices(&self) -> Option<Refs> {
         match self {
-            StorageType::I8
-            | StorageType::I16 => None,
-            StorageType::Val(value) => value.referenced_indices()
+            StorageType::I8 | StorageType::I16 => None,
+            StorageType::Val(value) => value.referenced_indices(),
         }
     }
 }
@@ -1038,11 +1043,7 @@ impl ReferencedIndices for ModuleTypeDeclaration<'_> {
 impl ReferencedIndices for ValType {
     fn referenced_indices(&self) -> Option<Refs> {
         match self {
-            ValType::I32
-            | ValType::I64
-            | ValType::F32
-            | ValType::F64
-            | ValType::V128 => None,
+            ValType::I32 | ValType::I64 | ValType::F32 | ValType::F64 | ValType::V128 => None,
             ValType::Ref(r) => r.referenced_indices(),
         }
     }
@@ -1053,7 +1054,12 @@ impl ReferencedIndices for RefType {
         Some(Refs {
             ty: Some(IndexedRef {
                 space: Space::CoreType,
-                index: self.type_index().unwrap().unpack().as_module_index().unwrap()
+                index: self
+                    .type_index()
+                    .unwrap()
+                    .unpack()
+                    .as_module_index()
+                    .unwrap(),
             }),
             ..Default::default()
         })

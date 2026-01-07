@@ -120,6 +120,7 @@ impl<'a> Collect<'a> for Component<'a> {
     }
 }
 
+#[rustfmt::skip]
 fn collect_section<'a, N: ReferencedIndices + 'a>(node: &'a N, idx: usize, ctx: &mut CollectCtx<'a>, comp: &'a Component<'a>, create_ptr: fn(*const N) -> TrackedItem<'a>, create_item: fn(*const N, usize) -> ComponentItem<'a>) {
     let ptr = node as *const _;
     let r = create_ptr(ptr);
@@ -133,72 +134,81 @@ fn collect_section<'a, N: ReferencedIndices + 'a>(node: &'a N, idx: usize, ctx: 
     collect_deps(node, ctx, comp);
 
     // push to ordered plan
-    ctx.plan
-        .items
-        .push(create_item(ptr, idx));
+    ctx.plan.items.push(create_item(ptr, idx));
 }
 
 impl<'a> Collect<'a> for Module<'a> {
+    #[rustfmt::skip]
     fn collect(&'a self, idx: usize, ctx: &mut CollectCtx<'a>, comp: &'a Component<'a>) {
         collect_section(self, idx, ctx, comp, TrackedItem::new_module, ComponentItem::new_module);
     }
 }
 
 impl<'a> Collect<'a> for ComponentType<'a> {
+    #[rustfmt::skip]
     fn collect(&'a self, idx: usize, ctx: &mut CollectCtx<'a>, comp: &'a Component<'a>) {
         collect_section(self, idx, ctx, comp, TrackedItem::new_comp_type, ComponentItem::new_comp_type);
     }
 }
 
 impl<'a> Collect<'a> for ComponentInstance<'a> {
+    #[rustfmt::skip]
     fn collect(&'a self, idx: usize, ctx: &mut CollectCtx<'a>, comp: &'a Component<'a>) {
         collect_section(self, idx, ctx, comp, TrackedItem::new_comp_inst, ComponentItem::new_comp_inst);
     }
 }
 
 impl<'a> Collect<'a> for CanonicalFunction {
+    #[rustfmt::skip]
     fn collect(&'a self, idx: usize, ctx: &mut CollectCtx<'a>, comp: &'a Component<'a>) {
         collect_section(self, idx, ctx, comp, TrackedItem::new_canon, ComponentItem::new_canon);
     }
 }
 
 impl<'a> Collect<'a> for ComponentAlias<'a> {
+    #[rustfmt::skip]
     fn collect(&'a self, idx: usize, ctx: &mut CollectCtx<'a>, comp: &'a Component<'a>) {
         collect_section(self, idx, ctx, comp, TrackedItem::new_alias, ComponentItem::new_alias);
     }
 }
 
 impl<'a> Collect<'a> for ComponentImport<'a> {
+    #[rustfmt::skip]
     fn collect(&'a self, idx: usize, ctx: &mut CollectCtx<'a>, comp: &'a Component<'a>) {
         collect_section(self, idx, ctx, comp, TrackedItem::new_import, ComponentItem::new_import);
     }
 }
 
 impl<'a> Collect<'a> for ComponentExport<'a> {
+    #[rustfmt::skip]
     fn collect(&'a self, idx: usize, ctx: &mut CollectCtx<'a>, comp: &'a Component<'a>) {
         collect_section(self, idx, ctx, comp, TrackedItem::new_export, ComponentItem::new_export);
     }
 }
 
 impl<'a> Collect<'a> for CoreType<'a> {
+    #[rustfmt::skip]
     fn collect(&'a self, idx: usize, ctx: &mut CollectCtx<'a>, comp: &'a Component<'a>) {
         collect_section(self, idx, ctx, comp, TrackedItem::new_core_type, ComponentItem::new_core_type);
     }
 }
 
 impl<'a> Collect<'a> for Instance<'a> {
+    #[rustfmt::skip]
     fn collect(&'a self, idx: usize, ctx: &mut CollectCtx<'a>, comp: &'a Component<'a>) {
         collect_section(self, idx, ctx, comp, TrackedItem::new_inst, ComponentItem::new_inst);
     }
 }
 
 impl<'a> Collect<'a> for CustomSection<'a> {
+    #[rustfmt::skip]
     fn collect(&'a self, idx: usize, ctx: &mut CollectCtx<'a>, comp: &'a Component<'a>) {
         collect_section(self, idx, ctx, comp, TrackedItem::new_custom, ComponentItem::new_custom);
     }
 }
 
 impl<'a> Collect<'a> for ComponentStartFunction {
+    #[rustfmt::skip]
     fn collect(&'a self, idx: usize, ctx: &mut CollectCtx<'a>, comp: &'a Component<'a>) {
         collect_section(self, idx, ctx, comp, TrackedItem::new_start, ComponentItem::new_start);
     }
@@ -462,7 +472,7 @@ struct Seen<'a> {
     custom_sections: HashMap<*const CustomSection<'a>, usize>,
 }
 impl<'a> Seen<'a> {
-    pub fn contains_key(&self, ty: &TrackedItem) -> bool{
+    pub fn contains_key(&self, ty: &TrackedItem) -> bool {
         match ty {
             TrackedItem::Module(node) => self.modules.contains_key(node),
             TrackedItem::CompType(node) => self.comp_types.contains_key(node),
