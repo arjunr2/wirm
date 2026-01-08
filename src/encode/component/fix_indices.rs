@@ -1,5 +1,5 @@
 use wasm_encoder::Component;
-use wasmparser::{ArrayType, CanonicalFunction, CanonicalOption, ComponentAlias, ComponentDefinedType, ComponentExport, ComponentFuncType, ComponentImport, ComponentInstance, ComponentInstantiationArg, ComponentStartFunction, ComponentType, ComponentTypeDeclaration, ComponentTypeRef, ComponentValType, CompositeInnerType, CompositeType, ContType, CoreType, Export, FieldType, FuncType, Instance, InstanceTypeDeclaration, InstantiationArg, ModuleTypeDeclaration, PackedIndex, PrimitiveValType, RecGroup, RefType, StorageType, StructType, SubType, TagType, TypeRef, ValType, VariantCase};
+use wasmparser::{ArrayType, CanonicalFunction, CanonicalOption, ComponentAlias, ComponentDefinedType, ComponentExport, ComponentFuncType, ComponentImport, ComponentInstance, ComponentInstantiationArg, ComponentStartFunction, ComponentType, ComponentTypeDeclaration, ComponentTypeRef, ComponentValType, CompositeInnerType, CompositeType, ContType, CoreType, Export, FieldType, FuncType, HeapType, Import, Instance, InstanceTypeDeclaration, InstantiationArg, ModuleTypeDeclaration, PackedIndex, PrimitiveValType, RecGroup, RefType, StorageType, StructType, SubType, TagType, TypeRef, UnpackedIndex, ValType, VariantCase};
 use crate::ir::component::idx_spaces::{IdxSpaces, ReferencedIndices};
 use crate::ir::types::CustomSection;
 
@@ -546,14 +546,22 @@ impl FixIndices for ComponentDefinedType<'_> {
 }
 
 impl FixIndices for PrimitiveValType {
-    fn fix<'a>(&self, component: &mut Component, indices: &IdxSpaces) -> Self {
-        todo!()
+    fn fix<'a>(&self, _: &mut Component, _: &IdxSpaces) -> Self {
+        self.clone()
     }
 }
 
 impl FixIndices for VariantCase<'_> {
     fn fix<'a>(&self, component: &mut Component, indices: &IdxSpaces) -> Self {
-        todo!()
+        Self {
+            name: self.name,
+            ty: self.ty.map(|ty| ty.fix(component, indices)),
+            refines: self.refines.map(|_| {
+                let refs = self.referenced_indices();
+                let ty = refs.as_ref().unwrap().misc();
+                indices.lookup_actual_id_or_panic(&ty) as u32
+            }),
+        }
     }
 }
 
@@ -692,14 +700,19 @@ impl FixIndices for ValType {
             | ValType::F32
             | ValType::F64
             | ValType::V128 => self.clone(),
-            ValType::Ref(r) => ValType::Ref(r.fix(component, indices))
+            ValType::Ref(r) => ValType::Ref(r.fix(component, indices)),
         }
     }
 }
 
 impl FixIndices for RefType {
-    fn fix<'a>(&self, component: &mut Component, indices: &IdxSpaces) -> Self {
-        todo!()
+    fn fix<'a>(&self, _: &mut Component, indices: &IdxSpaces) -> Self {
+        let refs = self.referenced_indices();
+        let ty = refs.as_ref().unwrap().ty();
+        let new_id = indices.lookup_actual_id_or_panic(&ty);
+
+        // TODO -- there's no way this is correct...
+        Self::new(self.is_nullable(), HeapType::Exact(UnpackedIndex::Module(new_id as u32))).unwrap()
     }
 }
 
@@ -722,12 +735,32 @@ impl FixIndices for CoreType<'_> {
 
 impl FixIndices for ModuleTypeDeclaration<'_> {
     fn fix<'a>(&self, component: &mut Component, indices: &IdxSpaces) -> Self {
-        todo!()
+        match self {
+            ModuleTypeDeclaration::Type(group) => ModuleTypeDeclaration::Type(group.fix(component, indices)),
+            ModuleTypeDeclaration::Export { name, ty } => ModuleTypeDeclaration::Export {
+                name,
+                ty: ty.fix(component, indices)
+            },
+            ModuleTypeDeclaration::Import(import) => ModuleTypeDeclaration::Import(import.fix(component, indices)),
+            ModuleTypeDeclaration::OuterAlias { .. } => self.clone(), // TODO: Fix this after scoped index spaces!
+        }
+    }
+}
+
+impl FixIndices for Import<'_> {
+    fn fix<'a>(&self, component: &mut Component, indices: &IdxSpaces) -> Self {
+        Self {
+            module: self.module,
+            name: self.name,
+            ty: self.ty.fix(component, indices),
+        }
     }
 }
 
 impl FixIndices for RecGroup {
     fn fix<'a>(&self, component: &mut Component, indices: &IdxSpaces) -> Self {
+        // I can't do this structure for RecGroup (unable to construct outside the wasmparser library)
+        // Need to do something special to handle this :/
         todo!()
     }
 }
@@ -785,9 +818,7 @@ impl FixIndices for ComponentAlias<'_> {
                     instance_index: new_id as u32,
                 }
             }
-            // TODO
-            // NOTE: We will not be fixing indices here (complexity due to index spaces with scopes)
-            ComponentAlias::Outer { .. } => self.clone(),
+            ComponentAlias::Outer { .. } => self.clone(), // TODO: Fix this after scoped index spaces!
         }
     }
 }
@@ -909,13 +940,13 @@ impl FixIndices for InstanceTypeDeclaration<'_> {
         indices: &IdxSpaces,
     ) -> Self {
         match self {
-            InstanceTypeDeclaration::CoreType(core_type) => match core_type {
-                CoreType::Rec(_) => todo!(),
-                CoreType::Module(_) => todo!(),
+            InstanceTypeDeclaration::CoreType(core_type) => InstanceTypeDeclaration::CoreType(core_type.fix(component, indices)),
+            InstanceTypeDeclaration::Type(ty) => InstanceTypeDeclaration::Type(ty.fix(component, indices)),
+            InstanceTypeDeclaration::Alias(alias) => InstanceTypeDeclaration::Alias(alias.fix(component, indices)),
+            InstanceTypeDeclaration::Export { name, ty } => InstanceTypeDeclaration::Export {
+                name: name.clone(),
+                ty: ty.fix(component, indices)
             },
-            InstanceTypeDeclaration::Type(_) => todo!(),
-            InstanceTypeDeclaration::Alias(_) => todo!(),
-            InstanceTypeDeclaration::Export { .. } => todo!(),
         }
     }
 }

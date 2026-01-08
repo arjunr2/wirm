@@ -871,16 +871,10 @@ impl ReferencedIndices for ComponentDefinedType<'_> {
             | ComponentDefinedType::Enum(_)
             | ComponentDefinedType::Flags(_) => None,
             ComponentDefinedType::Result { ok, err } => {
-                let ok_r = if let Some(ok) = ok {
-                    ok.referenced_indices()
-                } else {
-                    None
-                };
-                let err_r = if let Some(err) = err {
-                    err.referenced_indices()
-                } else {
-                    None
-                };
+                let ok_r = ok
+                    .and_then(|ty| ty.referenced_indices());
+                let err_r = err
+                    .and_then(|ty| ty.referenced_indices());
                 Some(Refs {
                     others: vec![ok_r, err_r],
                     ..Default::default()
@@ -1060,6 +1054,27 @@ impl ReferencedIndices for ModuleTypeDeclaration<'_> {
             ModuleTypeDeclaration::Import(i) => i.ty.referenced_indices(),
             ModuleTypeDeclaration::OuterAlias { .. } => todo!(),
         }
+    }
+}
+
+impl ReferencedIndices for VariantCase<'_> {
+    fn referenced_indices(&self) -> Option<Refs> {
+        let ty = self
+            .ty
+            .and_then(|ty| ty.referenced_indices())
+            .map(|refs| refs.ty().clone());
+        
+        let misc = self.refines
+            .and_then(|index| Some(IndexedRef {
+                space: Space::CompType,
+                index,
+            }));
+        
+        Some(Refs {
+            ty,
+            misc,
+            ..Default::default()
+        })
     }
 }
 
