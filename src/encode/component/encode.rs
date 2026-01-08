@@ -4,11 +4,8 @@ use crate::ir::types::CustomSection;
 use crate::ir::wrappers::{convert_module_type_declaration, convert_recgroup, do_reencode};
 use crate::{Component, Module};
 use wasm_encoder::reencode::{Reencode, ReencodeComponent, RoundtripReencoder};
-use wasm_encoder::{
-    Alias, ComponentAliasSection, ComponentFuncTypeEncoder, ComponentTypeEncoder, CoreTypeEncoder,
-    InstanceType, ModuleArg, ModuleSection, NestedComponentSection,
-};
-use wasmparser::{CanonicalFunction, ComponentAlias, ComponentDefinedType, ComponentExport, ComponentImport, ComponentInstance, ComponentStartFunction, ComponentType, ComponentTypeDeclaration, ComponentValType, CoreType, Instance, InstanceTypeDeclaration, SubType};
+use wasm_encoder::{Alias, ComponentAliasSection, ComponentCoreTypeEncoder, ComponentDefinedTypeEncoder, ComponentFuncTypeEncoder, ComponentTypeEncoder, ComponentTypeSection, CoreTypeEncoder, CoreTypeSection, InstanceType, ModuleArg, ModuleSection, NestedComponentSection};
+use wasmparser::{CanonicalFunction, ComponentAlias, ComponentDefinedType, ComponentExport, ComponentFuncType, ComponentImport, ComponentInstance, ComponentStartFunction, ComponentType, ComponentTypeDeclaration, ComponentValType, CoreType, Instance, InstanceTypeDeclaration, ModuleTypeDeclaration, RecGroup, SubType};
 use crate::encode::component::fix_indices::FixIndices;
 
 /// # PHASE 3 #
@@ -28,6 +25,8 @@ pub(crate) fn encode_internal<'a>(
     let mut component = wasm_encoder::Component::new();
     let mut reencode = RoundtripReencoder;
 
+    let mut no_help0 = NoHelper::default();
+    let mut no_help1 = NoHelper::default();
     for item in &plan.items {
         match item {
             ComponentItem::Component {
@@ -44,58 +43,60 @@ pub(crate) fn encode_internal<'a>(
             ComponentItem::Module { node, .. } => unsafe {
                 let t: &Module = &**node;
                 // let fixed = t.fix(&mut component, indices, &mut reencode);
-                t.do_encode(&mut component, &mut reencode);
+                t.do_encode(&mut component, &mut reencode, &mut no_help0, &mut no_help1);
             },
             ComponentItem::CompType { node, .. } => unsafe {
                 let t: &ComponentType = &**node;
                 let fixed = t.fix(&mut component, indices);
-                fixed.do_encode(&mut component, &mut reencode);
+                fixed.do_encode(&mut component, &mut reencode, &mut no_help0, &mut no_help1);
             },
             ComponentItem::CompInst { node, .. } => unsafe {
                 let i: &ComponentInstance = &**node;
                 let fixed = i.fix(&mut component, indices);
-                fixed.do_encode(&mut component, &mut reencode);
+                fixed.do_encode(&mut component, &mut reencode, &mut no_help0, &mut no_help1);
             },
             ComponentItem::CanonicalFunc { node, .. } => unsafe {
                 let f: &CanonicalFunction = &**node;
                 let fixed = f.fix(&mut component, indices);
-                fixed.do_encode(&mut component, &mut reencode);
+                fixed.do_encode(&mut component, &mut reencode, &mut no_help0, &mut no_help1);
             },
             ComponentItem::Alias { node, .. } => unsafe {
                 let a: &ComponentAlias = &**node;
                 let fixed = a.fix(&mut component, indices);
-                fixed.do_encode(&mut component, &mut reencode);
+                fixed.do_encode(&mut component, &mut reencode, &mut no_help0, &mut no_help1);
             },
             ComponentItem::Import { node, .. } => unsafe {
                 let i: &ComponentImport = &**node;
                 let fixed = i.fix(&mut component, indices);
-                fixed.do_encode(&mut component, &mut reencode);
+                fixed.do_encode(&mut component, &mut reencode, &mut no_help0, &mut no_help1);
             },
             ComponentItem::Export { node, .. } => unsafe {
                 let e: &ComponentExport = &**node;
                 let fixed = e.fix(&mut component, indices);
-                fixed.do_encode(&mut component, &mut reencode);
+                fixed.do_encode(&mut component, &mut reencode, &mut no_help0, &mut no_help1);
             },
             ComponentItem::CoreType { node, .. } => unsafe {
                 let t: &CoreType = &**node;
                 let fixed = t.fix(&mut component, indices);
-                fixed.do_encode(&mut component, &mut reencode);
+                let mut type_section = CoreTypeSection::new();
+                fixed.do_encode(&mut component, &mut reencode, &mut no_help0, &mut type_section);
+                component.section(&type_section);
             },
             ComponentItem::Inst { node, .. } => unsafe {
                 let i: &Instance = &**node;
                 let fixed = i.fix(&mut component, indices);
-                fixed.do_encode(&mut component, &mut reencode);
+                fixed.do_encode(&mut component, &mut reencode, &mut no_help0, &mut no_help1);
             },
             ComponentItem::Start { node, .. } => unsafe {
                 let f: &ComponentStartFunction = &**node;
                 let fixed = f.fix(&mut component, indices);
-                fixed.do_encode(&mut component, &mut reencode);
+                fixed.do_encode(&mut component, &mut reencode, &mut no_help0, &mut no_help1);
             },
             ComponentItem::CustomSection { node, .. } => unsafe {
                 let c: &CustomSection = &**node;
                 let fixed = c.fix(&mut component, indices);
-                fixed.do_encode(&mut component, &mut reencode);
-            },
+                fixed.do_encode(&mut component, &mut reencode, &mut no_help0, &mut no_help1);
+            }
         }
     }
 
@@ -128,161 +129,88 @@ pub(crate) fn encode_internal<'a>(
     component
 }
 
+/// A factory that can produce helpers for encoding.
+/// The helper's lifetime is tied to the borrow of the factory.
+pub trait HelperFactory {
+    /// Associated helper type; can borrow from `&mut self`.
+    type Helper<'b> where Self: 'b;
+
+    /// Produce a new helper with lifetime tied to the borrow `'b`.
+    fn next<'b>(&'b mut self) -> Self::Helper<'b>;
+}
+
+#[derive(Default)]
+struct NoHelper;
+impl HelperFactory for NoHelper {
+    type Helper<'a> = NoHelper;
+    fn next<'a>(&'a mut self) -> Self::Helper<'a> {
+        panic!("Shouldn't be called!")
+    }
+}
+
 trait Encode {
-    fn do_encode<'a>(
-        &self,
-        component: &mut wasm_encoder::Component,
-        reencode: &mut RoundtripReencoder,
-    );
+    type Helper;
+    type DynHelper<'b>; // GAT: helper can borrow from factory
+    fn do_encode<F>(&self, _: &mut wasm_encoder::Component, _: &mut RoundtripReencoder, help: &mut Self::Helper, help_factory: &mut F)
+    where
+        F: HelperFactory,
+        for<'b> F::Helper<'b>: Into<Self::DynHelper<'b>>;
 }
 
 impl Encode for Module<'_> {
-    fn do_encode<'a>(
-        &self,
-        component: &mut wasm_encoder::Component,
-        _reencode: &mut RoundtripReencoder,
-    ) {
+    type Helper = NoHelper;
+    type DynHelper<'b> = NoHelper;
+    fn do_encode<F: HelperFactory>(&self, component: &mut wasm_encoder::Component, _: &mut RoundtripReencoder, _: &mut Self::Helper, _: &mut F) {
         component.section(&ModuleSection(&self.encode_internal(false).0));
     }
 }
 
-impl Encode for ComponentType<'_> {
-    fn do_encode<'a>(
-        &self,
-        component: &mut wasm_encoder::Component,
-        reencode: &mut RoundtripReencoder,
-    ) {
-        let mut component_ty_section = wasm_encoder::ComponentTypeSection::new();
+impl HelperFactory for CoreTypeSection {
+    type Helper<'b> = ComponentCoreTypeEncoder<'b>;
 
+    fn next<'b>(&'b mut self) -> Self::Helper<'b> { self.ty() }
+}
+
+impl HelperFactory for wasm_encoder::ComponentType {
+    type Helper<'a> = ComponentCoreTypeEncoder<'a>;
+    fn next<'a>(&'a mut self) -> Self::Helper<'a> { self.core_type() }
+}
+
+impl HelperFactory for ComponentTypeSection {
+    type Helper<'a> = ComponentDefinedTypeEncoder<'a>;
+
+    fn next<'b>(&'b mut self) -> Self::Helper<'b> {
+        self.defined_type()
+    }
+}
+
+impl Encode for ComponentType<'_> {
+    type Helper = NoHelper;
+    type DynHelper<'b> = NoHelper;
+    fn do_encode<F>(&self, component: &mut wasm_encoder::Component, reencode: &mut RoundtripReencoder, _: &mut Self::Helper, _: &mut F)
+    where
+        F: HelperFactory,
+        for<'b> F::Helper<'b>: Into<Self::DynHelper<'b>>,
+    {
+        let mut component_ty_section = ComponentTypeSection::new();
+
+        let mut no_help = NoHelper::default();
         match self {
-            ComponentType::Defined(comp_ty) => {
-                let enc = component_ty_section.defined_type();
-                match comp_ty {
-                    ComponentDefinedType::Primitive(p) => {
-                        enc.primitive(wasm_encoder::PrimitiveValType::from(*p))
-                    }
-                    ComponentDefinedType::Record(records) => {
-                        enc.record(records.iter().map(|(n, ty)| {
-                            (*n, reencode.component_val_type(*ty))
-                        }));
-                    }
-                    ComponentDefinedType::Variant(variants) => {
-                        enc.variant(variants.iter().map(|variant| {
-                            (
-                                variant.name,
-                                variant.ty.map(|ty| {
-                                    reencode.component_val_type(ty)
-                                }),
-                                variant.refines,
-                            )
-                        }))
-                    }
-                    ComponentDefinedType::List(l) => {
-                        enc.list(reencode.component_val_type(*l))
-                    }
-                    ComponentDefinedType::Tuple(tup) => {
-                        enc.tuple(tup.iter().map(|val_type| {
-                            reencode.component_val_type(*val_type)
-                        }))
-                    }
-                    ComponentDefinedType::Flags(flags) => {
-                        enc.flags(flags.clone().into_vec().into_iter())
-                    }
-                    ComponentDefinedType::Enum(en) => {
-                        enc.enum_type(en.clone().into_vec().into_iter())
-                    }
-                    ComponentDefinedType::Option(opt) => {
-                        enc.option(reencode.component_val_type(*opt))
-                    }
-                    ComponentDefinedType::Result { ok, err } => enc.result(
-                        ok.map(|val_type| {
-                            reencode.component_val_type(val_type)
-                        }),
-                        err.map(|val_type| {
-                            reencode.component_val_type(val_type)
-                        }),
-                    ),
-                    ComponentDefinedType::Own(id) => enc.own(*id),
-                    ComponentDefinedType::Borrow(id) => enc.borrow(*id),
-                    ComponentDefinedType::Future(opt) => enc.future(opt.map(|opt| {
-                        reencode.component_val_type(opt)
-                    })),
-                    ComponentDefinedType::Stream(opt) => enc.stream(opt.map(|opt| {
-                        reencode.component_val_type(opt)
-                    })),
-                    ComponentDefinedType::FixedSizeList(ty, i) => {
-                        enc.fixed_size_list(reencode.component_val_type(*ty), *i)
-                    }
-                }
-            }
-            ComponentType::Func(func_ty) => {
-                let mut enc = component_ty_section.function();
-                enc.params(func_ty.params.iter().map(|p: &(&str, ComponentValType)| {
-                    (p.0, reencode.component_val_type(p.1))
-                }));
-                enc.result(func_ty.result.map(|v| {
-                    reencode.component_val_type(v)
-                }));
-            }
+            ComponentType::Defined(comp_ty) => comp_ty.do_encode(component, reencode, &mut no_help, &mut component_ty_section),
+            ComponentType::Func(func_ty) => func_ty.do_encode(component, reencode, &mut component_ty_section, &mut no_help),
             ComponentType::Component(comp) => {
                 let mut new_comp = wasm_encoder::ComponentType::new();
                 for c in comp.iter() {
-                    match c {
-                        ComponentTypeDeclaration::CoreType(core) => match core {
-                            CoreType::Rec(recgroup) => {
-                                // this doesn't have any ID refs.
-                                let types = convert_recgroup(recgroup, reencode);
-
-                                if recgroup.is_explicit_rec_group() {
-                                    new_comp.core_type().core().rec(types);
-                                } else {
-                                    // it's implicit!
-                                    for subty in types {
-                                        new_comp.core_type().core().subtype(&subty);
-                                    }
-                                }
-                            }
-                            CoreType::Module(module) => {
-                                let enc = new_comp.core_type();
-                                convert_module_type_declaration(module, enc, reencode);
-                            }
-                        },
-                        ComponentTypeDeclaration::Type(typ) => {
-                            convert_component_type(
-                                typ,
-                                new_comp.ty(),
-                                component,
-                                reencode
-                            );
-                        }
-                        ComponentTypeDeclaration::Alias(a) => {
-                            convert_component_alias(a, &mut new_comp, reencode)
-                        }
-                        ComponentTypeDeclaration::Export { name, ty } => {
-                            let ty = do_reencode(
-                                *ty,
-                                RoundtripReencoder::component_type_ref,
-                                reencode,
-                                "component type",
-                            );
-                            new_comp.export(name.0, ty);
-                        }
-                        ComponentTypeDeclaration::Import(imp) => {
-                            let ty = do_reencode(
-                                imp.ty,
-                                RoundtripReencoder::component_type_ref,
-                                reencode,
-                                "component type",
-                            );
-                            new_comp.import(imp.name.0, ty);
-                        }
-                    }
+                    c.do_encode(component, reencode, &mut new_comp, &mut no_help);
                 }
                 component_ty_section.component(&new_comp);
             }
             ComponentType::Instance(inst) => {
-                component_ty_section
-                    .instance(&convert_instance_type(inst, component, reencode));
+                let mut ity = InstanceType::new();
+                for i in inst.iter() {
+                    i.do_encode(component, reencode, &mut ity, &mut no_help);
+                }
+                component_ty_section.instance(&ity);
             }
             ComponentType::Resource { rep, dtor } => {
                 component_ty_section.resource(reencode.val_type(*rep).unwrap(), *dtor);
@@ -293,12 +221,233 @@ impl Encode for ComponentType<'_> {
     }
 }
 
+impl Encode for ComponentDefinedType<'_> {
+    type Helper = NoHelper;
+    type DynHelper<'b> = ComponentDefinedTypeEncoder<'b>;
+    fn do_encode<F>(&self, _: &mut wasm_encoder::Component, reencode: &mut RoundtripReencoder, _: &mut Self::Helper, factory: &mut F)
+    where
+        F: HelperFactory,
+        for<'b> F::Helper<'b>: Into<Self::DynHelper<'b>>,
+    {
+        let enc = factory.next().into();
+        match self {
+            ComponentDefinedType::Primitive(p) => {
+                enc.primitive(wasm_encoder::PrimitiveValType::from(*p))
+            }
+            ComponentDefinedType::Record(records) => {
+                enc.record(records.iter().map(|(n, ty)| {
+                    (*n, reencode.component_val_type(*ty))
+                }));
+            }
+            ComponentDefinedType::Variant(variants) => {
+                enc.variant(variants.iter().map(|variant| {
+                    (
+                        variant.name,
+                        variant.ty.map(|ty| {
+                            reencode.component_val_type(ty)
+                        }),
+                        variant.refines,
+                    )
+                }))
+            }
+            ComponentDefinedType::List(l) => {
+                enc.list(reencode.component_val_type(*l))
+            }
+            ComponentDefinedType::Tuple(tup) => {
+                enc.tuple(tup.iter().map(|val_type| {
+                    reencode.component_val_type(*val_type)
+                }))
+            }
+            ComponentDefinedType::Flags(flags) => {
+                enc.flags(flags.clone().into_vec().into_iter())
+            }
+            ComponentDefinedType::Enum(en) => {
+                enc.enum_type(en.clone().into_vec().into_iter())
+            }
+            ComponentDefinedType::Option(opt) => {
+                enc.option(reencode.component_val_type(*opt))
+            }
+            ComponentDefinedType::Result { ok, err } => enc.result(
+                ok.map(|val_type| {
+                    reencode.component_val_type(val_type)
+                }),
+                err.map(|val_type| {
+                    reencode.component_val_type(val_type)
+                }),
+            ),
+            ComponentDefinedType::Own(id) => enc.own(*id),
+            ComponentDefinedType::Borrow(id) => enc.borrow(*id),
+            ComponentDefinedType::Future(opt) => enc.future(opt.map(|opt| {
+                reencode.component_val_type(opt)
+            })),
+            ComponentDefinedType::Stream(opt) => enc.stream(opt.map(|opt| {
+                reencode.component_val_type(opt)
+            })),
+            ComponentDefinedType::FixedSizeList(ty, i) => {
+                enc.fixed_size_list(reencode.component_val_type(*ty), *i)
+            }
+        }
+    }
+}
+
+impl Encode for ComponentFuncType<'_> {
+    type Helper = ComponentTypeSection;
+    type DynHelper<'b> = NoHelper;
+    fn do_encode<F>(&self, _: &mut wasm_encoder::Component, reencode: &mut RoundtripReencoder, section: &mut Self::Helper, _: &mut F)
+    where
+        F: HelperFactory,
+        for<'b> F::Helper<'b>: Into<Self::DynHelper<'b>>,
+    {
+        let mut enc = section.function();
+        enc.params(self.params.iter().map(|(name, ty)| {
+            (*name, reencode.component_val_type(*ty))
+        }));
+        enc.result(self.result.map(|v| {
+            reencode.component_val_type(v)
+        }));
+    }
+}
+
+impl Encode for ComponentTypeDeclaration<'_> {
+    type Helper = wasm_encoder::ComponentType;
+    type DynHelper<'b> = NoHelper;
+    fn do_encode<F: HelperFactory>(&self, component: &mut wasm_encoder::Component, reencode: &mut RoundtripReencoder, new_comp: &mut Self::Helper, _: &mut F)
+    where
+        F: HelperFactory,
+        for<'b> F::Helper<'b>: Into<Self::DynHelper<'b>>,
+    {
+        let mut no_help = NoHelper::default();
+        let mut no_help1 = NoHelper::default();
+        match self {
+            ComponentTypeDeclaration::CoreType(core) => core.do_encode(component, reencode, &mut no_help, new_comp),
+            ComponentTypeDeclaration::Type(typ) => {
+                typ.do_encode(component, reencode, &mut no_help, &mut no_help1);
+                // convert_component_type(
+                //     typ,
+                //     new_comp.ty(),
+                //     component,
+                //     reencode
+                // );
+            }
+            ComponentTypeDeclaration::Alias(a) => {
+                convert_component_alias(a, new_comp, reencode)
+            }
+            ComponentTypeDeclaration::Export { name, ty } => {
+                let ty = do_reencode(
+                    *ty,
+                    RoundtripReencoder::component_type_ref,
+                    reencode,
+                    "component type",
+                );
+                new_comp.export(name.0, ty);
+            }
+            ComponentTypeDeclaration::Import(imp) => {
+                let ty = do_reencode(
+                    imp.ty,
+                    RoundtripReencoder::component_type_ref,
+                    reencode,
+                    "component type",
+                );
+                new_comp.import(imp.name.0, ty);
+            }
+        }
+    }
+}
+
+impl Encode for InstanceTypeDeclaration<'_> {
+    type Helper = InstanceType;
+    type DynHelper<'b> = NoHelper;
+    fn do_encode<F>(&self, component: &mut wasm_encoder::Component, reencode: &mut RoundtripReencoder, ity: &mut Self::Helper, _: &mut F)
+    where
+        F: HelperFactory,
+        for<'b> F::Helper<'b>: Into<Self::DynHelper<'b>>,
+    {
+        match self {
+            InstanceTypeDeclaration::CoreType(core_type) => match core_type {
+                // TODO
+                CoreType::Rec(recgroup) => {
+                    for sub in recgroup.types() {
+                        let enc = ity.core_type().core();
+                        encode_core_type_subtype(enc, sub, reencode);
+                    }
+                }
+                CoreType::Module(module) => {
+                    let enc = ity.core_type();
+                    convert_module_type_declaration(module, enc, reencode);
+                }
+            },
+            InstanceTypeDeclaration::Type(ty) => {
+                let enc = ity.ty();
+                convert_component_type(ty, enc, component, reencode);
+            }
+            InstanceTypeDeclaration::Alias(alias) => match alias {
+                ComponentAlias::InstanceExport {
+                    kind,
+                    instance_index,
+                    name,
+                } => {
+                    ity.alias(Alias::InstanceExport {
+                        instance: *instance_index,
+                        kind: reencode.component_export_kind(*kind),
+                        name,
+                    });
+                }
+                ComponentAlias::CoreInstanceExport {
+                    kind,
+                    instance_index,
+                    name,
+                } => {
+                    ity.alias(Alias::CoreInstanceExport {
+                        instance: *instance_index,
+                        kind: do_reencode(
+                            *kind,
+                            RoundtripReencoder::export_kind,
+                            reencode,
+                            "export kind",
+                        ),
+                        name,
+                    });
+                }
+                ComponentAlias::Outer {
+                    kind,
+                    count,
+                    index,
+                } => {
+                    ity.alias(Alias::Outer {
+                        kind: reencode.component_outer_alias_kind(*kind),
+                        count: *count,
+                        index: *index,
+                    });
+                }
+            },
+            InstanceTypeDeclaration::Export { name, ty } => {
+                ity.export(
+                    name.0,
+                    do_reencode(
+                        *ty,
+                        RoundtripReencoder::component_type_ref,
+                        reencode,
+                        "component type",
+                    ),
+                );
+            }
+        }
+    }
+}
+
+
 impl Encode for ComponentInstance<'_> {
-    fn do_encode<'a>(
+    type Helper = NoHelper;
+    type DynHelper<'b> = NoHelper;
+    fn do_encode<F>(
         &self,
         component: &mut wasm_encoder::Component,
         reencode: &mut RoundtripReencoder,
-    ) {
+        _: &mut Self::Helper, _: &mut F)
+    where
+        F: HelperFactory,
+        for<'b> F::Helper<'b>: Into<Self::DynHelper<'b>>,
+    {
         let mut instances = wasm_encoder::ComponentInstanceSection::new();
 
         match self {
@@ -330,11 +479,17 @@ impl Encode for ComponentInstance<'_> {
 }
 
 impl Encode for CanonicalFunction {
-    fn do_encode<'a>(
+    type Helper = NoHelper;
+    type DynHelper<'b> = NoHelper;
+    fn do_encode<F>(
         &self,
         component: &mut wasm_encoder::Component,
         reencode: &mut RoundtripReencoder,
-    ) {
+        _: &mut Self::Helper, _: &mut F)
+    where
+        F: HelperFactory,
+        for<'b> F::Helper<'b>: Into<Self::DynHelper<'b>>,
+    {
         let mut canon_sec = wasm_encoder::CanonicalFunctionSection::new();
 
         match self {
@@ -535,11 +690,17 @@ impl Encode for CanonicalFunction {
 }
 
 impl Encode for ComponentAlias<'_> {
-    fn do_encode<'a>(
+    type Helper = NoHelper;
+    type DynHelper<'b> = NoHelper;
+    fn do_encode<F>(
         &self,
         component: &mut wasm_encoder::Component,
         reencode: &mut RoundtripReencoder,
-    ) {
+        _: &mut Self::Helper, _: &mut F)
+    where
+        F: HelperFactory,
+        for<'b> F::Helper<'b>: Into<Self::DynHelper<'b>>,
+    {
         let mut alias = ComponentAliasSection::new();
         let a = match self {
             ComponentAlias::InstanceExport { kind,
@@ -580,11 +741,17 @@ impl Encode for ComponentAlias<'_> {
 }
 
 impl Encode for ComponentImport<'_> {
-    fn do_encode<'a>(
+    type Helper = NoHelper;
+    type DynHelper<'b> = NoHelper;
+    fn do_encode<F>(
         &self,
         component: &mut wasm_encoder::Component,
         reencode: &mut RoundtripReencoder,
-    ) {
+        _: &mut Self::Helper, _: &mut F)
+    where
+        F: HelperFactory,
+        for<'b> F::Helper<'b>: Into<Self::DynHelper<'b>>,
+    {
         let mut imports = wasm_encoder::ComponentImportSection::new();
 
         let ty = do_reencode(
@@ -600,10 +767,13 @@ impl Encode for ComponentImport<'_> {
 }
 
 impl Encode for ComponentExport<'_> {
-    fn do_encode<'a>(
+    type Helper = NoHelper;
+    type DynHelper<'b> = NoHelper;
+    fn do_encode<F>(
         &self,
         component: &mut wasm_encoder::Component,
         reencode: &mut RoundtripReencoder,
+        _: &mut Self::Helper, _: &mut F
     ) {
         let mut exports = wasm_encoder::ComponentExportSection::new();
 
@@ -628,41 +798,75 @@ impl Encode for ComponentExport<'_> {
 }
 
 impl Encode for CoreType<'_> {
-    fn do_encode<'a>(
+    type Helper = NoHelper;
+    type DynHelper<'b> = ComponentCoreTypeEncoder<'b>;
+    fn do_encode<F: HelperFactory>(
         &self,
         component: &mut wasm_encoder::Component,
         reencode: &mut RoundtripReencoder,
-    ) {
-        let mut type_section = wasm_encoder::CoreTypeSection::new();
-
+        na: &mut Self::Helper, next: &mut F
+    )
+    where
+        F: HelperFactory,
+        for<'b> F::Helper<'b>: Into<Self::DynHelper<'b>>,
+    {
         match &self {
-            CoreType::Rec(recgroup) => {
-                let types = convert_recgroup(recgroup, reencode);
+            CoreType::Rec(recgroup) => recgroup.do_encode(component, reencode, na, next),
+            CoreType::Module(module) => module.do_encode(component, reencode, na, next),
+        }
+    }
+}
 
-                if recgroup.is_explicit_rec_group() {
-                    type_section.ty().core().rec(types);
-                } else {
-                    // it's implicit!
-                    for subty in types {
-                        type_section.ty().core().subtype(&subty);
-                    }
-                }
-            }
-            CoreType::Module(module) => {
-                let enc = type_section.ty();
-                convert_module_type_declaration(module, enc, reencode);
+impl Encode for RecGroup {
+    type Helper = NoHelper;
+    type DynHelper<'b> = ComponentCoreTypeEncoder<'b>;
+    fn do_encode<F>(&self, _: &mut wasm_encoder::Component, reencode: &mut RoundtripReencoder,
+                                   _: &mut Self::Helper, factory: &mut F)
+        where
+            F: HelperFactory,
+            for<'b> F::Helper<'b>: Into<Self::DynHelper<'b>>,
+    {
+        // create a helper from factory, lifetime tied to the borrow
+        // let mut dyn_helper: Self::DynHelper<'_> = factory.next().into();
+        // TODO -- need to reindex THIS node (was opaquely done before)
+
+        let types = convert_recgroup(self, reencode);
+
+        if self.is_explicit_rec_group() {
+            factory.next().into().core().rec(types);
+        } else {
+            // it's implicit!
+            for subty in types {
+                factory.next().into().core().subtype(&subty);
             }
         }
-        component.section(&type_section);
+    }
+}
+
+impl Encode for &Box<[ModuleTypeDeclaration<'_>]> {
+    type Helper = NoHelper;
+    type DynHelper<'b> = ComponentCoreTypeEncoder<'b>;
+    fn do_encode<F>(&self, _: &mut wasm_encoder::Component, reencode: &mut RoundtripReencoder,
+                 _: &mut Self::Helper, mut factory: &mut F)
+    where
+        F: HelperFactory,
+        for<'b> F::Helper<'b>: Into<Self::DynHelper<'b>> {
+        convert_module_type_declaration(self, factory.next().into(), reencode);
     }
 }
 
 impl Encode for Instance<'_> {
-    fn do_encode<'a>(
+    type Helper = NoHelper;
+    type DynHelper<'b> = NoHelper;
+    fn do_encode<F>(
         &self,
         component: &mut wasm_encoder::Component,
         _reencode: &mut RoundtripReencoder,
-    ) {
+        _: &mut Self::Helper, _: &mut F)
+    where
+        F: HelperFactory,
+        for<'b> F::Helper<'b>: Into<Self::DynHelper<'b>>,
+    {
         let mut instances = wasm_encoder::InstanceSection::new();
 
         match self {
@@ -691,11 +895,17 @@ impl Encode for Instance<'_> {
 }
 
 impl Encode for ComponentStartFunction {
-    fn do_encode<'a>(
+    type Helper = NoHelper;
+    type DynHelper<'b> = NoHelper;
+    fn do_encode<F>(
         &self,
         component: &mut wasm_encoder::Component,
         _reencode: &mut RoundtripReencoder,
-    ) {
+        _: &mut Self::Helper, _: &mut F)
+    where
+        F: HelperFactory,
+        for<'b> F::Helper<'b>: Into<Self::DynHelper<'b>>,
+    {
         component.section(&wasm_encoder::ComponentStartSection {
             function_index: self.func_index,
             args: self.arguments.clone(),
@@ -705,11 +915,17 @@ impl Encode for ComponentStartFunction {
 }
 
 impl Encode for CustomSection<'_> {
-    fn do_encode<'a>(
+    type Helper = NoHelper;
+    type DynHelper<'b> = NoHelper;
+    fn do_encode<F>(
         &self,
         component: &mut wasm_encoder::Component,
         _reencode: &mut RoundtripReencoder,
-    ) {
+        _: &mut Self::Helper, _: &mut F)
+    where
+        F: HelperFactory,
+        for<'b> F::Helper<'b>: Into<Self::DynHelper<'b>>,
+    {
         component.section(&wasm_encoder::CustomSection {
             name: std::borrow::Cow::Borrowed(self.name),
             data: self.data.clone(),

@@ -758,10 +758,12 @@ impl FixIndices for Import<'_> {
 }
 
 impl FixIndices for RecGroup {
-    fn fix<'a>(&self, component: &mut Component, indices: &IdxSpaces) -> Self {
-        // I can't do this structure for RecGroup (unable to construct outside the wasmparser library)
-        // Need to do something special to handle this :/
-        todo!()
+    fn fix<'a>(&self, _: &mut Component, _: &IdxSpaces) -> Self {
+        // This is kept as an opaque IR node (indices not fixed here)
+        // This is because wasmparser does not allow library users to create
+        // a new RecGroup.
+        // Indices will be fixed in self.do_encode()!
+        self.clone()
     }
 }
 
