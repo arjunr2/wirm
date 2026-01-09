@@ -88,52 +88,52 @@ pub(crate) fn encode_internal<'a>(
             },
             ComponentItem::CompType { node, .. } => unsafe {
                 let t: &ComponentType = &**node;
-                let fixed = t.fix(&mut component, indices);
+                let fixed = t.fix(indices);
                 encode_comp_ty_section(&fixed, &mut component, &mut reencode);
             },
             ComponentItem::CompInst { node, .. } => unsafe {
                 let i: &ComponentInstance = &**node;
-                let fixed = i.fix(&mut component, indices);
+                let fixed = i.fix(indices);
                 encode_comp_inst_section(&fixed, &mut component, &mut reencode);
             },
             ComponentItem::CanonicalFunc { node, .. } => unsafe {
                 let f: &CanonicalFunction = &**node;
-                let fixed = f.fix(&mut component, indices);
+                let fixed = f.fix(indices);
                 encode_canon_section(&fixed, &mut component, &mut reencode);
             },
             ComponentItem::Alias { node, .. } => unsafe {
                 let a: &ComponentAlias = &**node;
-                let fixed = a.fix(&mut component, indices);
+                let fixed = a.fix(indices);
                 encode_alias_section(&fixed, &mut component, &mut reencode);
             },
             ComponentItem::Import { node, .. } => unsafe {
                 let i: &ComponentImport = &**node;
-                let fixed = i.fix(&mut component, indices);
+                let fixed = i.fix(indices);
                 encode_comp_import_section(&fixed, &mut component, &mut reencode);
             },
             ComponentItem::Export { node, .. } => unsafe {
                 let e: &ComponentExport = &**node;
-                let fixed = e.fix(&mut component, indices);
+                let fixed = e.fix(indices);
                 encode_comp_export_section(&fixed, &mut component, &mut reencode);
             },
             ComponentItem::CoreType { node, .. } => unsafe {
                 let t: &CoreType = &**node;
-                let fixed = t.fix(&mut component, indices);
+                let fixed = t.fix(indices);
                 encode_core_ty_section(&fixed, &mut component, &mut reencode);
             },
             ComponentItem::Inst { node, .. } => unsafe {
                 let i: &Instance = &**node;
-                let fixed = i.fix(&mut component, indices);
+                let fixed = i.fix(indices);
                 encode_inst_section(&fixed, &mut component, &mut reencode);
             },
             ComponentItem::Start { node, .. } => unsafe {
                 let f: &ComponentStartFunction = &**node;
-                let fixed = f.fix(&mut component, indices);
+                let fixed = f.fix(indices);
                 encode_start_section(&fixed, &mut component, &mut reencode);
             },
             ComponentItem::CustomSection { node, .. } => unsafe {
                 let c: &CustomSection = &**node;
-                let fixed = c.fix(&mut component, indices);
+                let fixed = c.fix(indices);
                 encode_custom_section(&fixed, &mut component, &mut reencode);
             }
         }
