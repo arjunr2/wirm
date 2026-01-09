@@ -1,11 +1,19 @@
 use crate::encode::component::collect::{ComponentItem, ComponentPlan};
-use crate::ir::component::idx_spaces::{IdxSpaces};
+use crate::encode::component::fix_indices::FixIndices;
+use crate::ir::component::idx_spaces::IdxSpaces;
 use crate::ir::types::CustomSection;
 use crate::{Component, Module};
 use wasm_encoder::reencode::{Reencode, ReencodeComponent, RoundtripReencoder};
-use wasm_encoder::{Alias, ComponentAliasSection, ComponentCoreTypeEncoder, ComponentDefinedTypeEncoder, ComponentFuncTypeEncoder, ComponentTypeEncoder, ComponentTypeSection, CoreTypeEncoder, CoreTypeSection, InstanceType, ModuleArg, ModuleSection, NestedComponentSection};
-use wasmparser::{CanonicalFunction, ComponentAlias, ComponentDefinedType, ComponentExport, ComponentFuncType, ComponentImport, ComponentInstance, ComponentStartFunction, ComponentType, ComponentTypeDeclaration, CoreType, Instance, InstanceTypeDeclaration, RecGroup, SubType};
-use crate::encode::component::fix_indices::FixIndices;
+use wasm_encoder::{
+    Alias, ComponentAliasSection, ComponentCoreTypeEncoder, ComponentDefinedTypeEncoder,
+    ComponentFuncTypeEncoder, ComponentTypeEncoder, ComponentTypeSection, CoreTypeEncoder,
+    CoreTypeSection, InstanceType, ModuleArg, ModuleSection, NestedComponentSection,
+};
+use wasmparser::{
+    CanonicalFunction, ComponentAlias, ComponentDefinedType, ComponentExport, ComponentFuncType,
+    ComponentImport, ComponentInstance, ComponentStartFunction, ComponentType,
+    ComponentTypeDeclaration, CoreType, Instance, InstanceTypeDeclaration, RecGroup, SubType,
+};
 
 /// # PHASE 3 #
 /// Encodes all items in the plan into the output buffer.
@@ -37,26 +45,26 @@ use crate::encode::component::fix_indices::FixIndices;
 /// 2. Factory traits that return borrowed, single-use encoders
 /// 3. Complex error messages that are difficult to reason about or debug
 /// 4. High cognitive overhead for contributors and future maintainers
-/// 
+///
 /// In particular, encoding WebAssembly constructs often requires consuming short-lived,
 /// section-specific encoder values (e.g. ComponentCoreTypeEncoder). Modeling this generically
 /// across multiple contexts (core type sections, component type declarations, recursive groups,
 /// etc.) led to significant lifetime and trait complexity that obscured the actual encoding logic.
-/// 
+///
 /// ## Chosen Approach ##
-/// 
+///
 /// This design favors:
 /// - Concrete encoding functions
 /// - Explicit helpers passed directly
 /// - Local duplication at call sites
 /// - Shared internal helper functions for reusable logic
-/// 
+///
 /// This keeps encoding logic:
 /// - Easier to read and understand
 /// - Easier to debug
 /// - Easier to evolve as the WebAssembly component model changes
 /// _ More aligned with how wasm_encoder itself is structured
-/// 
+///
 /// Where reuse matters, it is achieved by factoring out small, focused helper functions, not by
 /// introducing additional layers of abstraction.
 pub(crate) fn encode_internal<'a>(
@@ -135,7 +143,7 @@ pub(crate) fn encode_internal<'a>(
                 let c: &CustomSection = &**node;
                 let fixed = c.fix(indices);
                 encode_custom_section(&fixed, &mut component, &mut reencode);
-            }
+            },
         }
     }
 
@@ -171,11 +179,17 @@ pub(crate) fn encode_internal<'a>(
 fn encode_module_section(module: &Module, component: &mut wasm_encoder::Component) {
     component.section(&ModuleSection(&module.encode_internal(false).0));
 }
-fn encode_comp_ty_section(comp_ty: &ComponentType, component: &mut wasm_encoder::Component, reencode: &mut RoundtripReencoder) {
+fn encode_comp_ty_section(
+    comp_ty: &ComponentType,
+    component: &mut wasm_encoder::Component,
+    reencode: &mut RoundtripReencoder,
+) {
     let mut section = ComponentTypeSection::new();
 
     match comp_ty {
-        ComponentType::Defined(comp_ty) => encode_comp_defined_ty(comp_ty, section.defined_type(), reencode),
+        ComponentType::Defined(comp_ty) => {
+            encode_comp_defined_ty(comp_ty, section.defined_type(), reencode)
+        }
         ComponentType::Func(func_ty) => encode_comp_func_ty(func_ty, section.function(), reencode),
         ComponentType::Component(comp) => {
             let mut new_comp = wasm_encoder::ComponentType::new();
@@ -198,11 +212,18 @@ fn encode_comp_ty_section(comp_ty: &ComponentType, component: &mut wasm_encoder:
 
     component.section(&section);
 }
-fn encode_comp_inst_section(comp_inst: &ComponentInstance, component: &mut wasm_encoder::Component, reencode: &mut RoundtripReencoder) {
+fn encode_comp_inst_section(
+    comp_inst: &ComponentInstance,
+    component: &mut wasm_encoder::Component,
+    reencode: &mut RoundtripReencoder,
+) {
     let mut instances = wasm_encoder::ComponentInstanceSection::new();
 
     match comp_inst {
-        ComponentInstance::Instantiate { component_index, args } => {
+        ComponentInstance::Instantiate {
+            component_index,
+            args,
+        } => {
             instances.instantiate(
                 *component_index,
                 args.iter().map(|arg| {
@@ -227,12 +248,18 @@ fn encode_comp_inst_section(comp_inst: &ComponentInstance, component: &mut wasm_
 
     component.section(&instances);
 }
-fn encode_canon_section(canon: &CanonicalFunction, component: &mut wasm_encoder::Component, reencode: &mut RoundtripReencoder) {
+fn encode_canon_section(
+    canon: &CanonicalFunction,
+    component: &mut wasm_encoder::Component,
+    reencode: &mut RoundtripReencoder,
+) {
     let mut canon_sec = wasm_encoder::CanonicalFunctionSection::new();
 
     match canon {
         CanonicalFunction::Lift {
-            core_func_index, type_index, options
+            core_func_index,
+            type_index,
+            options,
         } => {
             canon_sec.lift(
                 *core_func_index,
@@ -248,7 +275,8 @@ fn encode_canon_section(canon: &CanonicalFunction, component: &mut wasm_encoder:
             );
         }
         CanonicalFunction::Lower {
-            func_index, options
+            func_index,
+            options,
         } => {
             canon_sec.lower(
                 *func_index,
@@ -280,25 +308,26 @@ fn encode_canon_section(canon: &CanonicalFunction, component: &mut wasm_encoder:
         CanonicalFunction::BackpressureSet => {
             canon_sec.backpressure_set();
         }
-        CanonicalFunction::TaskReturn {
-            result,
-            options
-        } => {
+        CanonicalFunction::TaskReturn { result, options } => {
             canon_sec.task_return(
-                result.map(|v| {
-                    v.into()
-                }),
-                options.iter().map(|opt| (*opt).into())
+                result.map(|v| v.into()),
+                options.iter().map(|opt| (*opt).into()),
             );
         }
         CanonicalFunction::WaitableSetNew => {
             canon_sec.waitable_set_new();
         }
-        CanonicalFunction::WaitableSetWait { cancellable, memory} => {
+        CanonicalFunction::WaitableSetWait {
+            cancellable,
+            memory,
+        } => {
             // NOTE: There's a discrepancy in naming here. `cancellable` refers to the same bit as `async_`
             canon_sec.waitable_set_wait(*cancellable, *memory);
         }
-        CanonicalFunction::WaitableSetPoll { cancellable, memory } => {
+        CanonicalFunction::WaitableSetPoll {
+            cancellable,
+            memory,
+        } => {
             // NOTE: There's a discrepancy in naming here. `cancellable` refers to the same bit as `async_`
             canon_sec.waitable_set_poll(*cancellable, *memory);
         }
@@ -314,15 +343,10 @@ fn encode_canon_section(canon: &CanonicalFunction, component: &mut wasm_encoder:
         CanonicalFunction::StreamNew { ty } => {
             canon_sec.stream_new(*ty);
         }
-        CanonicalFunction::StreamRead {
-            ty, options
-        } => {
+        CanonicalFunction::StreamRead { ty, options } => {
             canon_sec.stream_read(*ty, options.iter().map(|opt| (*opt).into()));
         }
-        CanonicalFunction::StreamWrite {
-            ty,
-            options
-        } => {
+        CanonicalFunction::StreamWrite { ty, options } => {
             canon_sec.stream_write(*ty, options.iter().map(|opt| (*opt).into()));
         }
         CanonicalFunction::StreamCancelRead { async_, ty } => {
@@ -334,16 +358,10 @@ fn encode_canon_section(canon: &CanonicalFunction, component: &mut wasm_encoder:
         CanonicalFunction::FutureNew { ty } => {
             canon_sec.future_new(*ty);
         }
-        CanonicalFunction::FutureRead {
-            ty,
-            options,
-        } => {
+        CanonicalFunction::FutureRead { ty, options } => {
             canon_sec.future_read(*ty, options.iter().map(|opt| (*opt).into()));
         }
-        CanonicalFunction::FutureWrite {
-            ty,
-            options
-        } => {
+        CanonicalFunction::FutureWrite { ty, options } => {
             canon_sec.future_write(*ty, options.iter().map(|opt| (*opt).into()));
         }
         CanonicalFunction::FutureCancelRead { async_, ty } => {
@@ -352,14 +370,10 @@ fn encode_canon_section(canon: &CanonicalFunction, component: &mut wasm_encoder:
         CanonicalFunction::FutureCancelWrite { async_, ty } => {
             canon_sec.future_cancel_write(*ty, *async_);
         }
-        CanonicalFunction::ErrorContextNew {
-            options
-        } => {
+        CanonicalFunction::ErrorContextNew { options } => {
             canon_sec.error_context_new(options.iter().map(|opt| (*opt).into()));
         }
-        CanonicalFunction::ErrorContextDebugMessage {
-            options
-        } => {
+        CanonicalFunction::ErrorContextDebugMessage { options } => {
             canon_sec.error_context_debug_message(options.iter().map(|opt| (*opt).into()));
         }
         CanonicalFunction::ErrorContextDrop => {
@@ -368,7 +382,10 @@ fn encode_canon_section(canon: &CanonicalFunction, component: &mut wasm_encoder:
         CanonicalFunction::ThreadSpawnRef { func_ty_index } => {
             canon_sec.thread_spawn_ref(*func_ty_index);
         }
-        CanonicalFunction::ThreadSpawnIndirect { func_ty_index, table_index } => {
+        CanonicalFunction::ThreadSpawnIndirect {
+            func_ty_index,
+            table_index,
+        } => {
             canon_sec.thread_spawn_indirect(*func_ty_index, *table_index);
         }
         CanonicalFunction::TaskCancel => {
@@ -407,7 +424,10 @@ fn encode_canon_section(canon: &CanonicalFunction, component: &mut wasm_encoder:
         CanonicalFunction::ThreadIndex => {
             canon_sec.thread_index();
         }
-        CanonicalFunction::ThreadNewIndirect { func_ty_index, table_index } => {
+        CanonicalFunction::ThreadNewIndirect {
+            func_ty_index,
+            table_index,
+        } => {
             canon_sec.thread_new_indirect(*func_ty_index, *table_index);
         }
         CanonicalFunction::ThreadSwitchTo { cancellable } => {
@@ -425,14 +445,22 @@ fn encode_canon_section(canon: &CanonicalFunction, component: &mut wasm_encoder:
     }
     component.section(&canon_sec);
 }
-fn encode_alias_section(alias: &ComponentAlias, component: &mut wasm_encoder::Component, reencode: &mut RoundtripReencoder) {
+fn encode_alias_section(
+    alias: &ComponentAlias,
+    component: &mut wasm_encoder::Component,
+    reencode: &mut RoundtripReencoder,
+) {
     let new_a = into_wasm_encoder_alias(alias, reencode);
 
     let mut alias_section = ComponentAliasSection::new();
     alias_section.alias(new_a);
     component.section(&alias_section);
 }
-fn encode_comp_import_section(import: &ComponentImport, component: &mut wasm_encoder::Component, reencode: &mut RoundtripReencoder) {
+fn encode_comp_import_section(
+    import: &ComponentImport,
+    component: &mut wasm_encoder::Component,
+    reencode: &mut RoundtripReencoder,
+) {
     let mut imports = wasm_encoder::ComponentImportSection::new();
 
     let ty = do_reencode(
@@ -445,7 +473,11 @@ fn encode_comp_import_section(import: &ComponentImport, component: &mut wasm_enc
 
     component.section(&imports);
 }
-fn encode_comp_export_section(export: &ComponentExport, component: &mut wasm_encoder::Component, reencode: &mut RoundtripReencoder) {
+fn encode_comp_export_section(
+    export: &ComponentExport,
+    component: &mut wasm_encoder::Component,
+    reencode: &mut RoundtripReencoder,
+) {
     let mut exports = wasm_encoder::ComponentExportSection::new();
 
     let ty = export.ty.map(|ty| {
@@ -466,21 +498,27 @@ fn encode_comp_export_section(export: &ComponentExport, component: &mut wasm_enc
 
     component.section(&exports);
 }
-fn encode_core_ty_section(core_ty: &CoreType, component: &mut wasm_encoder::Component, reencode: &mut RoundtripReencoder) {
+fn encode_core_ty_section(
+    core_ty: &CoreType,
+    component: &mut wasm_encoder::Component,
+    reencode: &mut RoundtripReencoder,
+) {
     let mut type_section = CoreTypeSection::new();
     match core_ty {
         CoreType::Rec(group) => encode_rec_group_in_core_ty(group, &mut type_section, reencode),
-        CoreType::Module(decls) => encode_module_type_decls(decls, type_section.ty(), reencode)
+        CoreType::Module(decls) => encode_module_type_decls(decls, type_section.ty(), reencode),
     }
     component.section(&type_section);
 }
-fn encode_inst_section(inst: &Instance, component: &mut wasm_encoder::Component, _: &mut RoundtripReencoder) {
+fn encode_inst_section(
+    inst: &Instance,
+    component: &mut wasm_encoder::Component,
+    _: &mut RoundtripReencoder,
+) {
     let mut instances = wasm_encoder::InstanceSection::new();
 
     match inst {
-        Instance::Instantiate {
-            module_index, args
-        } => {
+        Instance::Instantiate { module_index, args } => {
             instances.instantiate(
                 *module_index,
                 args.iter()
@@ -500,14 +538,22 @@ fn encode_inst_section(inst: &Instance, component: &mut wasm_encoder::Component,
 
     component.section(&instances);
 }
-fn encode_start_section(start: &ComponentStartFunction, component: &mut wasm_encoder::Component, _: &mut RoundtripReencoder) {
+fn encode_start_section(
+    start: &ComponentStartFunction,
+    component: &mut wasm_encoder::Component,
+    _: &mut RoundtripReencoder,
+) {
     component.section(&wasm_encoder::ComponentStartSection {
         function_index: start.func_index,
         args: start.arguments.clone(),
         results: start.results,
     });
 }
-fn encode_custom_section(custom: &CustomSection, component: &mut wasm_encoder::Component, _: &mut RoundtripReencoder) {
+fn encode_custom_section(
+    custom: &CustomSection,
+    component: &mut wasm_encoder::Component,
+    _: &mut RoundtripReencoder,
+) {
     component.section(&wasm_encoder::CustomSection {
         name: std::borrow::Cow::Borrowed(custom.name),
         data: custom.data.clone(),
@@ -516,79 +562,81 @@ fn encode_custom_section(custom: &CustomSection, component: &mut wasm_encoder::C
 
 // === The inner structs ===
 
-fn encode_comp_defined_ty(ty: &ComponentDefinedType, enc: ComponentDefinedTypeEncoder, reencode: &mut RoundtripReencoder) {
+fn encode_comp_defined_ty(
+    ty: &ComponentDefinedType,
+    enc: ComponentDefinedTypeEncoder,
+    reencode: &mut RoundtripReencoder,
+) {
     match ty {
         ComponentDefinedType::Primitive(p) => {
             enc.primitive(wasm_encoder::PrimitiveValType::from(*p))
         }
         ComponentDefinedType::Record(records) => {
-            enc.record(records.iter().map(|(n, ty)| {
-                (*n, reencode.component_val_type(*ty))
-            }));
+            enc.record(
+                records
+                    .iter()
+                    .map(|(n, ty)| (*n, reencode.component_val_type(*ty))),
+            );
         }
-        ComponentDefinedType::Variant(variants) => {
-            enc.variant(variants.iter().map(|variant| {
-                (
-                    variant.name,
-                    variant.ty.map(|ty| {
-                        reencode.component_val_type(ty)
-                    }),
-                    variant.refines,
-                )
-            }))
-        }
-        ComponentDefinedType::List(l) => {
-            enc.list(reencode.component_val_type(*l))
-        }
-        ComponentDefinedType::Tuple(tup) => {
-            enc.tuple(tup.iter().map(|val_type| {
-                reencode.component_val_type(*val_type)
-            }))
-        }
-        ComponentDefinedType::Flags(flags) => {
-            enc.flags(flags.clone().into_vec().into_iter())
-        }
-        ComponentDefinedType::Enum(en) => {
-            enc.enum_type(en.clone().into_vec().into_iter())
-        }
-        ComponentDefinedType::Option(opt) => {
-            enc.option(reencode.component_val_type(*opt))
-        }
+        ComponentDefinedType::Variant(variants) => enc.variant(variants.iter().map(|variant| {
+            (
+                variant.name,
+                variant.ty.map(|ty| reencode.component_val_type(ty)),
+                variant.refines,
+            )
+        })),
+        ComponentDefinedType::List(l) => enc.list(reencode.component_val_type(*l)),
+        ComponentDefinedType::Tuple(tup) => enc.tuple(
+            tup.iter()
+                .map(|val_type| reencode.component_val_type(*val_type)),
+        ),
+        ComponentDefinedType::Flags(flags) => enc.flags(flags.clone().into_vec().into_iter()),
+        ComponentDefinedType::Enum(en) => enc.enum_type(en.clone().into_vec().into_iter()),
+        ComponentDefinedType::Option(opt) => enc.option(reencode.component_val_type(*opt)),
         ComponentDefinedType::Result { ok, err } => enc.result(
-            ok.map(|val_type| {
-                reencode.component_val_type(val_type)
-            }),
-            err.map(|val_type| {
-                reencode.component_val_type(val_type)
-            }),
+            ok.map(|val_type| reencode.component_val_type(val_type)),
+            err.map(|val_type| reencode.component_val_type(val_type)),
         ),
         ComponentDefinedType::Own(id) => enc.own(*id),
         ComponentDefinedType::Borrow(id) => enc.borrow(*id),
-        ComponentDefinedType::Future(opt) => enc.future(opt.map(|opt| {
-            reencode.component_val_type(opt)
-        })),
-        ComponentDefinedType::Stream(opt) => enc.stream(opt.map(|opt| {
-            reencode.component_val_type(opt)
-        })),
+        ComponentDefinedType::Future(opt) => {
+            enc.future(opt.map(|opt| reencode.component_val_type(opt)))
+        }
+        ComponentDefinedType::Stream(opt) => {
+            enc.stream(opt.map(|opt| reencode.component_val_type(opt)))
+        }
         ComponentDefinedType::FixedSizeList(ty, i) => {
             enc.fixed_size_list(reencode.component_val_type(*ty), *i)
         }
     }
 }
 
-fn encode_comp_func_ty(ty: &ComponentFuncType, mut enc: ComponentFuncTypeEncoder, reencode: &mut RoundtripReencoder) {
-    enc.params(ty.params.iter().map(|(name, ty)| {
-        (*name, reencode.component_val_type(*ty))
-    }));
-    enc.result(ty.result.map(|v| {
-        reencode.component_val_type(v)
-    }));
+fn encode_comp_func_ty(
+    ty: &ComponentFuncType,
+    mut enc: ComponentFuncTypeEncoder,
+    reencode: &mut RoundtripReencoder,
+) {
+    enc.params(
+        ty.params
+            .iter()
+            .map(|(name, ty)| (*name, reencode.component_val_type(*ty))),
+    );
+    enc.result(ty.result.map(|v| reencode.component_val_type(v)));
 }
 
-fn encode_comp_ty_decl(ty: &ComponentTypeDeclaration, new_comp_ty: &mut wasm_encoder::ComponentType, component: &mut wasm_encoder::Component, reencode: &mut RoundtripReencoder) {
+fn encode_comp_ty_decl(
+    ty: &ComponentTypeDeclaration,
+    new_comp_ty: &mut wasm_encoder::ComponentType,
+    component: &mut wasm_encoder::Component,
+    reencode: &mut RoundtripReencoder,
+) {
     match ty {
-        ComponentTypeDeclaration::CoreType(core_ty) => encode_core_ty_in_comp_ty(core_ty, new_comp_ty, reencode),
-        ComponentTypeDeclaration::Type(comp_ty) => encode_comp_ty(comp_ty, new_comp_ty.ty(), component, reencode),
+        ComponentTypeDeclaration::CoreType(core_ty) => {
+            encode_core_ty_in_comp_ty(core_ty, new_comp_ty, reencode)
+        }
+        ComponentTypeDeclaration::Type(comp_ty) => {
+            encode_comp_ty(comp_ty, new_comp_ty.ty(), component, reencode)
+        }
         ComponentTypeDeclaration::Alias(a) => encode_alias_in_comp_ty(a, new_comp_ty, reencode),
         ComponentTypeDeclaration::Export { name, ty } => {
             let ty = do_reencode(
@@ -610,11 +658,19 @@ fn encode_comp_ty_decl(ty: &ComponentTypeDeclaration, new_comp_ty: &mut wasm_enc
         }
     }
 }
-fn encode_alias_in_comp_ty(alias: &ComponentAlias, comp_ty: &mut wasm_encoder::ComponentType, reencode: &mut RoundtripReencoder) {
+fn encode_alias_in_comp_ty(
+    alias: &ComponentAlias,
+    comp_ty: &mut wasm_encoder::ComponentType,
+    reencode: &mut RoundtripReencoder,
+) {
     let new_a = into_wasm_encoder_alias(alias, reencode);
     comp_ty.alias(new_a);
 }
-fn encode_rec_group_in_core_ty(group: &RecGroup, enc: &mut CoreTypeSection, reencode: &mut RoundtripReencoder) {
+fn encode_rec_group_in_core_ty(
+    group: &RecGroup,
+    enc: &mut CoreTypeSection,
+    reencode: &mut RoundtripReencoder,
+) {
     let types = into_wasm_encoder_recgroup(group, reencode);
 
     if group.is_explicit_rec_group() {
@@ -627,18 +683,31 @@ fn encode_rec_group_in_core_ty(group: &RecGroup, enc: &mut CoreTypeSection, reen
     }
 }
 
-fn encode_core_ty_in_comp_ty(core_ty: &CoreType, comp_ty: &mut wasm_encoder::ComponentType, reencode: &mut RoundtripReencoder) {
+fn encode_core_ty_in_comp_ty(
+    core_ty: &CoreType,
+    comp_ty: &mut wasm_encoder::ComponentType,
+    reencode: &mut RoundtripReencoder,
+) {
     match core_ty {
-        CoreType::Rec(recgroup) => for sub in recgroup.types() {
-            encode_subtype(sub, comp_ty.core_type().core(), reencode);
+        CoreType::Rec(recgroup) => {
+            for sub in recgroup.types() {
+                encode_subtype(sub, comp_ty.core_type().core(), reencode);
+            }
         }
-        CoreType::Module(decls) => encode_module_type_decls(decls, comp_ty.core_type(), reencode)
+        CoreType::Module(decls) => encode_module_type_decls(decls, comp_ty.core_type(), reencode),
     }
 }
 
-fn encode_inst_ty_decl(inst: &InstanceTypeDeclaration, ity: &mut InstanceType, component: &mut wasm_encoder::Component, reencode: &mut RoundtripReencoder) {
+fn encode_inst_ty_decl(
+    inst: &InstanceTypeDeclaration,
+    ity: &mut InstanceType,
+    component: &mut wasm_encoder::Component,
+    reencode: &mut RoundtripReencoder,
+) {
     match inst {
-        InstanceTypeDeclaration::CoreType(core_ty) => encode_core_ty_in_inst_ty(core_ty, ity, reencode),
+        InstanceTypeDeclaration::CoreType(core_ty) => {
+            encode_core_ty_in_inst_ty(core_ty, ity, reencode)
+        }
         InstanceTypeDeclaration::Type(ty) => {
             let enc = ity.ty();
             encode_comp_ty(ty, enc, component, reencode);
@@ -671,11 +740,7 @@ fn encode_inst_ty_decl(inst: &InstanceTypeDeclaration, ity: &mut InstanceType, c
                     name,
                 });
             }
-            ComponentAlias::Outer {
-                kind,
-                count,
-                index,
-            } => {
+            ComponentAlias::Outer { kind, count, index } => {
                 ity.alias(Alias::Outer {
                     kind: reencode.component_outer_alias_kind(*kind),
                     count: *count,
@@ -696,14 +761,18 @@ fn encode_inst_ty_decl(inst: &InstanceTypeDeclaration, ity: &mut InstanceType, c
         }
     }
 }
-fn encode_core_ty_in_inst_ty(core_ty: &CoreType, inst_ty: &mut InstanceType, reencode: &mut RoundtripReencoder) {
+fn encode_core_ty_in_inst_ty(
+    core_ty: &CoreType,
+    inst_ty: &mut InstanceType,
+    reencode: &mut RoundtripReencoder,
+) {
     match core_ty {
         CoreType::Rec(recgroup) => {
             for sub in recgroup.types() {
                 encode_subtype(sub, inst_ty.core_type().core(), reencode);
             }
         }
-        CoreType::Module(decls) => encode_module_type_decls(decls, inst_ty.core_type(), reencode)
+        CoreType::Module(decls) => encode_module_type_decls(decls, inst_ty.core_type(), reencode),
     }
 }
 
@@ -714,7 +783,9 @@ fn encode_comp_ty(
     reencode: &mut RoundtripReencoder,
 ) {
     match ty {
-        ComponentType::Defined(comp_ty) => encode_comp_defined_ty(comp_ty, enc.defined_type(), reencode),
+        ComponentType::Defined(comp_ty) => {
+            encode_comp_defined_ty(comp_ty, enc.defined_type(), reencode)
+        }
         ComponentType::Func(func_ty) => encode_comp_func_ty(func_ty, enc.function(), reencode),
         ComponentType::Component(comp) => {
             let mut new_comp = wasm_encoder::ComponentType::new();
@@ -736,44 +807,45 @@ fn encode_comp_ty(
     }
 }
 
-fn into_wasm_encoder_alias<'a>(alias: &ComponentAlias<'a>, reencode: &mut RoundtripReencoder) -> Alias<'a> {
+fn into_wasm_encoder_alias<'a>(
+    alias: &ComponentAlias<'a>,
+    reencode: &mut RoundtripReencoder,
+) -> Alias<'a> {
     match alias {
-        ComponentAlias::InstanceExport { kind,
+        ComponentAlias::InstanceExport {
+            kind,
             instance_index,
-            name, } => {
-            Alias::InstanceExport {
-                instance: *instance_index,
-                kind: reencode.component_export_kind(*kind),
-                name,
-            }
-        }
-        ComponentAlias::CoreInstanceExport { kind,
+            name,
+        } => Alias::InstanceExport {
+            instance: *instance_index,
+            kind: reencode.component_export_kind(*kind),
+            name,
+        },
+        ComponentAlias::CoreInstanceExport {
+            kind,
             instance_index,
-            name, } => {
-            Alias::CoreInstanceExport {
-                instance: *instance_index,
-                kind: do_reencode(
-                    *kind,
-                    RoundtripReencoder::export_kind,
-                    reencode,
-                    "export kind",
-                ),
-                name: *name,
-            }
-        }
-        ComponentAlias::Outer { kind, count, index } => {
-            Alias::Outer {
-                kind: reencode.component_outer_alias_kind(*kind),
-                count: *count,
-                index: *index,
-            }
-        }
+            name,
+        } => Alias::CoreInstanceExport {
+            instance: *instance_index,
+            kind: do_reencode(
+                *kind,
+                RoundtripReencoder::export_kind,
+                reencode,
+                "export kind",
+            ),
+            name: *name,
+        },
+        ComponentAlias::Outer { kind, count, index } => Alias::Outer {
+            kind: reencode.component_outer_alias_kind(*kind),
+            count: *count,
+            index: *index,
+        },
     }
 }
 
 pub fn into_wasm_encoder_recgroup(
     group: &RecGroup,
-    reencode: &mut RoundtripReencoder
+    reencode: &mut RoundtripReencoder,
 ) -> Vec<wasm_encoder::SubType> {
     group
         .types()
@@ -787,7 +859,6 @@ pub fn into_wasm_encoder_recgroup(
         .collect::<Vec<_>>()
 }
 
-
 // Not added to wasm-tools
 /// Convert ModuleTypeDeclaration to ModuleType
 /// NOTE: I am NOT fixing indices on this. If instrumentation is performed,
@@ -795,7 +866,8 @@ pub fn into_wasm_encoder_recgroup(
 /// ones. And it must make sure that the dependencies are added in-order.
 pub fn encode_module_type_decls(
     module: &[wasmparser::ModuleTypeDeclaration],
-    enc: ComponentCoreTypeEncoder, reencode: &mut RoundtripReencoder
+    enc: ComponentCoreTypeEncoder,
+    reencode: &mut RoundtripReencoder,
 ) {
     let mut mty = wasm_encoder::ModuleType::new();
     for m in module.iter() {

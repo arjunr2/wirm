@@ -3,7 +3,15 @@ use crate::ir::types::CustomSection;
 use crate::{Component, Module};
 use std::collections::HashMap;
 use std::fmt::Debug;
-use wasmparser::{CanonicalFunction, CanonicalOption, ComponentAlias, ComponentDefinedType, ComponentExport, ComponentExternalKind, ComponentFuncType, ComponentImport, ComponentInstance, ComponentInstantiationArg, ComponentOuterAliasKind, ComponentStartFunction, ComponentType, ComponentTypeDeclaration, ComponentTypeRef, ComponentValType, CompositeInnerType, CompositeType, ContType, CoreType, Export, ExternalKind, FieldType, Instance, InstanceTypeDeclaration, InstantiationArg, InstantiationArgKind, ModuleTypeDeclaration, RecGroup, RefType, StorageType, SubType, TagType, TypeRef, ValType, VariantCase};
+use wasmparser::{
+    CanonicalFunction, CanonicalOption, ComponentAlias, ComponentDefinedType, ComponentExport,
+    ComponentExternalKind, ComponentFuncType, ComponentImport, ComponentInstance,
+    ComponentInstantiationArg, ComponentOuterAliasKind, ComponentStartFunction, ComponentType,
+    ComponentTypeDeclaration, ComponentTypeRef, ComponentValType, CompositeInnerType,
+    CompositeType, ContType, CoreType, Export, ExternalKind, FieldType, Instance,
+    InstanceTypeDeclaration, InstantiationArg, InstantiationArgKind, ModuleTypeDeclaration,
+    RecGroup, RefType, StorageType, SubType, TagType, TypeRef, ValType, VariantCase,
+};
 
 #[derive(Clone, Debug, Default)]
 pub(crate) struct IdxSpaces {
@@ -782,11 +790,9 @@ impl ReferencedIndices for ComponentType<'_> {
                 } else {
                     None
                 },
-                func: dtor.map(|id| {
-                    IndexedRef {
-                        space: Space::CoreFunc,
-                        index: id,
-                    }
+                func: dtor.map(|id| IndexedRef {
+                    space: Space::CoreFunc,
+                    index: id,
                 }),
                 ..Default::default()
             }),
@@ -864,10 +870,8 @@ impl ReferencedIndices for ComponentDefinedType<'_> {
             | ComponentDefinedType::Enum(_)
             | ComponentDefinedType::Flags(_) => None,
             ComponentDefinedType::Result { ok, err } => {
-                let ok_r = ok
-                    .and_then(|ty| ty.referenced_indices());
-                let err_r = err
-                    .and_then(|ty| ty.referenced_indices());
+                let ok_r = ok.and_then(|ty| ty.referenced_indices());
+                let err_r = err.and_then(|ty| ty.referenced_indices());
                 Some(Refs {
                     others: vec![ok_r, err_r],
                     ..Default::default()
@@ -973,10 +977,7 @@ impl ReferencedIndices for CompositeType {
         let desc_id = if let Some(descriptor) = self.descriptor_idx {
             Some(IndexedRef {
                 space: Space::CompType,
-                index: descriptor
-                    .unpack()
-                    .as_module_index()
-                    .unwrap(),
+                index: descriptor.unpack().as_module_index().unwrap(),
             })
         } else {
             None
@@ -984,10 +985,7 @@ impl ReferencedIndices for CompositeType {
         let describes_id = if let Some(describes) = self.describes_idx {
             Some(IndexedRef {
                 space: Space::CompType,
-                index: describes
-                    .unpack()
-                    .as_module_index()
-                    .unwrap(),
+                index: describes.unpack().as_module_index().unwrap(),
             })
         } else {
             None
@@ -1034,10 +1032,7 @@ impl ReferencedIndices for CompositeInnerType {
             CompositeInnerType::Cont(ContType(ty)) => Some(Refs {
                 ty: Some(IndexedRef {
                     space: Space::CompType,
-                    index: ty
-                        .unpack()
-                        .as_module_index()
-                        .unwrap(),
+                    index: ty.unpack().as_module_index().unwrap(),
                 }),
                 ..Default::default()
             }),
@@ -1078,11 +1073,12 @@ impl ReferencedIndices for VariantCase<'_> {
             .and_then(|ty| ty.referenced_indices())
             .map(|refs| refs.ty().clone());
 
-        let misc = self.refines
-            .and_then(|index| Some(IndexedRef {
+        let misc = self.refines.and_then(|index| {
+            Some(IndexedRef {
                 space: Space::CompType,
                 index,
-            }));
+            })
+        });
 
         Some(Refs {
             ty,
@@ -1171,8 +1167,14 @@ impl ReferencedIndices for CanonicalFunction {
                 }),
                 ..Default::default()
             }),
-            CanonicalFunction::ThreadSpawnIndirect { func_ty_index, table_index, }
-            | CanonicalFunction::ThreadNewIndirect { func_ty_index, table_index } => Some(Refs {
+            CanonicalFunction::ThreadSpawnIndirect {
+                func_ty_index,
+                table_index,
+            }
+            | CanonicalFunction::ThreadNewIndirect {
+                func_ty_index,
+                table_index,
+            } => Some(Refs {
                 ty: Some(IndexedRef {
                     space: Space::CompType,
                     index: *func_ty_index,
@@ -1263,9 +1265,8 @@ impl ReferencedIndices for CanonicalFunction {
             | CanonicalFunction::ThreadSwitchTo { .. }
             | CanonicalFunction::ThreadSuspend { .. }
             | CanonicalFunction::ThreadYieldTo { .. } => None,
-            CanonicalFunction::ContextGet(i)
-            | CanonicalFunction::ContextSet(i) => None,
-            | CanonicalFunction::ThreadAvailableParallelism
+            CanonicalFunction::ContextGet(i) | CanonicalFunction::ContextSet(i) => None,
+            CanonicalFunction::ThreadAvailableParallelism
             | CanonicalFunction::BackpressureSet
             | CanonicalFunction::BackpressureInc
             | CanonicalFunction::BackpressureDec
@@ -1276,7 +1277,7 @@ impl ReferencedIndices for CanonicalFunction {
             | CanonicalFunction::WaitableSetDrop
             | CanonicalFunction::WaitableJoin
             | CanonicalFunction::ThreadIndex
-            | CanonicalFunction::ThreadResumeLater => None
+            | CanonicalFunction::ThreadResumeLater => None,
         }
     }
 }
