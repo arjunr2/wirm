@@ -1,12 +1,10 @@
 use crate::encode::component::collect::{ComponentItem, ComponentPlan};
 use crate::ir::component::idx_spaces::{IdxSpaces};
 use crate::ir::types::CustomSection;
-use crate::ir::wrappers::{convert_module_type_declaration, convert_recgroup, do_reencode};
 use crate::{Component, Module};
 use wasm_encoder::reencode::{Reencode, ReencodeComponent, RoundtripReencoder};
 use wasm_encoder::{Alias, ComponentAliasSection, ComponentCoreTypeEncoder, ComponentDefinedTypeEncoder, ComponentFuncTypeEncoder, ComponentTypeEncoder, ComponentTypeSection, CoreTypeEncoder, CoreTypeSection, InstanceType, ModuleArg, ModuleSection, NestedComponentSection};
-use wasmparser::{CanonicalFunction, ComponentAlias, ComponentDefinedType, ComponentExport, ComponentFuncType, ComponentImport, ComponentInstance, ComponentStartFunction, ComponentType, ComponentTypeDeclaration, ComponentValType, CoreType, Instance, InstanceTypeDeclaration, ModuleTypeDeclaration, RecGroup, SubType};
-use crate::encode::component::encode_bk::{convert_results, encode_core_type_subtype};
+use wasmparser::{CanonicalFunction, ComponentAlias, ComponentDefinedType, ComponentExport, ComponentFuncType, ComponentImport, ComponentInstance, ComponentStartFunction, ComponentType, ComponentTypeDeclaration, CoreType, Instance, InstanceTypeDeclaration, RecGroup, SubType};
 use crate::encode::component::fix_indices::FixIndices;
 
 /// # PHASE 3 #
@@ -578,7 +576,6 @@ fn encode_alias_in_comp_ty(alias: &ComponentAlias, comp_ty: &mut wasm_encoder::C
     let new_a = into_wasm_encoder_alias(alias, reencode);
     comp_ty.alias(new_a);
 }
-
 fn encode_rec_group_in_core_ty(group: &RecGroup, enc: &mut CoreTypeSection, reencode: &mut RoundtripReencoder) {
     let types = into_wasm_encoder_recgroup(group, reencode);
 
@@ -594,15 +591,10 @@ fn encode_rec_group_in_core_ty(group: &RecGroup, enc: &mut CoreTypeSection, reen
 
 fn encode_core_ty_in_comp_ty(core_ty: &CoreType, comp_ty: &mut wasm_encoder::ComponentType, reencode: &mut RoundtripReencoder) {
     match core_ty {
-        CoreType::Rec(recgroup) => {
-            for sub in recgroup.types() {
-                encode_subtype(sub, comp_ty.core_type().core(), reencode);
-            }
+        CoreType::Rec(recgroup) => for sub in recgroup.types() {
+            encode_subtype(sub, comp_ty.core_type().core(), reencode);
         }
-        CoreType::Module(module) => {
-            let enc = comp_ty.core_type();
-            convert_module_type_declaration(module, enc, reencode);
-        }
+        CoreType::Module(decls) => encode_module_type_decls(decls, comp_ty.core_type(), reencode)
     }
 }
 
@@ -673,13 +665,9 @@ fn encode_core_ty_in_inst_ty(core_ty: &CoreType, inst_ty: &mut InstanceType, ree
                 encode_subtype(sub, inst_ty.core_type().core(), reencode);
             }
         }
-        CoreType::Module(module) => {
-            let enc = inst_ty.core_type();
-            convert_module_type_declaration(module, enc, reencode);
-        }
+        CoreType::Module(decls) => encode_module_type_decls(decls, inst_ty.core_type(), reencode)
     }
 }
-
 
 fn encode_comp_ty(
     ty: &ComponentType,
@@ -761,13 +749,6 @@ pub fn into_wasm_encoder_recgroup(
         .collect::<Vec<_>>()
 }
 
-fn encode_subtype(subtype: &SubType, enc: CoreTypeEncoder, reencode: &mut RoundtripReencoder) {
-    let subty = reencode
-        .sub_type(subtype.to_owned())
-        .unwrap_or_else(|_| panic!("Could not encode type as subtype: {:?}", subtype));
-
-    enc.subtype(&subty);
-}
 
 // Not added to wasm-tools
 /// Convert ModuleTypeDeclaration to ModuleType
@@ -782,7 +763,7 @@ pub fn encode_module_type_decls(
     for m in module.iter() {
         match m {
             wasmparser::ModuleTypeDeclaration::Type(recgroup) => {
-                let types = convert_recgroup(recgroup, reencode);
+                let types = into_wasm_encoder_recgroup(recgroup, reencode);
 
                 if recgroup.is_explicit_rec_group() {
                     mty.ty().rec(types);
@@ -794,7 +775,6 @@ pub fn encode_module_type_decls(
                 }
             }
             wasmparser::ModuleTypeDeclaration::Export { name, ty } => {
-                // indicies would need to be fixed here if we support that in the future.
                 mty.export(name, reencode.entity_type(*ty).unwrap());
             }
             wasmparser::ModuleTypeDeclaration::OuterAlias {
@@ -814,4 +794,25 @@ pub fn encode_module_type_decls(
         }
     }
     enc.module(&mty);
+}
+
+fn encode_subtype(subtype: &SubType, enc: CoreTypeEncoder, reencode: &mut RoundtripReencoder) {
+    let subty = reencode
+        .sub_type(subtype.to_owned())
+        .unwrap_or_else(|_| panic!("Could not encode type as subtype: {:?}", subtype));
+
+    enc.subtype(&subty);
+}
+
+pub(crate) fn do_reencode<I, O>(
+    i: I,
+    reencode: fn(&mut RoundtripReencoder, I) -> Result<O, wasm_encoder::reencode::Error>,
+    inst: &mut RoundtripReencoder,
+    msg: &str,
+) -> O {
+    // TODO: check if I need this?
+    match reencode(inst, i) {
+        Ok(o) => o,
+        Err(e) => panic!("Couldn't encode {} due to error: {}", msg, e),
+    }
 }
