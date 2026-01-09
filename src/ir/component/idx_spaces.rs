@@ -3,15 +3,7 @@ use crate::ir::types::CustomSection;
 use crate::{Component, Module};
 use std::collections::HashMap;
 use std::fmt::Debug;
-use wasmparser::{
-    CanonicalFunction, CanonicalOption, ComponentAlias, ComponentDefinedType, ComponentExport,
-    ComponentExternalKind, ComponentFuncType, ComponentImport, ComponentInstance,
-    ComponentInstantiationArg, ComponentOuterAliasKind, ComponentStartFunction, ComponentType,
-    ComponentTypeDeclaration, ComponentTypeRef, ComponentValType, CompositeInnerType,
-    CompositeType, CoreType, Export, ExternalKind, FieldType, Instance, InstanceTypeDeclaration,
-    InstantiationArg, InstantiationArgKind, ModuleTypeDeclaration, RecGroup, RefType, StorageType,
-    SubType, TagType, TypeRef, ValType, VariantCase,
-};
+use wasmparser::{CanonicalFunction, CanonicalOption, ComponentAlias, ComponentDefinedType, ComponentExport, ComponentExternalKind, ComponentFuncType, ComponentImport, ComponentInstance, ComponentInstantiationArg, ComponentOuterAliasKind, ComponentStartFunction, ComponentType, ComponentTypeDeclaration, ComponentTypeRef, ComponentValType, CompositeInnerType, CompositeType, ContType, CoreType, Export, ExternalKind, FieldType, Instance, InstanceTypeDeclaration, InstantiationArg, InstantiationArgKind, ModuleTypeDeclaration, RecGroup, RefType, StorageType, SubType, TagType, TypeRef, ValType, VariantCase};
 
 #[derive(Clone, Debug, Default)]
 pub(crate) struct IdxSpaces {
@@ -54,7 +46,6 @@ impl IdxSpaces {
             comp_val: IdxSpace::new("component_values".to_string()),
             comp_type: IdxSpace::new("component_types".to_string()),
             comp_inst: IdxSpace::new("component_instances".to_string()),
-            // comp: IdxSpace::new("components".to_string()),
             core_inst: IdxSpace::new("core_instances".to_string()),
             module: IdxSpace::new("core_modules".to_string()),
 
@@ -979,14 +970,32 @@ impl ReferencedIndices for CompositeType {
         let mut others = vec![];
 
         others.push(self.inner.referenced_indices());
-        if let Some(_descriptor) = self.descriptor_idx {
-            todo!()
-        }
-        if let Some(_describes) = self.describes_idx {
-            todo!()
-        }
+        let desc_id = if let Some(descriptor) = self.descriptor_idx {
+            Some(IndexedRef {
+                space: Space::CompType,
+                index: descriptor
+                    .unpack()
+                    .as_module_index()
+                    .unwrap(),
+            })
+        } else {
+            None
+        };
+        let describes_id = if let Some(describes) = self.describes_idx {
+            Some(IndexedRef {
+                space: Space::CompType,
+                index: describes
+                    .unpack()
+                    .as_module_index()
+                    .unwrap(),
+            })
+        } else {
+            None
+        };
 
         Some(Refs {
+            ty: desc_id,
+            misc: describes_id,
             others,
             ..Default::default()
         })
@@ -1022,10 +1031,13 @@ impl ReferencedIndices for CompositeInnerType {
                     ..Default::default()
                 })
             }
-            CompositeInnerType::Cont(ty) => Some(Refs {
+            CompositeInnerType::Cont(ContType(ty)) => Some(Refs {
                 ty: Some(IndexedRef {
                     space: Space::CompType,
-                    index: todo!(),
+                    index: ty
+                        .unpack()
+                        .as_module_index()
+                        .unwrap(),
                 }),
                 ..Default::default()
             }),
@@ -1115,7 +1127,6 @@ impl ReferencedIndices for CanonicalFunction {
                 options,
             } => {
                 let mut others = vec![];
-                // Recursively include indices from options
                 for opt in options.iter() {
                     others.push(opt.referenced_indices());
                 }
@@ -1138,7 +1149,6 @@ impl ReferencedIndices for CanonicalFunction {
                 options,
             } => {
                 let mut others = vec![];
-                // Recursively include indices from options
                 for opt in options.iter() {
                     others.push(opt.referenced_indices());
                 }
@@ -1151,7 +1161,6 @@ impl ReferencedIndices for CanonicalFunction {
                     ..Default::default()
                 })
             }
-
             CanonicalFunction::ResourceNew { resource }
             | CanonicalFunction::ResourceDrop { resource }
             | CanonicalFunction::ResourceDropAsync { resource }
@@ -1162,11 +1171,8 @@ impl ReferencedIndices for CanonicalFunction {
                 }),
                 ..Default::default()
             }),
-
-            CanonicalFunction::ThreadSpawnIndirect {
-                func_ty_index,
-                table_index,
-            } => Some(Refs {
+            CanonicalFunction::ThreadSpawnIndirect { func_ty_index, table_index, }
+            | CanonicalFunction::ThreadNewIndirect { func_ty_index, table_index } => Some(Refs {
                 ty: Some(IndexedRef {
                     space: Space::CompType,
                     index: *func_ty_index,
@@ -1178,8 +1184,99 @@ impl ReferencedIndices for CanonicalFunction {
                 ..Default::default()
             }),
 
-            // other variants...
-            _ => todo!(),
+            CanonicalFunction::ThreadSpawnRef { func_ty_index } => Some(Refs {
+                func: Some(IndexedRef {
+                    space: Space::CompFunc,
+                    index: *func_ty_index,
+                }),
+                ..Default::default()
+            }),
+            CanonicalFunction::TaskReturn { result, options } => {
+                let mut others = vec![];
+                for opt in options.iter() {
+                    others.push(opt.referenced_indices());
+                }
+                Some(Refs {
+                    ty: if let Some(result) = result {
+                        result.referenced_indices().unwrap().ty
+                    } else {
+                        None
+                    },
+                    others,
+                    ..Default::default()
+                })
+            }
+            CanonicalFunction::StreamNew { ty }
+            | CanonicalFunction::StreamDropReadable { ty }
+            | CanonicalFunction::StreamDropWritable { ty }
+            | CanonicalFunction::StreamCancelRead { ty, .. }
+            | CanonicalFunction::StreamCancelWrite { ty, .. }
+            | CanonicalFunction::FutureNew { ty }
+            | CanonicalFunction::FutureDropReadable { ty }
+            | CanonicalFunction::FutureDropWritable { ty }
+            | CanonicalFunction::FutureCancelRead { ty, .. }
+            | CanonicalFunction::FutureCancelWrite { ty, .. } => Some(Refs {
+                ty: Some(IndexedRef {
+                    space: Space::CompType,
+                    index: *ty,
+                }),
+                ..Default::default()
+            }),
+            CanonicalFunction::StreamRead { ty, options }
+            | CanonicalFunction::StreamWrite { ty, options }
+            | CanonicalFunction::FutureRead { ty, options }
+            | CanonicalFunction::FutureWrite { ty, options } => {
+                let mut others = vec![];
+                for opt in options.iter() {
+                    others.push(opt.referenced_indices());
+                }
+                Some(Refs {
+                    ty: Some(IndexedRef {
+                        space: Space::CompType,
+                        index: *ty,
+                    }),
+                    others,
+                    ..Default::default()
+                })
+            }
+            CanonicalFunction::ErrorContextNew { options }
+            | CanonicalFunction::ErrorContextDebugMessage { options } => {
+                let mut others = vec![];
+                for opt in options.iter() {
+                    others.push(opt.referenced_indices());
+                }
+                Some(Refs {
+                    others,
+                    ..Default::default()
+                })
+            }
+            CanonicalFunction::WaitableSetWait { memory, .. }
+            | CanonicalFunction::WaitableSetPoll { memory, .. } => Some(Refs {
+                ty: Some(IndexedRef {
+                    space: Space::CoreMemory,
+                    index: *memory,
+                }),
+                ..Default::default()
+            }),
+            CanonicalFunction::ThreadYield { .. }
+            | CanonicalFunction::SubtaskCancel { .. }
+            | CanonicalFunction::ThreadSwitchTo { .. }
+            | CanonicalFunction::ThreadSuspend { .. }
+            | CanonicalFunction::ThreadYieldTo { .. } => None,
+            CanonicalFunction::ContextGet(i)
+            | CanonicalFunction::ContextSet(i) => None,
+            | CanonicalFunction::ThreadAvailableParallelism
+            | CanonicalFunction::BackpressureSet
+            | CanonicalFunction::BackpressureInc
+            | CanonicalFunction::BackpressureDec
+            | CanonicalFunction::TaskCancel
+            | CanonicalFunction::SubtaskDrop
+            | CanonicalFunction::ErrorContextDrop
+            | CanonicalFunction::WaitableSetNew
+            | CanonicalFunction::WaitableSetDrop
+            | CanonicalFunction::WaitableJoin
+            | CanonicalFunction::ThreadIndex
+            | CanonicalFunction::ThreadResumeLater => None
         }
     }
 }

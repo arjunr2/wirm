@@ -709,7 +709,6 @@ impl FixIndices for RefType {
         let ty = refs.as_ref().unwrap().ty();
         let new_id = indices.lookup_actual_id_or_panic(&ty);
 
-        // TODO -- there's no way this is correct...
         Self::new(self.is_nullable(), HeapType::Exact(UnpackedIndex::Module(new_id as u32))).unwrap()
     }
 }
