@@ -6,8 +6,7 @@ target
 **/out.**
 output
 
-# Test wasm files
-a.wasm
-test.wasm
-
+# Tmp files
 src/**/*.bk
+test*.wat
+test*.wasm
