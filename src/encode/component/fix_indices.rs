@@ -80,13 +80,11 @@ impl FixIndices for ComponentType<'_> {
             ComponentType::Resource { rep, dtor } => {
                 ComponentType::Resource {
                     rep: rep.fix(component, indices),
-                    dtor: if dtor.is_some() {
+                    dtor: dtor.map(|_| {
                         let refs = self.referenced_indices();
                         let func = refs.as_ref().unwrap().func();
-                        Some(indices.lookup_actual_id_or_panic(&func) as u32)
-                    } else {
-                        None
-                    },
+                        indices.lookup_actual_id_or_panic(&func) as u32
+                    })
                 }
             }
         }

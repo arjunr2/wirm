@@ -786,15 +786,17 @@ impl ReferencedIndices for ComponentType<'_> {
                 })
             }
             ComponentType::Resource { rep, dtor } => Some(Refs {
-                ty: rep.referenced_indices()?.ty,
-                func: if let Some(id) = dtor {
-                    Some(IndexedRef {
-                        space: Space::CompFunc,
-                        index: *id,
-                    })
+                ty: if let Some(refs) = rep.referenced_indices() {
+                    refs.ty
                 } else {
                     None
                 },
+                func: dtor.map(|id| {
+                    IndexedRef {
+                        space: Space::CoreFunc,
+                        index: id,
+                    }
+                }),
                 ..Default::default()
             }),
         }
@@ -1063,13 +1065,13 @@ impl ReferencedIndices for VariantCase<'_> {
             .ty
             .and_then(|ty| ty.referenced_indices())
             .map(|refs| refs.ty().clone());
-        
+
         let misc = self.refines
             .and_then(|index| Some(IndexedRef {
                 space: Space::CompType,
                 index,
             }));
-        
+
         Some(Refs {
             ty,
             misc,
