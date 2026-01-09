@@ -17,10 +17,48 @@ use crate::encode::component::fix_indices::FixIndices;
 /// - Collection and index assignment phases guarantee that all references exist and are topologically ordered.
 /// - Unsafe blocks are minimal, scoped only to dereference pointers; all other logic is fully safe.
 ///
-/// Some design notes:
-/// I worked on doing this with generic traits that parameterize on the encoding, but the lifetimes and generics
-/// got out of control. It was quickly becoming difficult to extend to all the cases and would be a headache to
-/// maintain/debug. So, now I'm going to ditch the traits and instead create normal functions that perform encoding.
+/// # Design Note: Encoding Without Traits or GATs #
+/// This crate intentionally does not use a highly generic trait-based encoding abstraction
+/// (e.g. Encode + helper factories + GATs + higher-rank lifetimes) for emitting WebAssembly.
+/// Instead, encoding is implemented using concrete functions and helpers, even when that
+/// results in some duplicated call-site code.
+///
+/// ## Summary ##
+///
+/// This design prioritizes:
+/// - Readability over cleverness
+/// - Explicit control flow over generic indirection
+/// - Debuggability over abstraction density
+///
+/// ## Rationale ##
+///
+/// While a trait-based design can reduce duplication in theory, in practice it introduced:
+/// 1. Deep and fragile lifetime relationships (`'a`, `'b`, `for<'_>`, GATs)
+/// 2. Factory traits that return borrowed, single-use encoders
+/// 3. Complex error messages that are difficult to reason about or debug
+/// 4. High cognitive overhead for contributors and future maintainers
+/// 
+/// In particular, encoding WebAssembly constructs often requires consuming short-lived,
+/// section-specific encoder values (e.g. ComponentCoreTypeEncoder). Modeling this generically
+/// across multiple contexts (core type sections, component type declarations, recursive groups,
+/// etc.) led to significant lifetime and trait complexity that obscured the actual encoding logic.
+/// 
+/// ## Chosen Approach ##
+/// 
+/// This design favors:
+/// - Concrete encoding functions
+/// - Explicit helpers passed directly
+/// - Local duplication at call sites
+/// - Shared internal helper functions for reusable logic
+/// 
+/// This keeps encoding logic:
+/// - Easier to read and understand
+/// - Easier to debug
+/// - Easier to evolve as the WebAssembly component model changes
+/// _ More aligned with how wasm_encoder itself is structured
+/// 
+/// Where reuse matters, it is achieved by factoring out small, focused helper functions, not by
+/// introducing additional layers of abstraction.
 pub(crate) fn encode_internal<'a>(
     comp: &Component,
     plan: &ComponentPlan<'a>,
