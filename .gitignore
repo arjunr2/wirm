@@ -9,3 +9,5 @@ output
 # Test wasm files
 a.wasm
 test.wasm
+
+src/**/*.bk

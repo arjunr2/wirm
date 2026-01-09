@@ -464,6 +464,9 @@ impl<'a> IndexSpaceOf for ComponentAlias<'a> {
                 ExternalKind::FuncExact => Space::CoreFunc,
             },
 
+            // In the case of outer aliases, the u32 pair serves as a de Bruijn index, with first u32 being the number of enclosing components/modules to skip and the second u32 being an index into the target's sort's index space. In particular, the first u32 can be 0, in which case the outer alias refers to the current component. To maintain the acyclicity of module instantiation, outer aliases are only allowed to refer to preceding outer definitions.
+            // If <sort> refers to a <core:sort>, then the <u32> of inlinealias is a <core:instanceidx>; otherwise it's an <instanceidx>. For example, the following snippet uses two inline function aliases:
+            // https://github.com/WebAssembly/component-model/blob/main/design/mvp/Explainer.md#component-definitions
             // Aliasing an outer item
             ComponentAlias::Outer { kind, .. } => match kind {
                 ComponentOuterAliasKind::CoreModule => Space::CoreModule,
@@ -613,6 +616,9 @@ impl IndexSpaceOf for ComponentExternalKind {
     }
 }
 
+// In the case of outer aliases, the u32 pair serves as a de Bruijn index, with first u32 being the number of enclosing components/modules to skip and the second u32 being an index into the target's sort's index space. In particular, the first u32 can be 0, in which case the outer alias refers to the current component. To maintain the acyclicity of module instantiation, outer aliases are only allowed to refer to preceding outer definitions.
+// If <sort> refers to a <core:sort>, then the <u32> of inlinealias is a <core:instanceidx>; otherwise it's an <instanceidx>. For example, the following snippet uses two inline function aliases:
+// https://github.com/WebAssembly/component-model/blob/main/design/mvp/Explainer.md#component-definitions
 impl IndexSpaceOf for ComponentOuterAliasKind {
     fn index_space_of(&self) -> Space {
         match self {
@@ -1061,6 +1067,7 @@ impl ReferencedIndices for ModuleTypeDeclaration<'_> {
             ModuleTypeDeclaration::Type(group) => group.referenced_indices(),
             ModuleTypeDeclaration::Export { ty, .. } => ty.referenced_indices(),
             ModuleTypeDeclaration::Import(i) => i.ty.referenced_indices(),
+            // In the case of outer aliases, the u32 pair serves as a de Bruijn index, with first u32 being the number of enclosing components/modules to skip and the second u32 being an index into the target's sort's index space. In particular, the first u32 can be 0, in which case the outer alias refers to the current component. To maintain the acyclicity of module instantiation, outer aliases are only allowed to refer to preceding outer definitions.
             ModuleTypeDeclaration::OuterAlias { .. } => todo!(),
         }
     }

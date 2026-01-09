@@ -94,6 +94,7 @@ pub(crate) fn assign_indices<'a>(plan: &mut ComponentPlan<'a>, indices: &mut Idx
                 indices: subindices,
                 idx,
             } => unsafe {
+                // CREATES A NEW IDX SPACE SCOPE
                 // Visit this component's internals
                 subindices.reset_ids();
                 assign_indices(subplan, subindices);
@@ -106,6 +107,7 @@ pub(crate) fn assign_indices<'a>(plan: &mut ComponentPlan<'a>, indices: &mut Idx
                 indices.assign_actual_id(&ptr.index_space_of(), &ComponentSection::Module, *idx);
             },
             ComponentItem::CompType { node, idx } => unsafe {
+                // CREATES A NEW IDX SPACE SCOPE (if Type::Component or Type::Instance)
                 let ptr: &ComponentType = &**node;
                 indices.assign_actual_id(
                     &ptr.index_space_of(),
@@ -143,6 +145,7 @@ pub(crate) fn assign_indices<'a>(plan: &mut ComponentPlan<'a>, indices: &mut Idx
                 // if is_module {
                 //     indices.enter_scope();
                 // }
+                // If this is a CoreType::Module, CREATES A NEW IDX SPACE SCOPE
                 indices.assign_actual_id(&ptr.index_space_of(), &ComponentSection::CoreType, *idx);
 
                 // if is_module {

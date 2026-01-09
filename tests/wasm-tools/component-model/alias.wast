@@ -1,12 +1,21 @@
 ;; RUN: wast --assert default --snapshot tests/snapshots % -f cm-values
 
-;;(component
-;;  (import "i" (instance $i
-;;    (export "f1" (func))
-;;    (export "f2" (func (param "p1" string)))
-;;  ))
-;;  (export "run" (func $i "f1"))
-;;)
+(component
+  (core module $M1 (; empty ;))
+  (component $C    (; empty ;))
+  (core module $M2 (; empty ;))
+  (export "C" (component $C))
+  (export "M1" (core module $M1))
+  (export "M2" (core module $M2))
+)
+
+(component
+  (import "i" (instance $i
+    (export "f1" (func))
+    (export "f2" (func (param "p1" string)))
+  ))
+  (export "run" (func $i "f1"))
+)
 ;;
 ;;(component
 ;;  (import "i" (component $c

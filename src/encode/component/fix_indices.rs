@@ -725,6 +725,7 @@ impl FixIndices for ModuleTypeDeclaration<'_> {
                 ty: ty.fix(indices)
             },
             ModuleTypeDeclaration::Import(import) => ModuleTypeDeclaration::Import(import.fix(indices)),
+            // In the case of outer aliases, the u32 pair serves as a de Bruijn index, with first u32 being the number of enclosing components/modules to skip and the second u32 being an index into the target's sort's index space. In particular, the first u32 can be 0, in which case the outer alias refers to the current component. To maintain the acyclicity of module instantiation, outer aliases are only allowed to refer to preceding outer definitions.
             ModuleTypeDeclaration::OuterAlias { .. } => self.clone(), // TODO: Fix this after scoped index spaces!
         }
     }
@@ -800,6 +801,7 @@ impl FixIndices for ComponentAlias<'_> {
                     instance_index: new_id as u32,
                 }
             }
+            // In the case of outer aliases, the u32 pair serves as a de Bruijn index, with first u32 being the number of enclosing components/modules to skip and the second u32 being an index into the target's sort's index space. In particular, the first u32 can be 0, in which case the outer alias refers to the current component. To maintain the acyclicity of module instantiation, outer aliases are only allowed to refer to preceding outer definitions.
             ComponentAlias::Outer { .. } => self.clone(), // TODO: Fix this after scoped index spaces!
         }
     }

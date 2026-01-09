@@ -89,6 +89,7 @@ impl<'a> Collect<'a> for Component<'a> {
                     );
                 }
                 ComponentSection::Component => {
+                    // CREATES A NEW IDX SPACE SCOPE
                     assert!(start_idx + *num as usize <= self.components.len());
 
                     for i in 0..*num {
