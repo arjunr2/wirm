@@ -413,7 +413,7 @@ impl<'a> Component<'a> {
                         .into_iter()
                         .collect::<Result<_, _>>()?;
                     let l = temp.len();
-                    let new_sections = vec![ComponentSection::ComponentExport; l];
+                    let new_sections = vec![ComponentSection::CoreInstance; l];
                     store_handle.borrow_mut().assign_assumed_id_for(
                         &space_id,
                         &temp,
