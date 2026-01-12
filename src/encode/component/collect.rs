@@ -2,6 +2,9 @@
 #[rustfmt::skip]
 
 use crate::ir::component::idx_spaces::{ReferencedIndices, Space, SpaceSubtype};
+use crate::encode::component::SpaceStack;
+use crate::ir::component::idx_spaces::{SpaceId, StoreHandle};
+use crate::ir::component::section::ComponentSection;
 use crate::ir::types::CustomSection;
 use crate::{Component, Module};
 use std::collections::HashMap;
@@ -9,14 +12,17 @@ use wasmparser::{
     CanonicalFunction, ComponentAlias, ComponentExport, ComponentImport, ComponentInstance,
     ComponentStartFunction, ComponentType, CoreType, Instance,
 };
-use crate::encode::component::SpaceStack;
-use crate::ir::component::idx_spaces::{SpaceId, StoreHandle};
-use crate::ir::component::section::ComponentSection;
 
 /// A trait for each IR node to implement --> The node knows how to `collect` itself.
 /// Passes the collection context AND a pointer to the containing Component
 trait Collect<'a> {
-    fn collect(&'a self, idx: usize, space_id: Option<SpaceId>, ctx: &mut CollectCtx<'a>, comp: &'a Component<'a>);
+    fn collect(
+        &'a self,
+        idx: usize,
+        space_id: Option<SpaceId>,
+        ctx: &mut CollectCtx<'a>,
+        comp: &'a Component<'a>,
+    );
 }
 
 impl Component<'_> {
@@ -27,7 +33,13 @@ impl Component<'_> {
 }
 
 impl<'a> Collect<'a> for Component<'a> {
-    fn collect(&'a self, _idx: usize, _: Option<SpaceId>, ctx: &mut CollectCtx<'a>, _comp: &'a Component<'a>) {
+    fn collect(
+        &'a self,
+        _idx: usize,
+        _: Option<SpaceId>,
+        ctx: &mut CollectCtx<'a>,
+        _comp: &'a Component<'a>,
+    ) {
         let ptr = self as *const _;
         if ctx.seen.components.contains_key(&ptr) {
             return;
@@ -37,7 +49,12 @@ impl<'a> Collect<'a> for Component<'a> {
         for (num, section) in self.sections.iter() {
             let (start_idx, space) = {
                 let mut store = ctx.store.borrow_mut();
-                let indices = { store.scopes.get_mut(&ctx.space_stack.curr_space_id()).unwrap() };
+                let indices = {
+                    store
+                        .scopes
+                        .get_mut(&ctx.space_stack.curr_space_id())
+                        .unwrap()
+                };
                 indices.visit_section(section, *num as usize)
             };
 
@@ -51,7 +68,14 @@ impl<'a> Collect<'a> for Component<'a> {
                     collect_vec(start_idx, *num as usize, &self.modules, ctx, None, &self);
                 }
                 ComponentSection::CoreType(_) => {
-                    collect_vec(start_idx, *num as usize, &self.core_types, ctx, space, &self);
+                    collect_vec(
+                        start_idx,
+                        *num as usize,
+                        &self.core_types,
+                        ctx,
+                        space,
+                        &self,
+                    );
                 }
                 ComponentSection::ComponentType(_) => {
                     collect_vec(
@@ -83,13 +107,34 @@ impl<'a> Collect<'a> for Component<'a> {
                     collect_vec(start_idx, *num as usize, &self.instances, ctx, None, &self);
                 }
                 ComponentSection::Alias => {
-                    collect_vec(start_idx, *num as usize, &self.alias.items, ctx, None, &self);
+                    collect_vec(
+                        start_idx,
+                        *num as usize,
+                        &self.alias.items,
+                        ctx,
+                        None,
+                        &self,
+                    );
                 }
                 ComponentSection::Canon => {
-                    collect_vec(start_idx, *num as usize, &self.canons.items, ctx, None, &self);
+                    collect_vec(
+                        start_idx,
+                        *num as usize,
+                        &self.canons.items,
+                        ctx,
+                        None,
+                        &self,
+                    );
                 }
                 ComponentSection::ComponentStartSection => {
-                    collect_vec(start_idx, *num as usize, &self.start_section, ctx, None, &self);
+                    collect_vec(
+                        start_idx,
+                        *num as usize,
+                        &self.start_section,
+                        ctx,
+                        None,
+                        &self,
+                    );
                 }
                 ComponentSection::CustomSection => {
                     collect_vec(
@@ -123,7 +168,7 @@ impl<'a> Collect<'a> for Component<'a> {
                             node: c as *const _,
                             plan: subctx.plan,
                             idx,
-                            space_id: space.unwrap()
+                            space_id: space.unwrap(),
                         });
 
                         // Remember that I've seen this component before in MY plan
@@ -267,7 +312,9 @@ fn collect_deps<'a, T: ReferencedIndices + 'a>(
             let space = r.space;
             match vec {
                 SpaceSubtype::Main => match space {
-                    Space::CompType => comp.component_types.items[idx].collect(idx, None, ctx, comp),
+                    Space::CompType => {
+                        comp.component_types.items[idx].collect(idx, None, ctx, comp)
+                    }
                     Space::CompInst => comp.component_instance[idx].collect(idx, None, ctx, comp),
                     Space::CoreInst => comp.instances[idx].collect(idx, None, ctx, comp),
                     Space::CoreModule => comp.modules[idx].collect(idx, None, ctx, comp),
@@ -329,7 +376,7 @@ pub(crate) enum ComponentItem<'a> {
         node: *const Component<'a>,
         plan: ComponentPlan<'a>,
         idx: usize,
-        space_id: SpaceId
+        space_id: SpaceId,
     },
     Module {
         node: *const Module<'a>,
@@ -384,45 +431,79 @@ pub(crate) enum ComponentItem<'a> {
 }
 impl<'a> ComponentItem<'a> {
     fn new_module(node: *const Module<'a>, idx: usize, space_id: Option<SpaceId>) -> Self {
-        if space_id.is_some() { unreachable!("modules don't have space IDs!") }
+        if space_id.is_some() {
+            unreachable!("modules don't have space IDs!")
+        }
         Self::Module { node, idx }
     }
-    fn new_comp_type(node: *const ComponentType<'a>, idx: usize, space_id: Option<SpaceId>) -> Self {
-        Self::CompType { node, idx, space_id }
+    fn new_comp_type(
+        node: *const ComponentType<'a>,
+        idx: usize,
+        space_id: Option<SpaceId>,
+    ) -> Self {
+        Self::CompType {
+            node,
+            idx,
+            space_id,
+        }
     }
-    fn new_comp_inst(node: *const ComponentInstance<'a>, idx: usize, space_id: Option<SpaceId>) -> Self {
-        if space_id.is_some() { unreachable!("modules don't have space IDs!") }
+    fn new_comp_inst(
+        node: *const ComponentInstance<'a>,
+        idx: usize,
+        space_id: Option<SpaceId>,
+    ) -> Self {
+        if space_id.is_some() {
+            unreachable!("modules don't have space IDs!")
+        }
         Self::CompInst { node, idx }
     }
     fn new_canon(node: *const CanonicalFunction, idx: usize, space_id: Option<SpaceId>) -> Self {
-        if space_id.is_some() { unreachable!("modules don't have space IDs!") }
+        if space_id.is_some() {
+            unreachable!("modules don't have space IDs!")
+        }
         Self::CanonicalFunc { node, idx }
     }
     fn new_alias(node: *const ComponentAlias<'a>, idx: usize, space_id: Option<SpaceId>) -> Self {
-        if space_id.is_some() { unreachable!("modules don't have space IDs!") }
+        if space_id.is_some() {
+            unreachable!("modules don't have space IDs!")
+        }
         Self::Alias { node, idx }
     }
     fn new_import(node: *const ComponentImport<'a>, idx: usize, space_id: Option<SpaceId>) -> Self {
-        if space_id.is_some() { unreachable!("modules don't have space IDs!") }
+        if space_id.is_some() {
+            unreachable!("modules don't have space IDs!")
+        }
         Self::Import { node, idx }
     }
     fn new_export(node: *const ComponentExport<'a>, idx: usize, space_id: Option<SpaceId>) -> Self {
-        if space_id.is_some() { unreachable!("modules don't have space IDs!") }
+        if space_id.is_some() {
+            unreachable!("modules don't have space IDs!")
+        }
         Self::Export { node, idx }
     }
     fn new_core_type(node: *const CoreType<'a>, idx: usize, space_id: Option<SpaceId>) -> Self {
-        Self::CoreType { node, idx, space_id }
+        Self::CoreType {
+            node,
+            idx,
+            space_id,
+        }
     }
     fn new_inst(node: *const Instance<'a>, idx: usize, space_id: Option<SpaceId>) -> Self {
-        if space_id.is_some() { unreachable!("modules don't have space IDs!") }
+        if space_id.is_some() {
+            unreachable!("modules don't have space IDs!")
+        }
         Self::Inst { node, idx }
     }
     fn new_custom(node: *const CustomSection<'a>, _: usize, space_id: Option<SpaceId>) -> Self {
-        if space_id.is_some() { unreachable!("modules don't have space IDs!") }
+        if space_id.is_some() {
+            unreachable!("modules don't have space IDs!")
+        }
         Self::CustomSection { node }
     }
     fn new_start(node: *const ComponentStartFunction, _: usize, space_id: Option<SpaceId>) -> Self {
-        if space_id.is_some() { unreachable!("modules don't have space IDs!") }
+        if space_id.is_some() {
+            unreachable!("modules don't have space IDs!")
+        }
         Self::Start { node }
     }
 }
@@ -553,7 +634,7 @@ impl CollectCtx<'_> {
             seen: Seen::default(),
 
             space_stack: SpaceStack::new(comp.space_id),
-            store: comp.index_store.clone()
+            store: comp.index_store.clone(),
         }
     }
 

@@ -1,13 +1,16 @@
 #![allow(clippy::mut_range_bound)] // see https://github.com/rust-lang/rust-clippy/issues/6072
 //! Intermediate Representation of a wasm component.
 
-use std::cell::RefCell;
-use std::rc::Rc;
 use crate::encode::component::encode;
 use crate::error::Error;
 use crate::ir::component::alias::Aliases;
 use crate::ir::component::canons::Canons;
-use crate::ir::component::idx_spaces::{IndexStore, IndexSpaceOf, ReferencedIndices, Space, SpaceId, SpaceSubtype, StoreHandle};
+use crate::ir::component::idx_spaces::{
+    IndexSpaceOf, IndexStore, ReferencedIndices, Space, SpaceId, SpaceSubtype, StoreHandle,
+};
+use crate::ir::component::section::{
+    populate_space_for_comp_ty, populate_space_for_core_ty, ComponentSection,
+};
 use crate::ir::component::types::ComponentTypes;
 use crate::ir::helpers::{
     print_alias, print_component_export, print_component_import, print_component_type,
@@ -22,18 +25,19 @@ use crate::ir::module::module_globals::Global;
 use crate::ir::module::Module;
 use crate::ir::types::CustomSections;
 use crate::ir::wrappers::add_to_namemap;
+use std::cell::RefCell;
+use std::rc::Rc;
 use wasmparser::{
     CanonicalFunction, ComponentAlias, ComponentExport, ComponentFuncType, ComponentImport,
     ComponentInstance, ComponentStartFunction, ComponentType, CoreType, Encoding, Instance,
     InstanceTypeDeclaration, Parser, Payload,
 };
-use crate::ir::component::section::{populate_space_for_comp_ty, populate_space_for_core_ty, ComponentSection};
 
 mod alias;
 mod canons;
 pub mod idx_spaces;
-mod types;
 pub(crate) mod section;
+mod types;
 
 #[derive(Debug)]
 /// Intermediate Representation of a wasm component.
@@ -104,8 +108,10 @@ impl<'a> Component<'a> {
 
     fn add_section(&mut self, space: Space, sect: ComponentSection, idx: usize) -> usize {
         // get and save off the assumed id
-        let assumed_id = self.index_store.borrow_mut()
-            .assign_assumed_id(&self.space_id, &space, &sect, idx);
+        let assumed_id =
+            self.index_store
+                .borrow_mut()
+                .assign_assumed_id(&self.space_id, &space, &sect, idx);
 
         // add to section order list
         if self.sections[self.num_sections - 1].1 == sect {
@@ -186,7 +192,10 @@ impl<'a> Component<'a> {
         component_ty: ComponentType<'a>,
     ) -> (u32, ComponentTypeId) {
         // Handle the index space of this node
-        let id = if matches!(component_ty, ComponentType::Component(_) | ComponentType::Instance(_)) {
+        let id = if matches!(
+            component_ty,
+            ComponentType::Component(_) | ComponentType::Instance(_)
+        ) {
             // TODO: If this is injected, I need to populate its index space by processing its contents!
             //       will look similar to what I did in the original parsing logic of the bytes :)
             Some(self.index_store.borrow_mut().new_scope());
@@ -253,11 +262,9 @@ impl<'a> Component<'a> {
         }
 
         if can_collapse {
-            if *num_sections > 0 &&
-                sections[*num_sections - 1].1
-                    == *new_sections.last().unwrap() {
+            if *num_sections > 0 && sections[*num_sections - 1].1 == *new_sections.last().unwrap() {
                 sections[*num_sections - 1].0 += sections_added;
-                return
+                return;
             }
         }
         // Cannot collapse these, add one at a time!
@@ -289,6 +296,8 @@ impl<'a> Component<'a> {
     ) -> Result<Self, Error> {
         let parser = Parser::new(0);
 
+        let mut store = IndexStore::default();
+        let space_id = store.new_scope();
         Component::parse_comp(
             wasm,
             enable_multi_memory,
@@ -296,7 +305,8 @@ impl<'a> Component<'a> {
             parser,
             0,
             &mut vec![],
-            Rc::new(RefCell::new(IndexStore::default()))
+            space_id,
+            Rc::new(RefCell::new(store)),
         )
     }
 
@@ -307,7 +317,8 @@ impl<'a> Component<'a> {
         parser: Parser,
         start: usize,
         parent_stack: &mut Vec<Encoding>,
-        store_handle: StoreHandle
+        space_id: SpaceId,
+        store_handle: StoreHandle,
     ) -> Result<Self, Error> {
         let mut modules = vec![];
         let mut core_types = vec![];
@@ -340,11 +351,11 @@ impl<'a> Component<'a> {
         let mut value_names = wasm_encoder::NameMap::new();
         let mut core_type_names = wasm_encoder::NameMap::new();
         let mut type_names = wasm_encoder::NameMap::new();
-
-        let space_id = {
-            let mut store = store_handle.borrow_mut();
-            store.new_scope()
-        };
+        //
+        // let space_id = {
+        //     let mut store = store_handle.borrow_mut();
+        //     store.new_scope()
+        // };
 
         for payload in parser.parse_all(wasm) {
             let payload = payload?;
@@ -435,12 +446,7 @@ impl<'a> Component<'a> {
                         &new_sects,
                     );
                     core_types.append(temp);
-                    Self::add_to_sections(
-                        &mut sections,
-                        &new_sects,
-                        &mut num_sections,
-                        l as u32,
-                    );
+                    Self::add_to_sections(&mut sections, &new_sects, &mut num_sections, l as u32);
                 }
                 Payload::ComponentTypeSection(component_type_reader) => {
                     let temp: &mut Vec<ComponentType> = &mut component_type_reader
@@ -462,12 +468,7 @@ impl<'a> Component<'a> {
                         &new_sects,
                     );
                     component_types.append(temp);
-                    Self::add_to_sections(
-                        &mut sections,
-                        &new_sects,
-                        &mut num_sections,
-                        l as u32,
-                    );
+                    Self::add_to_sections(&mut sections, &new_sects, &mut num_sections, l as u32);
                 }
                 Payload::ComponentInstanceSection(component_instances) => {
                     let temp: &mut Vec<ComponentInstance> =
@@ -493,7 +494,12 @@ impl<'a> Component<'a> {
                         &mut alias_reader.into_iter().collect::<Result<_, _>>()?;
                     let l = temp.len();
                     let new_sections = vec![ComponentSection::Alias; l];
-                    store_handle.borrow_mut().assign_assumed_id_for(&space_id, &temp, alias.len(), &new_sections);
+                    store_handle.borrow_mut().assign_assumed_id_for(
+                        &space_id,
+                        &temp,
+                        alias.len(),
+                        &new_sections,
+                    );
                     alias.append(temp);
                     Self::add_to_sections(
                         &mut sections,
@@ -507,7 +513,12 @@ impl<'a> Component<'a> {
                         &mut canon_reader.into_iter().collect::<Result<_, _>>()?;
                     let l = temp.len();
                     let new_sections = vec![ComponentSection::Canon; l];
-                    store_handle.borrow_mut().assign_assumed_id_for(&space_id,&temp, canons.len(), &new_sections);
+                    store_handle.borrow_mut().assign_assumed_id_for(
+                        &space_id,
+                        &temp,
+                        canons.len(),
+                        &new_sections,
+                    );
                     canons.append(temp);
                     Self::add_to_sections(
                         &mut sections,
@@ -553,8 +564,8 @@ impl<'a> Component<'a> {
                     // TODO: This guy's index space is actually populated implicitly by the parse.
                     //       I just need to make sure that the way this works is compatible with the
                     //       new architecture.
-                    let space_id = store_handle.borrow_mut().new_scope();
-                    let sect = ComponentSection::Component(space_id);
+                    let sub_space_id = store_handle.borrow_mut().new_scope();
+                    let sect = ComponentSection::Component(sub_space_id);
 
                     parent_stack.push(Encoding::Component);
                     stack.push(Encoding::Component);
@@ -565,7 +576,8 @@ impl<'a> Component<'a> {
                         parser,
                         unchecked_range.start,
                         &mut stack,
-                        Rc::clone(&store_handle)
+                        sub_space_id,
+                        Rc::clone(&store_handle),
                     )?;
                     store_handle.borrow_mut().assign_assumed_id(
                         &space_id,
@@ -574,12 +586,7 @@ impl<'a> Component<'a> {
                         components.len(),
                     );
                     components.push(cmp);
-                    Self::add_to_sections(
-                        &mut sections,
-                        &vec![sect],
-                        &mut num_sections,
-                        1,
-                    );
+                    Self::add_to_sections(&mut sections, &vec![sect], &mut num_sections, 1);
                 }
                 Payload::ComponentStartSection { start, range: _ } => {
                     start_section.push(start);

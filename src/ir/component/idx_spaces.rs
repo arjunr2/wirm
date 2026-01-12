@@ -1,11 +1,20 @@
-use std::cell::RefCell;
+use crate::ir::component::section::ComponentSection;
 use crate::ir::types::CustomSection;
 use crate::{Component, Module};
+use std::cell::RefCell;
 use std::collections::HashMap;
 use std::fmt::Debug;
 use std::rc::Rc;
-use wasmparser::{CanonicalFunction, CanonicalOption, ComponentAlias, ComponentDefinedType, ComponentExport, ComponentExternalKind, ComponentFuncType, ComponentImport, ComponentInstance, ComponentInstantiationArg, ComponentOuterAliasKind, ComponentStartFunction, ComponentType, ComponentTypeDeclaration, ComponentTypeRef, ComponentValType, CompositeInnerType, CompositeType, ContType, CoreType, Export, ExternalKind, FieldType, Import, Instance, InstanceTypeDeclaration, InstantiationArg, InstantiationArgKind, ModuleTypeDeclaration, OuterAliasKind, RecGroup, RefType, StorageType, SubType, TagType, TypeRef, ValType, VariantCase};
-use crate::ir::component::section::ComponentSection;
+use wasmparser::{
+    CanonicalFunction, CanonicalOption, ComponentAlias, ComponentDefinedType, ComponentExport,
+    ComponentExternalKind, ComponentFuncType, ComponentImport, ComponentInstance,
+    ComponentInstantiationArg, ComponentOuterAliasKind, ComponentStartFunction, ComponentType,
+    ComponentTypeDeclaration, ComponentTypeRef, ComponentValType, CompositeInnerType,
+    CompositeType, ContType, CoreType, Export, ExternalKind, FieldType, Import, Instance,
+    InstanceTypeDeclaration, InstantiationArg, InstantiationArgKind, ModuleTypeDeclaration,
+    OuterAliasKind, RecGroup, RefType, StorageType, SubType, TagType, TypeRef, ValType,
+    VariantCase,
+};
 
 pub(crate) type SpaceId = usize;
 
@@ -16,7 +25,7 @@ pub(crate) type StoreHandle = Rc<RefCell<IndexStore>>;
 #[derive(Default, Debug)]
 pub(crate) struct IndexStore {
     pub scopes: HashMap<SpaceId, IndexScope>,
-    next_id: usize
+    next_id: usize,
 }
 impl IndexStore {
     pub fn new_scope(&mut self) -> SpaceId {
@@ -36,18 +45,35 @@ impl IndexStore {
     pub fn reset_ids(&mut self, id: &SpaceId) {
         self.get_mut(id).reset_ids()
     }
-    pub fn assign_actual_id(&mut self, id: &SpaceId, space: &Space, section: &ComponentSection, vec_idx: usize) {
+    pub fn assign_actual_id(
+        &mut self,
+        id: &SpaceId,
+        space: &Space,
+        section: &ComponentSection,
+        vec_idx: usize,
+    ) {
         self.get_mut(id).assign_actual_id(space, section, vec_idx)
     }
-    pub fn assign_assumed_id(&mut self, id: &SpaceId, space: &Space, section: &ComponentSection, curr_idx: usize) -> Option<usize> {
+    pub fn assign_assumed_id(
+        &mut self,
+        id: &SpaceId,
+        space: &Space,
+        section: &ComponentSection,
+        curr_idx: usize,
+    ) -> Option<usize> {
         self.get_mut(id).assign_assumed_id(space, section, curr_idx)
     }
-    pub fn assign_assumed_id_for<I: Debug + IndexSpaceOf>(&mut self, id: &SpaceId, items: &Vec<I>,
-                                 curr_idx: usize,
-                                 sections: &Vec<ComponentSection>) {
-        self.get_mut(id).assign_assumed_id_for(items, curr_idx, sections)
+    pub fn assign_assumed_id_for<I: Debug + IndexSpaceOf>(
+        &mut self,
+        id: &SpaceId,
+        items: &Vec<I>,
+        curr_idx: usize,
+        sections: &Vec<ComponentSection>,
+    ) {
+        self.get_mut(id)
+            .assign_assumed_id_for(items, curr_idx, sections)
     }
-    
+
     pub(crate) fn get(&self, id: &SpaceId) -> &IndexScope {
         self.scopes.get(id).unwrap()
     }
@@ -61,7 +87,6 @@ impl IndexStore {
         next
     }
 }
-
 
 /// A single lexical index scope in a WebAssembly component.
 ///
@@ -277,22 +302,26 @@ impl IndexScope {
     /// calling function should use this return value to then context switch into
     /// this new index space. When we've finished visiting the section, swap back
     /// to the returned index space's `parent` (a field on the space).
-    pub fn visit_section(&mut self, section: &ComponentSection, num: usize) -> (usize, Option<SpaceId>) {
+    pub fn visit_section(
+        &mut self,
+        section: &ComponentSection,
+        num: usize,
+    ) -> (usize, Option<SpaceId>) {
         let (tracker, space) = match section {
             ComponentSection::Component(space_id) => {
                 // CREATES A NEW IDX SPACE SCOPE
                 (&mut self.last_processed_component, Some(*space_id))
-            },
+            }
             ComponentSection::Module => (&mut self.last_processed_module, None),
             ComponentSection::Alias => (&mut self.last_processed_alias, None),
             ComponentSection::CoreType(space_id) => {
                 // CREATES A NEW IDX SPACE SCOPE (if CoreType::Module)
                 (&mut self.last_processed_core_ty, *space_id)
-            },
+            }
             ComponentSection::ComponentType(space_id) => {
                 // CREATES A NEW IDX SPACE SCOPE (if Type::Component or Type::Instance)
                 (&mut self.last_processed_comp_ty, *space_id)
-            },
+            }
             ComponentSection::ComponentImport => (&mut self.last_processed_imp, None),
             ComponentSection::ComponentExport => (&mut self.last_processed_exp, None),
             ComponentSection::CoreInstance => (&mut self.last_processed_core_inst, None),
@@ -778,7 +807,7 @@ impl IndexSpaceOf for ComponentTypeDeclaration<'_> {
             ComponentTypeDeclaration::Type(ty) => ty.index_space_of(),
             ComponentTypeDeclaration::Alias(alias) => alias.index_space_of(),
             ComponentTypeDeclaration::Export { ty, .. } => ty.index_space_of(),
-            ComponentTypeDeclaration::Import(import) => import.index_space_of()
+            ComponentTypeDeclaration::Import(import) => import.index_space_of(),
         }
     }
 }
@@ -789,7 +818,7 @@ impl IndexSpaceOf for InstanceTypeDeclaration<'_> {
             InstanceTypeDeclaration::CoreType(ty) => ty.index_space_of(),
             InstanceTypeDeclaration::Type(ty) => ty.index_space_of(),
             InstanceTypeDeclaration::Alias(a) => a.index_space_of(),
-            InstanceTypeDeclaration::Export { ty, .. } => ty.index_space_of()
+            InstanceTypeDeclaration::Export { ty, .. } => ty.index_space_of(),
         }
     }
 }

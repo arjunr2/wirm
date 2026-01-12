@@ -1,5 +1,6 @@
 use crate::encode::component::collect::{ComponentItem, ComponentPlan};
 use crate::encode::component::fix_indices::FixIndices;
+use crate::encode::component::SpaceStack;
 use crate::ir::component::idx_spaces::StoreHandle;
 use crate::ir::types::CustomSection;
 use crate::{Component, Module};
@@ -14,7 +15,6 @@ use wasmparser::{
     ComponentImport, ComponentInstance, ComponentStartFunction, ComponentType,
     ComponentTypeDeclaration, CoreType, Instance, InstanceTypeDeclaration, RecGroup, SubType,
 };
-use crate::encode::component::SpaceStack;
 
 /// # PHASE 3 #
 /// Encodes all items in the plan into the output buffer.
@@ -89,7 +89,10 @@ pub(crate) fn encode_internal<'a>(
                 let subcomp: &Component = &**node;
                 space_stack.enter_space(*sub_space_id);
                 component.section(&NestedComponentSection(&encode_internal(
-                    subcomp, subplan, space_stack, handle.clone()
+                    subcomp,
+                    subplan,
+                    space_stack,
+                    handle.clone(),
                 )));
                 space_stack.exit_space();
             },
@@ -99,7 +102,11 @@ pub(crate) fn encode_internal<'a>(
                 // let fixed = t.fix(&mut component, indices, &mut reencode);
                 encode_module_section(&t, &mut component);
             },
-            ComponentItem::CompType { node, space_id: sub_space_id, .. } => unsafe {
+            ComponentItem::CompType {
+                node,
+                space_id: sub_space_id,
+                ..
+            } => unsafe {
                 // CREATES A NEW IDX SPACE SCOPE (if Type::Component or Type::Instance)
                 let t: &ComponentType = &**node;
                 if let Some(sub_space_id) = sub_space_id {
@@ -136,7 +143,11 @@ pub(crate) fn encode_internal<'a>(
                 let fixed = e.fix(handle.borrow().get(&space_stack.curr_space_id()));
                 encode_comp_export_section(&fixed, &mut component, &mut reencode);
             },
-            ComponentItem::CoreType { node, space_id: sub_space_id, .. } => unsafe {
+            ComponentItem::CoreType {
+                node,
+                space_id: sub_space_id,
+                ..
+            } => unsafe {
                 // If this is a CoreType::Module, CREATES A NEW IDX SPACE SCOPE
                 let t: &CoreType = &**node;
                 if let Some(sub_space_id) = sub_space_id {
