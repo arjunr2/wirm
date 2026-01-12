@@ -197,7 +197,16 @@ fn collect_section<'a, N: ReferencedIndices + 'a>(node: &'a N, idx: usize, space
     ctx.seen.insert(r, idx);
 
     // Collect dependencies first
-    collect_deps(node, ctx, comp);
+    if space_id.is_none() {
+        collect_deps(node, ctx, comp);
+    } else {
+        // TODO: Do I need to handle this or not?
+        // If so, I'd need to rewrite quite a bit of the IR.
+        // Basically this would let me plan the order of encoding
+        // items INSIDE some nested scoped index space.
+        //
+        // ignore for now...
+    }
 
     // push to ordered plan
     ctx.plan.items.push(create_item(ptr, idx, space_id));
@@ -309,6 +318,8 @@ fn collect_deps<'a, T: ReferencedIndices + 'a>(
                 let indices = { store.scopes.get_mut(&curr_space_id).unwrap() };
                 indices.index_from_assumed_id(r)
             };
+
+            // TODO: For nested index spaces, dependencies would actually reference their own decls!
             let space = r.space;
             match vec {
                 SpaceSubtype::Main => match space {

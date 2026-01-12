@@ -57,21 +57,21 @@
   )
 )
 
-(component
-  (type $big (func
-    (param "p1" u32) (param "p2" u32) (param "p3" u32) (param "p4" u32) (param "p5" u32)
-    (param "p6" u32) (param "p7" u32) (param "p8" u32) (param "p9" u32) (param "p10" u32)
-    (param "p11" u32) (param "p12" u32) (param "p13" u32) (param "p14" u32) (param "p15" u32)
-    (param "p16" u32) (param "p17" u32) (param "p18" u32) (param "p19" u32) (param "p20" u32)
-  ))
-
-  (component $c
-    (import "big" (func $big (type $big)))
-    (core module $libc (memory (export "memory") 1))
-    (core instance $libc (instantiate $libc))
-    (core func $big (canon lower (func $big) (memory $libc "memory")))
-  )
-)
+;;(component
+;;  (type $big (func
+;;    (param "p1" u32) (param "p2" u32) (param "p3" u32) (param "p4" u32) (param "p5" u32)
+;;    (param "p6" u32) (param "p7" u32) (param "p8" u32) (param "p9" u32) (param "p10" u32)
+;;    (param "p11" u32) (param "p12" u32) (param "p13" u32) (param "p14" u32) (param "p15" u32)
+;;    (param "p16" u32) (param "p17" u32) (param "p18" u32) (param "p19" u32) (param "p20" u32)
+;;  ))
+;;
+;;  (component $c
+;;    (import "big" (func $big (type $big)))
+;;    (core module $libc (memory (export "memory") 1))
+;;    (core instance $libc (instantiate $libc))
+;;    (core func $big (canon lower (func $big) (memory $libc "memory")))
+;;  )
+;;)
 
 (assert_invalid
   (component

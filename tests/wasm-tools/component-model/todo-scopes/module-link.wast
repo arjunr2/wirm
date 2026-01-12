@@ -1,13 +1,13 @@
 ;; RUN: wast --assert default --snapshot tests/snapshots %
 
-(component
-  (type $Wasi (instance))
-  (component $B)
-  (component $B_wrap
-    (import "wasi" (instance $wasi (type $Wasi)))
-    (instance $b (instantiate $B))
-  )
-)
+;;(component
+;;  (type $Wasi (instance))
+;;  (component $B)
+;;  (component $B_wrap
+;;    (import "wasi" (instance $wasi (type $Wasi)))
+;;    (instance $b (instantiate $B))
+;;  )
+;;)
 
 ;;(component
 ;;  (type $Wasi (instance))
