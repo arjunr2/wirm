@@ -1,11 +1,11 @@
 use crate::encode::component::collect::{ComponentItem, ComponentPlan};
-use crate::ir::component::idx_spaces::{IdxSpaces, IndexSpaceOf};
-use crate::ir::section::ComponentSection;
+use crate::ir::component::idx_spaces::{IndexSpaceOf, SpaceId, StoreHandle};
 use crate::{Component, Module};
 use wasmparser::{
     CanonicalFunction, ComponentAlias, ComponentExport, ComponentImport, ComponentInstance,
     ComponentType, CoreType, Instance,
 };
+use crate::ir::component::section::ComponentSection;
 
 /// # Phase 2: ASSIGN #
 /// ## Safety of Alias Index Assignment
@@ -85,89 +85,115 @@ use wasmparser::{
 ///
 /// Therefore, dereferencing `*const ComponentAlias` during index
 /// assignment is safe.
-pub(crate) fn assign_indices<'a>(plan: &mut ComponentPlan<'a>, indices: &mut IdxSpaces) {
+pub(crate) fn assign_indices(plan: &mut ComponentPlan, curr_space: SpaceId, handle: StoreHandle) {
     for item in &mut plan.items {
         match item {
             ComponentItem::Component {
                 node,
                 plan: subplan,
-                indices: subindices,
+                space_id: sub_space_id,
                 idx,
             } => unsafe {
                 // CREATES A NEW IDX SPACE SCOPE
                 // Visit this component's internals
-                subindices.reset_ids();
-                assign_indices(subplan, subindices);
+                {
+                    let mut store = handle.borrow_mut();
+                    store.get_mut(sub_space_id).reset_ids();
+                }
+                assign_indices(subplan, *sub_space_id, handle.clone());
 
                 let ptr: &Component = &**node;
-                indices.assign_actual_id(&ptr.index_space_of(), &ComponentSection::Component, *idx);
+                handle.borrow_mut()
+                    .get_mut(&curr_space)
+                    .assign_actual_id(&ptr.index_space_of(), &ComponentSection::Component(*sub_space_id), *idx);
             },
             ComponentItem::Module { node, idx } => unsafe {
                 let ptr: &Module = &**node;
-                indices.assign_actual_id(&ptr.index_space_of(), &ComponentSection::Module, *idx);
+                handle.borrow_mut()
+                    .get_mut(&curr_space)
+                    .assign_actual_id(&ptr.index_space_of(), &ComponentSection::Module, *idx);
             },
-            ComponentItem::CompType { node, idx } => unsafe {
+            ComponentItem::CompType { node, idx, space_id: sub_space_id } => unsafe {
                 // CREATES A NEW IDX SPACE SCOPE (if Type::Component or Type::Instance)
                 let ptr: &ComponentType = &**node;
-                indices.assign_actual_id(
-                    &ptr.index_space_of(),
-                    &ComponentSection::ComponentType,
-                    *idx,
-                );
+                if let Some(sub_id) = sub_space_id {
+                    todo!("[{item:?}] Need to visit what's inside this node to do ID assignments!")
+                }
+
+                handle.borrow_mut()
+                    .get_mut(&curr_space)
+                    .assign_actual_id(
+                        &ptr.index_space_of(),
+                        &ComponentSection::ComponentType(None), // the ID doen't actually matter...
+                        *idx,
+                    );
             },
             ComponentItem::CompInst { node, idx } => unsafe {
                 let ptr: &ComponentInstance = &**node;
-                indices.assign_actual_id(
-                    &ptr.index_space_of(),
-                    &ComponentSection::ComponentInstance,
-                    *idx,
-                );
+                handle.borrow_mut()
+                    .get_mut(&curr_space)
+                    .assign_actual_id(
+                        &ptr.index_space_of(),
+                        &ComponentSection::ComponentInstance,
+                        *idx,
+                    );
             },
             ComponentItem::CanonicalFunc { node, idx } => unsafe {
                 let ptr: &CanonicalFunction = &**node;
-                indices.assign_actual_id(&ptr.index_space_of(), &ComponentSection::Canon, *idx);
+                handle.borrow_mut()
+                    .get_mut(&curr_space)
+                    .assign_actual_id(&ptr.index_space_of(), &ComponentSection::Canon, *idx);
             },
             ComponentItem::Alias { node, idx } => unsafe {
                 let ptr: &ComponentAlias = &**node;
-                indices.assign_actual_id(&ptr.index_space_of(), &ComponentSection::Alias, *idx);
+                handle.borrow_mut()
+                    .get_mut(&curr_space)
+                    .assign_actual_id(&ptr.index_space_of(), &ComponentSection::Alias, *idx);
             },
             ComponentItem::Import { node, idx } => unsafe {
                 let ptr: &ComponentImport = &**node;
-                indices.assign_actual_id(
-                    &ptr.index_space_of(),
-                    &ComponentSection::ComponentImport,
-                    *idx,
-                );
+                handle.borrow_mut()
+                    .get_mut(&curr_space)
+                    .assign_actual_id(
+                        &ptr.index_space_of(),
+                        &ComponentSection::ComponentImport,
+                        *idx,
+                    );
             },
-            ComponentItem::CoreType { node, idx } => unsafe {
+            ComponentItem::CoreType { node, idx, space_id: sub_space_id } => unsafe {
                 let ptr: &CoreType = &**node;
-                // let is_module = matches!(ptr, CoreType::Module(_));
-                // if is_module {
-                //     indices.enter_scope();
-                // }
-                // If this is a CoreType::Module, CREATES A NEW IDX SPACE SCOPE
-                indices.assign_actual_id(&ptr.index_space_of(), &ComponentSection::CoreType, *idx);
+                if let Some(sub_id) = sub_space_id {
+                    todo!("[{item:?}] Need to visit what's inside this node to do ID assignments!")
+                }
 
-                // if is_module {
-                //     indices.exit_scope();
-                // }
+                handle.borrow_mut()
+                    .get_mut(&curr_space)
+                    .assign_actual_id(
+                        &ptr.index_space_of(),
+                        &ComponentSection::CoreType(None), // the ID doesn't actually matter...
+                        *idx
+                    );
             },
             ComponentItem::Inst { node, idx } => unsafe {
                 let ptr: &Instance = &**node;
-                indices.assign_actual_id(
-                    &ptr.index_space_of(),
-                    &ComponentSection::CoreInstance,
-                    *idx,
-                );
+                handle.borrow_mut()
+                    .get_mut(&curr_space)
+                    .assign_actual_id(
+                        &ptr.index_space_of(),
+                        &ComponentSection::CoreInstance,
+                        *idx,
+                    );
             },
             ComponentItem::Export { node, idx } => unsafe {
                 let ptr: &ComponentExport = &**node;
                 // NA: exports don't get IDs
-                indices.assign_actual_id(
-                    &ptr.index_space_of(),
-                    &ComponentSection::ComponentExport,
-                    *idx,
-                );
+                handle.borrow_mut()
+                    .get_mut(&curr_space)
+                    .assign_actual_id(
+                        &ptr.index_space_of(),
+                        &ComponentSection::ComponentExport,
+                        *idx,
+                    );
             },
             ComponentItem::Start { .. } => {
                 // NA: Start sections don't get IDs

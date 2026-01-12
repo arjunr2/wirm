@@ -2,16 +2,16 @@
 #[rustfmt::skip]
 
 use wasmparser::{ArrayType, CanonicalFunction, CanonicalOption, ComponentAlias, ComponentDefinedType, ComponentExport, ComponentFuncType, ComponentImport, ComponentInstance, ComponentInstantiationArg, ComponentStartFunction, ComponentType, ComponentTypeDeclaration, ComponentTypeRef, ComponentValType, CompositeInnerType, CompositeType, ContType, CoreType, Export, FieldType, FuncType, HeapType, Import, Instance, InstanceTypeDeclaration, InstantiationArg, ModuleTypeDeclaration, PackedIndex, PrimitiveValType, RecGroup, RefType, StorageType, StructType, SubType, TagType, TypeRef, UnpackedIndex, ValType, VariantCase};
-use crate::ir::component::idx_spaces::{IdxSpaces, ReferencedIndices};
+use crate::ir::component::idx_spaces::{IndexScope, ReferencedIndices};
 use crate::ir::types::CustomSection;
 
 pub(crate) trait FixIndices {
-    fn fix<'a>(&self, indices: &IdxSpaces) -> Self;
+    fn fix<'a>(&self, indices: &IndexScope) -> Self;
 }
 
 #[rustfmt::skip]
 impl FixIndices for ComponentExport<'_> {
-    fn fix<'a>(&self, indices: &IdxSpaces) -> Self {
+    fn fix<'a>(&self, indices: &IndexScope) -> Self {
         let refs = self.referenced_indices();
         let misc = refs.as_ref().unwrap().misc();
         let new_id = indices.lookup_actual_id_or_panic(&misc);
@@ -31,7 +31,7 @@ impl FixIndices for ComponentExport<'_> {
 
 #[rustfmt::skip]
 impl FixIndices for ComponentInstantiationArg<'_> {
-    fn fix<'a>(&self, indices: &IdxSpaces) -> Self {
+    fn fix<'a>(&self, indices: &IndexScope) -> Self {
         let refs = self.referenced_indices();
         let ty = refs.as_ref().unwrap().ty();
         let new_id = indices.lookup_actual_id_or_panic(&ty);
@@ -46,7 +46,7 @@ impl FixIndices for ComponentInstantiationArg<'_> {
 
 #[rustfmt::skip]
 impl FixIndices for ComponentType<'_> {
-    fn fix<'a>(&self, indices: &IdxSpaces) -> Self {
+    fn fix<'a>(&self, indices: &IndexScope) -> Self {
         match self {
             ComponentType::Defined(ty) => ComponentType::Defined(ty.fix(indices)),
             ComponentType::Func(ty) => ComponentType::Func(ty.fix(indices)),
@@ -82,7 +82,7 @@ impl FixIndices for ComponentType<'_> {
 
 #[rustfmt::skip]
 impl FixIndices for ComponentInstance<'_> {
-    fn fix<'a>(&self, indices: &IdxSpaces) -> Self {
+    fn fix<'a>(&self, indices: &IndexScope) -> Self {
         match self {
             ComponentInstance::Instantiate { args, .. } => {
                 let refs = self.referenced_indices();
@@ -107,7 +107,7 @@ impl FixIndices for ComponentInstance<'_> {
 
 #[rustfmt::skip]
 impl FixIndices for CanonicalFunction {
-    fn fix<'a>(&self, indices: &IdxSpaces) -> Self {
+    fn fix<'a>(&self, indices: &IndexScope) -> Self {
         let refs = self.referenced_indices();
         match self {
             CanonicalFunction::Lift { options: options_orig, .. } => {
@@ -388,7 +388,7 @@ impl FixIndices for CanonicalFunction {
 
 #[rustfmt::skip]
 impl FixIndices for Instance<'_> {
-    fn fix<'a>(&self, indices: &IdxSpaces) -> Self {
+    fn fix<'a>(&self, indices: &IndexScope) -> Self {
         match self {
             Instance::Instantiate { args: args_orig, .. } => {
                 let refs = self.referenced_indices();
@@ -418,7 +418,7 @@ impl FixIndices for Instance<'_> {
 
 #[rustfmt::skip]
 impl FixIndices for ComponentStartFunction {
-    fn fix<'a>(&self, indices: &IdxSpaces) -> Self {
+    fn fix<'a>(&self, indices: &IndexScope) -> Self {
         let refs = self.referenced_indices();
         let func = refs.as_ref().unwrap().func();
         let new_fid = indices.lookup_actual_id_or_panic(&func);
@@ -440,14 +440,14 @@ impl FixIndices for ComponentStartFunction {
 
 #[rustfmt::skip]
 impl FixIndices for CustomSection<'_> {
-    fn fix<'a>(&self, _: &IdxSpaces) -> Self {
+    fn fix<'a>(&self, _: &IndexScope) -> Self {
         self.clone()
     }
 }
 
 #[rustfmt::skip]
 impl FixIndices for ComponentDefinedType<'_> {
-    fn fix<'a>(&self, indices: &IdxSpaces) -> Self {
+    fn fix<'a>(&self, indices: &IndexScope) -> Self {
         match self {
             ComponentDefinedType::Flags(_)
             | ComponentDefinedType::Enum(_) => self.clone(),
@@ -516,14 +516,14 @@ impl FixIndices for ComponentDefinedType<'_> {
 
 #[rustfmt::skip]
 impl FixIndices for PrimitiveValType {
-    fn fix<'a>(&self, _: &IdxSpaces) -> Self {
+    fn fix<'a>(&self, _: &IndexScope) -> Self {
         self.clone()
     }
 }
 
 #[rustfmt::skip]
 impl FixIndices for VariantCase<'_> {
-    fn fix<'a>(&self, indices: &IdxSpaces) -> Self {
+    fn fix<'a>(&self, indices: &IndexScope) -> Self {
         Self {
             name: self.name,
             ty: self.ty.map(|ty| ty.fix(indices)),
@@ -538,7 +538,7 @@ impl FixIndices for VariantCase<'_> {
 
 #[rustfmt::skip]
 impl FixIndices for ComponentFuncType<'_> {
-    fn fix<'a>(&self, indices: &IdxSpaces) -> Self {
+    fn fix<'a>(&self, indices: &IndexScope) -> Self {
         let mut new_params = vec![];
         for (orig_name, orig_ty) in self.params.iter() {
             new_params.push((*orig_name, orig_ty.fix(indices)));
@@ -560,7 +560,7 @@ impl FixIndices for ComponentFuncType<'_> {
 
 #[rustfmt::skip]
 impl FixIndices for SubType {
-    fn fix<'a>(&self, indices: &IdxSpaces) -> Self {
+    fn fix<'a>(&self, indices: &IndexScope) -> Self {
         Self {
             is_final: self.is_final,
             supertype_idx: if let Some(_) = self.supertype_idx {
@@ -578,7 +578,7 @@ impl FixIndices for SubType {
 
 #[rustfmt::skip]
 impl FixIndices for CompositeType {
-    fn fix<'a>(&self, indices: &IdxSpaces) -> Self {
+    fn fix<'a>(&self, indices: &IndexScope) -> Self {
         Self {
             inner: self.inner.fix(indices),
             shared: false,
@@ -590,7 +590,7 @@ impl FixIndices for CompositeType {
 
 #[rustfmt::skip]
 impl FixIndices for CompositeInnerType {
-    fn fix<'a>(&self, indices: &IdxSpaces) -> Self {
+    fn fix<'a>(&self, indices: &IndexScope) -> Self {
         match self {
             CompositeInnerType::Func(ty) => CompositeInnerType::Func(ty.fix(indices)),
             CompositeInnerType::Array(ty) => CompositeInnerType::Array(ArrayType(ty.0.fix(indices))),
@@ -607,7 +607,7 @@ impl FixIndices for CompositeInnerType {
 
 #[rustfmt::skip]
 impl FixIndices for FuncType {
-    fn fix<'a>(&self, indices: &IdxSpaces) -> Self {
+    fn fix<'a>(&self, indices: &IndexScope) -> Self {
         let mut new_params = vec![];
         for p in self.params() {
             new_params.push(p.fix(indices));
@@ -623,7 +623,7 @@ impl FixIndices for FuncType {
 
 #[rustfmt::skip]
 impl FixIndices for FieldType {
-    fn fix<'a>(&self, indices: &IdxSpaces) -> Self {
+    fn fix<'a>(&self, indices: &IndexScope) -> Self {
         Self {
             element_type: self.element_type.fix(indices),
             mutable: self.mutable,
@@ -633,7 +633,7 @@ impl FixIndices for FieldType {
 
 #[rustfmt::skip]
 impl FixIndices for StorageType {
-    fn fix<'a>(&self, indices: &IdxSpaces) -> Self {
+    fn fix<'a>(&self, indices: &IndexScope) -> Self {
         match self {
             StorageType::I8
             | StorageType::I16 => self.clone(),
@@ -644,7 +644,7 @@ impl FixIndices for StorageType {
 
 #[rustfmt::skip]
 impl FixIndices for StructType {
-    fn fix<'a>(&self, indices: &IdxSpaces) -> Self {
+    fn fix<'a>(&self, indices: &IndexScope) -> Self {
         let mut new_fields = vec![];
         for f in self.fields.iter() {
             new_fields.push(f.fix(indices));
@@ -658,7 +658,7 @@ impl FixIndices for StructType {
 
 #[rustfmt::skip]
 impl FixIndices for ComponentTypeDeclaration<'_> {
-    fn fix<'a>(&self, indices: &IdxSpaces) -> Self {
+    fn fix<'a>(&self, indices: &IndexScope) -> Self {
         match self {
             ComponentTypeDeclaration::CoreType(ty) => ComponentTypeDeclaration::CoreType(ty.fix(indices)),
             ComponentTypeDeclaration::Type(ty) => ComponentTypeDeclaration::Type(ty.fix(indices)),
@@ -674,7 +674,7 @@ impl FixIndices for ComponentTypeDeclaration<'_> {
 
 #[rustfmt::skip]
 impl FixIndices for ValType {
-    fn fix<'a>(&self, indices: &IdxSpaces) -> Self {
+    fn fix<'a>(&self, indices: &IndexScope) -> Self {
         match self {
             ValType::I32
             | ValType::I64
@@ -688,7 +688,7 @@ impl FixIndices for ValType {
 
 #[rustfmt::skip]
 impl FixIndices for RefType {
-    fn fix<'a>(&self, indices: &IdxSpaces) -> Self {
+    fn fix<'a>(&self, indices: &IndexScope) -> Self {
         let refs = self.referenced_indices();
         let ty = refs.as_ref().unwrap().ty();
         let new_id = indices.lookup_actual_id_or_panic(&ty);
@@ -699,7 +699,7 @@ impl FixIndices for RefType {
 
 #[rustfmt::skip]
 impl FixIndices for CoreType<'_> {
-    fn fix<'a>(&self, indices: &IdxSpaces) -> Self {
+    fn fix<'a>(&self, indices: &IndexScope) -> Self {
         match &self {
             CoreType::Rec(recgroup) => {
                 CoreType::Rec(recgroup.fix(indices))
@@ -717,7 +717,7 @@ impl FixIndices for CoreType<'_> {
 
 #[rustfmt::skip]
 impl FixIndices for ModuleTypeDeclaration<'_> {
-    fn fix<'a>(&self, indices: &IdxSpaces) -> Self {
+    fn fix<'a>(&self, indices: &IndexScope) -> Self {
         match self {
             ModuleTypeDeclaration::Type(group) => ModuleTypeDeclaration::Type(group.fix(indices)),
             ModuleTypeDeclaration::Export { name, ty } => ModuleTypeDeclaration::Export {
@@ -733,7 +733,7 @@ impl FixIndices for ModuleTypeDeclaration<'_> {
 
 #[rustfmt::skip]
 impl FixIndices for Import<'_> {
-    fn fix<'a>(&self, indices: &IdxSpaces) -> Self {
+    fn fix<'a>(&self, indices: &IndexScope) -> Self {
         Self {
             module: self.module,
             name: self.name,
@@ -744,7 +744,7 @@ impl FixIndices for Import<'_> {
 
 #[rustfmt::skip]
 impl FixIndices for RecGroup {
-    fn fix<'a>(&self, _: &IdxSpaces) -> Self {
+    fn fix<'a>(&self, _: &IndexScope) -> Self {
         // This is kept as an opaque IR node (indices not fixed here)
         // This is because wasmparser does not allow library users to create
         // a new RecGroup.
@@ -755,7 +755,7 @@ impl FixIndices for RecGroup {
 
 #[rustfmt::skip]
 impl FixIndices for ComponentImport<'_> {
-    fn fix<'a>(&self, indices: &IdxSpaces) -> Self {
+    fn fix<'a>(&self, indices: &IndexScope) -> Self {
         Self {
             name: self.name,
             ty: self.ty.fix(indices)
@@ -765,7 +765,7 @@ impl FixIndices for ComponentImport<'_> {
 
 #[rustfmt::skip]
 impl FixIndices for ComponentValType {
-    fn fix<'a>(&self, indices: &IdxSpaces) -> Self {
+    fn fix<'a>(&self, indices: &IndexScope) -> Self {
         if let ComponentValType::Type(_) = self {
             let refs = self.referenced_indices();
             let ty = refs.as_ref().unwrap().ty();
@@ -779,7 +779,7 @@ impl FixIndices for ComponentValType {
 
 #[rustfmt::skip]
 impl FixIndices for ComponentAlias<'_> {
-    fn fix<'a>(&self, indices: &IdxSpaces) -> Self {
+    fn fix<'a>(&self, indices: &IndexScope) -> Self {
         match self {
             ComponentAlias::InstanceExport { kind, name, .. } => {
                 let refs = self.referenced_indices();
@@ -809,7 +809,7 @@ impl FixIndices for ComponentAlias<'_> {
 
 #[rustfmt::skip]
 impl FixIndices for ComponentTypeRef {
-    fn fix<'a>(&self, indices: &IdxSpaces) -> Self {
+    fn fix<'a>(&self, indices: &IndexScope) -> Self {
         let refs = self.referenced_indices();
         match self {
             ComponentTypeRef::Module(_) => {
@@ -842,7 +842,7 @@ impl FixIndices for ComponentTypeRef {
 
 #[rustfmt::skip]
 impl FixIndices for CanonicalOption {
-    fn fix<'a>(&self, indices: &IdxSpaces) -> Self {
+    fn fix<'a>(&self, indices: &IndexScope) -> Self {
         let refs = self.referenced_indices();
         match self {
             CanonicalOption::Realloc(_)
@@ -879,7 +879,7 @@ impl FixIndices for CanonicalOption {
 
 #[rustfmt::skip]
 impl FixIndices for InstantiationArg<'_> {
-    fn fix<'a>(&self, indices: &IdxSpaces) -> Self {
+    fn fix<'a>(&self, indices: &IndexScope) -> Self {
         let refs = self.referenced_indices();
         let misc = refs.as_ref().unwrap().misc();
         let new_id = indices.lookup_actual_id_or_panic(&misc);
@@ -893,7 +893,7 @@ impl FixIndices for InstantiationArg<'_> {
 
 #[rustfmt::skip]
 impl FixIndices for Export<'_> {
-    fn fix<'a>(&self, indices: &IdxSpaces) -> Self {
+    fn fix<'a>(&self, indices: &IndexScope) -> Self {
         let refs = self.referenced_indices();
         let misc = refs.as_ref().unwrap().misc();
         let new_id = indices.lookup_actual_id_or_panic(&misc);
@@ -907,7 +907,7 @@ impl FixIndices for Export<'_> {
 
 #[rustfmt::skip]
 impl FixIndices for InstanceTypeDeclaration<'_> {
-    fn fix<'a>(&self, indices: &IdxSpaces) -> Self {
+    fn fix<'a>(&self, indices: &IndexScope) -> Self {
         match self {
             InstanceTypeDeclaration::CoreType(core_type) => InstanceTypeDeclaration::CoreType(core_type.fix(indices)),
             InstanceTypeDeclaration::Type(ty) => InstanceTypeDeclaration::Type(ty.fix(indices)),
@@ -922,7 +922,7 @@ impl FixIndices for InstanceTypeDeclaration<'_> {
 
 #[rustfmt::skip]
 impl FixIndices for TypeRef {
-    fn fix<'a>(&self, indices: &IdxSpaces) -> Self {
+    fn fix<'a>(&self, indices: &IndexScope) -> Self {
         let refs = self.referenced_indices();
         match self {
             TypeRef::Func(_) => {

@@ -115,13 +115,16 @@ pub fn encode(comp: &Component) -> Vec<u8> {
     let mut ctx = CollectCtx::new(comp);
     comp.collect_root(&mut ctx);
     let mut plan = ctx.plan;
-    let mut indices = ctx.indices;
+    let handle = ctx.store;
 
     // Phase 2: Assign indices
-    indices.reset_ids();
-    assign_indices(&mut plan, &mut indices);
+    {
+        let mut store = handle.borrow_mut();
+        store.reset_indices();
+    }
+    assign_indices(&mut plan, comp.space_id, handle.clone());
 
     // Phase 3: Encode (pass in the root-level component's plan, assigned indices, and original->new index map)
-    let bytes = encode_internal(&comp, &plan, &indices);
+    let bytes = encode_internal(&comp, &plan, comp.space_id, handle.clone());
     bytes.finish()
 }

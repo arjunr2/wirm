@@ -1,8 +1,9 @@
-use crate::ir::section::ComponentSection;
+use std::cell::RefCell;
 use crate::ir::types::CustomSection;
 use crate::{Component, Module};
 use std::collections::HashMap;
 use std::fmt::Debug;
+use std::rc::Rc;
 use wasmparser::{
     CanonicalFunction, CanonicalOption, ComponentAlias, ComponentDefinedType, ComponentExport,
     ComponentExternalKind, ComponentFuncType, ComponentImport, ComponentInstance,
@@ -12,9 +13,124 @@ use wasmparser::{
     InstanceTypeDeclaration, InstantiationArg, InstantiationArgKind, ModuleTypeDeclaration,
     RecGroup, RefType, StorageType, SubType, TagType, TypeRef, ValType, VariantCase,
 };
+use crate::ir::component::section::ComponentSection;
 
+pub(crate) type SpaceId = usize;
+
+/// Every IR node can have a reference to this to allow for instrumentation
+/// to have access to the index stores and perform manipulations!
+pub type StoreHandle = Rc<RefCell<IndexStore>>;
+
+#[derive(Default, Debug)]
+pub(crate) struct IndexStore {
+    pub scopes: HashMap<SpaceId, IndexScope>,
+    next_id: usize
+}
+impl IndexStore {
+    pub(crate) fn get(&self, id: &SpaceId) -> &IndexScope {
+        self.scopes.get(id).unwrap()
+    }
+    pub(crate) fn get_mut(&mut self, id: &SpaceId) -> &mut IndexScope {
+        self.scopes.get_mut(id).unwrap()
+    }
+    fn use_next_id(&mut self) -> SpaceId {
+        let next = self.next_id;
+        self.next_id += 1;
+
+        next
+    }
+
+    pub fn new_scope(&mut self) -> SpaceId {
+        let id = self.use_next_id();
+        self.scopes.insert(id, IndexScope::default());
+
+        id
+    }
+    
+    pub fn reset_indices(&mut self) {
+        for scope in self.scopes.values_mut() {
+            scope.reset_ids();
+        }
+    }
+
+    // pub fn add_inner_space(&mut self) -> SpaceId {
+    //     let inner_id = self.use_next_id();
+    //     let mut inner_space = Self::new();
+    //     inner_space.id = inner_id;
+    //
+    //     self.inner_spaces.insert(inner_space.id, Box::new(inner_space));
+    //     inner_id
+    // }
+}
+
+
+/// A single lexical index scope in a WebAssembly component.
+///
+/// An `IndexScope` contains all index spaces that are *visible at one level*
+/// of the component hierarchy. Each scope corresponds to a lexical boundary
+/// introduced by constructs such as:
+///
+/// - a `component`
+/// - a `component type`
+/// - a `component instance`
+///
+/// Within a scope, indices are allocated monotonically and are only valid
+/// relative to that scope. Nested constructs introduce *new* `IndexScope`s,
+/// which may reference items in outer scopes via `(outer N ...)` declarations.
+///
+/// ## Relationship to the Component Model
+///
+/// In the WebAssembly Component Model, index spaces are *lexically scoped*.
+/// For example:
+///
+/// - Component functions, values, instances, and types each have their own
+///   index spaces.
+/// - Core index spaces (functions, types, memories, etc.) are also scoped when
+///   introduced at the component level.
+/// - Entering a nested component (or component type / instance) creates a new
+///   set of index spaces that shadow outer ones.
+///
+/// `IndexScope` models exactly one such lexical level.
+///
+/// ## Scope Stack Usage
+///
+/// `IndexScope` is intended to be used in conjunction with a stack structure
+/// (e.g. `ScopeStack`), where:
+///
+/// - entering a nested construct pushes a new `IndexScope`
+/// - exiting the construct pops it
+/// - resolving `(outer depth ...)` references indexes into the stack by depth
+///
+/// This design allows encode-time traversal to correctly reindex references
+/// even when IR nodes are visited in an arbitrary order (e.g. during
+/// instrumentation).
+///
+/// ## Encode-Time Semantics
+///
+/// During encoding, the active `IndexScope` determines:
+///
+/// - where newly declared items are allocated
+/// - how referenced indices are remapped
+/// - which outer scope to consult for `(outer ...)` references
+///
+/// `IndexScope` does **not** represent all index spaces in the component;
+/// it represents only those visible at a single lexical level.
+///
+/// We build these index spaces following the order of the original IR, then traverse the IR out-of-order
+/// based on the instrumentation injections, we must enable the lookup of spaces through assigned IDs. This
+/// ensures that we do not use the wrong index space for a node in a reordered list of IR nodes.
+///
+///
+/// ## Design Note
+///
+/// This type intentionally separates *scope structure* from *IR structure*.
+/// IR nodes do not own scopes; instead, scopes are entered and exited explicitly
+/// during traversal. This keeps index resolution explicit, debuggable, and
+/// faithful to the specification.
 #[derive(Clone, Debug, Default)]
-pub(crate) struct IdxSpaces {
+pub(crate) struct IndexScope {
+    pub(crate) id: SpaceId,
+
     // Component-level spaces
     pub comp_func: IdxSpace,
     pub comp_val: IdxSpace,
@@ -47,7 +163,7 @@ pub(crate) struct IdxSpaces {
     last_processed_start: usize,
     last_processed_custom: usize,
 }
-impl IdxSpaces {
+impl IndexScope {
     pub fn new() -> Self {
         Self {
             comp_func: IdxSpace::new("component_functions".to_string()),
@@ -77,9 +193,9 @@ impl IdxSpaces {
         &mut self,
         items: &Vec<I>,
         curr_idx: usize,
-        section: &ComponentSection,
+        sections: &Vec<ComponentSection>, // one per item
     ) {
-        for (i, item) in items.iter().enumerate() {
+        for ((i, item), section) in items.iter().enumerate().zip(sections) {
             self.assign_assumed_id(&item.index_space_of(), section, curr_idx + i);
         }
     }
@@ -91,6 +207,15 @@ impl IdxSpaces {
         section: &ComponentSection,
         curr_idx: usize,
     ) -> Option<usize> {
+        // Actually, if I'm here, i'm not inside the section, I'm in the outer scope that contains
+        // that section!
+        // section.space_id().map(|id| {
+        //     // If this section has a space ID associated with it, let's make
+        //     // sure we're actually in the correct index space scope :)
+        //     // If this panics, we've forgotten to update which index space
+        //     // we're operating in.
+        //     assert_eq!(self.id, id);
+        // });
         if let Some(space) = self.get_space_mut(space) {
             Some(space.assign_assumed_id(section, curr_idx))
         } else {
@@ -145,25 +270,42 @@ impl IdxSpaces {
         );
     }
 
-    pub fn visit_section(&mut self, section: &ComponentSection, num: usize) -> usize {
-        let tracker = match section {
-            ComponentSection::Module => &mut self.last_processed_module,
-            ComponentSection::Alias => &mut self.last_processed_alias,
-            ComponentSection::CoreType => &mut self.last_processed_core_ty,
-            ComponentSection::ComponentType => &mut self.last_processed_comp_ty,
-            ComponentSection::ComponentImport => &mut self.last_processed_imp,
-            ComponentSection::ComponentExport => &mut self.last_processed_exp,
-            ComponentSection::CoreInstance => &mut self.last_processed_core_inst,
-            ComponentSection::ComponentInstance => &mut self.last_processed_comp_inst,
-            ComponentSection::Canon => &mut self.last_processed_canon,
-            ComponentSection::CustomSection => &mut self.last_processed_custom,
-            ComponentSection::Component => &mut self.last_processed_component,
-            ComponentSection::ComponentStartSection => &mut self.last_processed_start,
+    /// This function is used while encoding the component. This means that we
+    /// should already know the space ID associated with the component section
+    /// (if in visiting this next session we enter some inner index space).
+    ///
+    /// So, we use the associated space ID to return the inner index space. The
+    /// calling function should use this return value to then context switch into
+    /// this new index space. When we've finished visiting the section, swap back
+    /// to the returned index space's `parent` (a field on the space).
+    pub fn visit_section(&mut self, section: &ComponentSection, num: usize) -> (usize, Option<SpaceId>) {
+        let (tracker, space) = match section {
+            ComponentSection::Component(space_id) => {
+                // CREATES A NEW IDX SPACE SCOPE
+                (&mut self.last_processed_component, Some(*space_id))
+            },
+            ComponentSection::Module => (&mut self.last_processed_module, None),
+            ComponentSection::Alias => (&mut self.last_processed_alias, None),
+            ComponentSection::CoreType(space_id) => {
+                // CREATES A NEW IDX SPACE SCOPE (if CoreType::Module)
+                (&mut self.last_processed_core_ty, *space_id)
+            },
+            ComponentSection::ComponentType(space_id) => {
+                // CREATES A NEW IDX SPACE SCOPE (if Type::Component or Type::Instance)
+                (&mut self.last_processed_comp_ty, *space_id)
+            },
+            ComponentSection::ComponentImport => (&mut self.last_processed_imp, None),
+            ComponentSection::ComponentExport => (&mut self.last_processed_exp, None),
+            ComponentSection::CoreInstance => (&mut self.last_processed_core_inst, None),
+            ComponentSection::ComponentInstance => (&mut self.last_processed_comp_inst, None),
+            ComponentSection::Canon => (&mut self.last_processed_canon, None),
+            ComponentSection::CustomSection => (&mut self.last_processed_custom, None),
+            ComponentSection::ComponentStartSection => (&mut self.last_processed_start, None),
         };
 
         let curr = *tracker;
         *tracker += num;
-        curr
+        (curr, space)
     }
 
     pub fn reset_ids(&mut self) {
@@ -293,11 +435,11 @@ impl IdxSpace {
             ComponentSection::ComponentImport => ("imports", &self.imports_assumed_ids),
             ComponentSection::ComponentExport => ("exports", &self.exports_assumed_ids),
             ComponentSection::Alias => ("aliases", &self.alias_assumed_ids),
-            ComponentSection::Component => ("components", &self.components_assumed_ids),
+            ComponentSection::Component(_) => ("components", &self.components_assumed_ids),
 
             ComponentSection::Module
-            | ComponentSection::CoreType
-            | ComponentSection::ComponentType
+            | ComponentSection::CoreType(_)
+            | ComponentSection::ComponentType(_)
             | ComponentSection::CoreInstance
             | ComponentSection::ComponentInstance
             | ComponentSection::Canon
@@ -335,11 +477,11 @@ impl IdxSpace {
             ComponentSection::ComponentImport => &mut self.imports_assumed_ids,
             ComponentSection::ComponentExport => &mut self.exports_assumed_ids,
             ComponentSection::Alias => &mut self.alias_assumed_ids,
-            ComponentSection::Component => &mut self.components_assumed_ids,
+            ComponentSection::Component(_) => &mut self.components_assumed_ids,
 
             ComponentSection::Module
-            | ComponentSection::CoreType
-            | ComponentSection::ComponentType
+            | ComponentSection::CoreType(_)
+            | ComponentSection::ComponentType(_)
             | ComponentSection::CoreInstance
             | ComponentSection::ComponentInstance
             | ComponentSection::Canon

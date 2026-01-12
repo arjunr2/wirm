@@ -1,6 +1,6 @@
 use crate::encode::component::collect::{ComponentItem, ComponentPlan};
 use crate::encode::component::fix_indices::FixIndices;
-use crate::ir::component::idx_spaces::IdxSpaces;
+use crate::ir::component::idx_spaces::{SpaceId, StoreHandle};
 use crate::ir::types::CustomSection;
 use crate::{Component, Module};
 use wasm_encoder::reencode::{Reencode, ReencodeComponent, RoundtripReencoder};
@@ -70,7 +70,8 @@ use wasmparser::{
 pub(crate) fn encode_internal<'a>(
     comp: &Component,
     plan: &ComponentPlan<'a>,
-    indices: &IdxSpaces,
+    curr_space_id: SpaceId,
+    handle: StoreHandle,
 ) -> wasm_encoder::Component {
     let mut component = wasm_encoder::Component::new();
     let mut reencode = RoundtripReencoder;
@@ -80,14 +81,16 @@ pub(crate) fn encode_internal<'a>(
             ComponentItem::Component {
                 node,
                 plan: subplan,
-                indices: subindices,
+                space_id: sub_space_id,
                 ..
             } => unsafe {
                 // CREATES A NEW IDX SPACE SCOPE
                 let subcomp: &Component = &**node;
+                todo!("{item:?} ENTER the space: {sub_space_id}");
                 component.section(&NestedComponentSection(&encode_internal(
-                    subcomp, subplan, subindices,
+                    subcomp, subplan, *sub_space_id, handle.clone()
                 )));
+                todo!("{item:?} EXIT the space: {sub_space_id}");
             },
             ComponentItem::Module { node, .. } => unsafe {
                 let t: &Module = &**node;
@@ -95,56 +98,68 @@ pub(crate) fn encode_internal<'a>(
                 // let fixed = t.fix(&mut component, indices, &mut reencode);
                 encode_module_section(&t, &mut component);
             },
-            ComponentItem::CompType { node, .. } => unsafe {
+            ComponentItem::CompType { node, space_id: sub_space_id, .. } => unsafe {
                 // CREATES A NEW IDX SPACE SCOPE (if Type::Component or Type::Instance)
                 let t: &ComponentType = &**node;
-                let fixed = t.fix(indices);
+                if let Some(sub_id) = sub_space_id {
+                    todo!("{item:?} ENTER the space: {sub_id}")
+                }
+                let fixed = t.fix(handle.borrow().get(&curr_space_id));
+                if let Some(sub_id) = sub_space_id {
+                    todo!("{item:?} EXIT the space: {sub_id}")
+                }
                 encode_comp_ty_section(&fixed, &mut component, &mut reencode);
             },
             ComponentItem::CompInst { node, .. } => unsafe {
                 let i: &ComponentInstance = &**node;
-                let fixed = i.fix(indices);
+                let fixed = i.fix(handle.borrow().get(&curr_space_id));
                 encode_comp_inst_section(&fixed, &mut component, &mut reencode);
             },
             ComponentItem::CanonicalFunc { node, .. } => unsafe {
                 let f: &CanonicalFunction = &**node;
-                let fixed = f.fix(indices);
+                let fixed = f.fix(handle.borrow().get(&curr_space_id));
                 encode_canon_section(&fixed, &mut component, &mut reencode);
             },
             ComponentItem::Alias { node, .. } => unsafe {
                 let a: &ComponentAlias = &**node;
-                let fixed = a.fix(indices);
+                let fixed = a.fix(handle.borrow().get(&curr_space_id));
                 encode_alias_section(&fixed, &mut component, &mut reencode);
             },
             ComponentItem::Import { node, .. } => unsafe {
                 let i: &ComponentImport = &**node;
-                let fixed = i.fix(indices);
+                let fixed = i.fix(handle.borrow().get(&curr_space_id));
                 encode_comp_import_section(&fixed, &mut component, &mut reencode);
             },
             ComponentItem::Export { node, .. } => unsafe {
                 let e: &ComponentExport = &**node;
-                let fixed = e.fix(indices);
+                let fixed = e.fix(handle.borrow().get(&curr_space_id));
                 encode_comp_export_section(&fixed, &mut component, &mut reencode);
             },
-            ComponentItem::CoreType { node, .. } => unsafe {
+            ComponentItem::CoreType { node, space_id: sub_space_id, .. } => unsafe {
                 // If this is a CoreType::Module, CREATES A NEW IDX SPACE SCOPE
                 let t: &CoreType = &**node;
-                let fixed = t.fix(indices);
+                if let Some(sub_id) = sub_space_id {
+                    todo!("{item:?} ENTER the space: {sub_id}")
+                }
+                let fixed = t.fix(handle.borrow().get(&curr_space_id));
+                if let Some(sub_id) = sub_space_id {
+                    todo!("{item:?} EXIT the space: {sub_id}")
+                }
                 encode_core_ty_section(&fixed, &mut component, &mut reencode);
             },
             ComponentItem::Inst { node, .. } => unsafe {
                 let i: &Instance = &**node;
-                let fixed = i.fix(indices);
+                let fixed = i.fix(handle.borrow().get(&curr_space_id));
                 encode_inst_section(&fixed, &mut component, &mut reencode);
             },
             ComponentItem::Start { node, .. } => unsafe {
                 let f: &ComponentStartFunction = &**node;
-                let fixed = f.fix(indices);
+                let fixed = f.fix(handle.borrow().get(&curr_space_id));
                 encode_start_section(&fixed, &mut component, &mut reencode);
             },
             ComponentItem::CustomSection { node, .. } => unsafe {
                 let c: &CustomSection = &**node;
-                let fixed = c.fix(indices);
+                let fixed = c.fix(handle.borrow().get(&curr_space_id));
                 encode_custom_section(&fixed, &mut component, &mut reencode);
             },
         }
