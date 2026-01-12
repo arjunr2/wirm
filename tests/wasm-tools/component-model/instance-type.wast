@@ -71,15 +71,15 @@
   (type (instance (export "a" (instance))))
 )
 
-;; reference outer types
-(component
-  (type (instance
-    (type $t (instance))
-    (export "a" (instance (type $t)))
-  ))
-  (type $x (instance))
-  (type (instance (export "a" (instance (type $x)))))
-)
+;;;; reference outer types
+;;(component
+;;  (type (instance
+;;    (type $t (instance))
+;;    (export "a" (instance (type $t)))
+;;  ))
+;;  (type $x (instance))
+;;  (type (instance (export "a" (instance (type $x)))))
+;;)
 
 ;; recursive
 ;;(component

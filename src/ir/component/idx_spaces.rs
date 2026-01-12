@@ -1721,13 +1721,7 @@ impl ReferencedIndices for ComponentAlias<'_> {
                 }),
                 ..Default::default()
             }),
-            ComponentAlias::Outer { index, .. } => Some(Refs {
-                misc: Some(IndexedRef {
-                    space: Space::CompType,
-                    index: *index,
-                }),
-                ..Default::default()
-            }),
+            ComponentAlias::Outer { count, index, .. } => todo!(),
         }
     }
 }
