@@ -4,22 +4,14 @@ use crate::{Component, Module};
 use std::collections::HashMap;
 use std::fmt::Debug;
 use std::rc::Rc;
-use wasmparser::{
-    CanonicalFunction, CanonicalOption, ComponentAlias, ComponentDefinedType, ComponentExport,
-    ComponentExternalKind, ComponentFuncType, ComponentImport, ComponentInstance,
-    ComponentInstantiationArg, ComponentOuterAliasKind, ComponentStartFunction, ComponentType,
-    ComponentTypeDeclaration, ComponentTypeRef, ComponentValType, CompositeInnerType,
-    CompositeType, ContType, CoreType, Export, ExternalKind, FieldType, Instance,
-    InstanceTypeDeclaration, InstantiationArg, InstantiationArgKind, ModuleTypeDeclaration,
-    RecGroup, RefType, StorageType, SubType, TagType, TypeRef, ValType, VariantCase,
-};
+use wasmparser::{CanonicalFunction, CanonicalOption, ComponentAlias, ComponentDefinedType, ComponentExport, ComponentExternalKind, ComponentFuncType, ComponentImport, ComponentInstance, ComponentInstantiationArg, ComponentOuterAliasKind, ComponentStartFunction, ComponentType, ComponentTypeDeclaration, ComponentTypeRef, ComponentValType, CompositeInnerType, CompositeType, ContType, CoreType, Export, ExternalKind, FieldType, Import, Instance, InstanceTypeDeclaration, InstantiationArg, InstantiationArgKind, ModuleTypeDeclaration, OuterAliasKind, RecGroup, RefType, StorageType, SubType, TagType, TypeRef, ValType, VariantCase};
 use crate::ir::component::section::ComponentSection;
 
 pub(crate) type SpaceId = usize;
 
 /// Every IR node can have a reference to this to allow for instrumentation
 /// to have access to the index stores and perform manipulations!
-pub type StoreHandle = Rc<RefCell<IndexStore>>;
+pub(crate) type StoreHandle = Rc<RefCell<IndexStore>>;
 
 #[derive(Default, Debug)]
 pub(crate) struct IndexStore {
@@ -27,10 +19,39 @@ pub(crate) struct IndexStore {
     next_id: usize
 }
 impl IndexStore {
+    pub fn new_scope(&mut self) -> SpaceId {
+        let id = self.use_next_id();
+        self.scopes.insert(id, IndexScope::default());
+
+        id
+    }
+    pub fn reset_indices(&mut self) {
+        for scope in self.scopes.values_mut() {
+            scope.reset_ids();
+        }
+    }
+    pub fn index_from_assumed_id(&self, id: &SpaceId, r: &IndexedRef) -> (SpaceSubtype, usize) {
+        self.get(id).index_from_assumed_id(r)
+    }
+    pub fn reset_ids(&mut self, id: &SpaceId) {
+        self.get_mut(id).reset_ids()
+    }
+    pub fn assign_actual_id(&mut self, id: &SpaceId, space: &Space, section: &ComponentSection, vec_idx: usize) {
+        self.get_mut(id).assign_actual_id(space, section, vec_idx)
+    }
+    pub fn assign_assumed_id(&mut self, id: &SpaceId, space: &Space, section: &ComponentSection, curr_idx: usize) -> Option<usize> {
+        self.get_mut(id).assign_assumed_id(space, section, curr_idx)
+    }
+    pub fn assign_assumed_id_for<I: Debug + IndexSpaceOf>(&mut self, id: &SpaceId, items: &Vec<I>,
+                                 curr_idx: usize,
+                                 sections: &Vec<ComponentSection>) {
+        self.get_mut(id).assign_assumed_id_for(items, curr_idx, sections)
+    }
+    
     pub(crate) fn get(&self, id: &SpaceId) -> &IndexScope {
         self.scopes.get(id).unwrap()
     }
-    pub(crate) fn get_mut(&mut self, id: &SpaceId) -> &mut IndexScope {
+    fn get_mut(&mut self, id: &SpaceId) -> &mut IndexScope {
         self.scopes.get_mut(id).unwrap()
     }
     fn use_next_id(&mut self) -> SpaceId {
@@ -39,28 +60,6 @@ impl IndexStore {
 
         next
     }
-
-    pub fn new_scope(&mut self) -> SpaceId {
-        let id = self.use_next_id();
-        self.scopes.insert(id, IndexScope::default());
-
-        id
-    }
-    
-    pub fn reset_indices(&mut self) {
-        for scope in self.scopes.values_mut() {
-            scope.reset_ids();
-        }
-    }
-
-    // pub fn add_inner_space(&mut self) -> SpaceId {
-    //     let inner_id = self.use_next_id();
-    //     let mut inner_space = Self::new();
-    //     inner_space.id = inner_id;
-    //
-    //     self.inner_spaces.insert(inner_space.id, Box::new(inner_space));
-    //     inner_id
-    // }
 }
 
 
@@ -769,6 +768,52 @@ impl IndexSpaceOf for ComponentOuterAliasKind {
             ComponentOuterAliasKind::Type => Space::CompType,
             ComponentOuterAliasKind::Component => Space::CompInst,
         }
+    }
+}
+
+impl IndexSpaceOf for ComponentTypeDeclaration<'_> {
+    fn index_space_of(&self) -> Space {
+        match self {
+            ComponentTypeDeclaration::CoreType(ty) => ty.index_space_of(),
+            ComponentTypeDeclaration::Type(ty) => ty.index_space_of(),
+            ComponentTypeDeclaration::Alias(alias) => alias.index_space_of(),
+            ComponentTypeDeclaration::Export { ty, .. } => ty.index_space_of(),
+            ComponentTypeDeclaration::Import(import) => import.index_space_of()
+        }
+    }
+}
+
+impl IndexSpaceOf for InstanceTypeDeclaration<'_> {
+    fn index_space_of(&self) -> Space {
+        match self {
+            InstanceTypeDeclaration::CoreType(ty) => ty.index_space_of(),
+            InstanceTypeDeclaration::Type(ty) => ty.index_space_of(),
+            InstanceTypeDeclaration::Alias(a) => a.index_space_of(),
+            InstanceTypeDeclaration::Export { ty, .. } => ty.index_space_of()
+        }
+    }
+}
+
+impl IndexSpaceOf for ModuleTypeDeclaration<'_> {
+    fn index_space_of(&self) -> Space {
+        match self {
+            ModuleTypeDeclaration::Type(_) => Space::CoreType,
+            ModuleTypeDeclaration::Export { ty, .. } => ty.index_space_of(),
+            ModuleTypeDeclaration::OuterAlias { kind, .. } => kind.index_space_of(),
+            ModuleTypeDeclaration::Import(Import { ty, .. }) => ty.index_space_of(),
+        }
+    }
+}
+
+impl IndexSpaceOf for TypeRef {
+    fn index_space_of(&self) -> Space {
+        todo!()
+    }
+}
+
+impl IndexSpaceOf for OuterAliasKind {
+    fn index_space_of(&self) -> Space {
+        todo!()
     }
 }
 

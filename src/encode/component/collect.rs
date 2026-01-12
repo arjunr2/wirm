@@ -9,6 +9,7 @@ use wasmparser::{
     CanonicalFunction, ComponentAlias, ComponentExport, ComponentImport, ComponentInstance,
     ComponentStartFunction, ComponentType, CoreType, Instance,
 };
+use crate::encode::component::SpaceStack;
 use crate::ir::component::idx_spaces::{SpaceId, StoreHandle};
 use crate::ir::component::section::ComponentSection;
 
@@ -36,12 +37,12 @@ impl<'a> Collect<'a> for Component<'a> {
         for (num, section) in self.sections.iter() {
             let (start_idx, space) = {
                 let mut store = ctx.store.borrow_mut();
-                let indices = { store.scopes.get_mut(&ctx.curr_space_id()).unwrap() };
+                let indices = { store.scopes.get_mut(&ctx.space_stack.curr_space_id()).unwrap() };
                 indices.visit_section(section, *num as usize)
             };
 
             if let Some(space) = space {
-                ctx.enter_space(space);
+                ctx.space_stack.enter_space(space);
             }
 
             println!("{section:?} Collecting {num} nodes starting @{start_idx}");
@@ -134,7 +135,7 @@ impl<'a> Collect<'a> for Component<'a> {
             if let Some(space) = space {
                 // Exit the nested index space...should be equivalent
                 // to what we entered at the beginning of this function.
-                assert_eq!(space, ctx.exit_space());
+                assert_eq!(space, ctx.space_stack.exit_space());
             }
         }
     }
@@ -257,7 +258,7 @@ fn collect_deps<'a, T: ReferencedIndices + 'a>(
     if let Some(refs) = item.referenced_indices() {
         for r in refs.as_list().iter() {
             println!("\tLooking up: {r:?}");
-            let curr_space_id = ctx.curr_space_id();
+            let curr_space_id = ctx.space_stack.curr_space_id();
             let (vec, idx) = {
                 let mut store = ctx.store.borrow_mut();
                 let indices = { store.scopes.get_mut(&curr_space_id).unwrap() };
@@ -542,7 +543,7 @@ pub(crate) struct CollectCtx<'a> {
     pub(crate) plan: ComponentPlan<'a>,
     seen: Seen<'a>,
 
-    pub(crate) space_stack: Vec<SpaceId>,
+    pub(crate) space_stack: SpaceStack,
     pub(crate) store: StoreHandle,
 }
 impl CollectCtx<'_> {
@@ -551,28 +552,15 @@ impl CollectCtx<'_> {
             plan: ComponentPlan::default(),
             seen: Seen::default(),
 
-            space_stack: vec![ comp.space_id ],
+            space_stack: SpaceStack::new(comp.space_id),
             store: comp.index_store.clone()
         }
     }
 
     fn in_space(&self, space_id: Option<SpaceId>) -> bool {
         if let Some(space_id) = space_id {
-            return self.curr_space_id() == space_id;
+            return self.space_stack.curr_space_id() == space_id;
         }
         true
-    }
-
-    fn curr_space_id(&self) -> SpaceId {
-        self.space_stack.last().cloned().unwrap()
-    }
-
-    pub fn enter_space(&mut self, id: SpaceId) {
-        self.space_stack.push(id)
-    }
-
-    pub fn exit_space(&mut self) -> SpaceId {
-        assert!(self.space_stack.len() >= 2, "Trying to exit the index space scope when there isn't an outer!");
-        self.space_stack.pop().unwrap()
     }
 }

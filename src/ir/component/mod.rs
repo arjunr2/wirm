@@ -27,7 +27,7 @@ use wasmparser::{
     ComponentInstance, ComponentStartFunction, ComponentType, CoreType, Encoding, Instance,
     InstanceTypeDeclaration, Parser, Payload,
 };
-use crate::ir::component::section::ComponentSection;
+use crate::ir::component::section::{populate_space_for_comp_ty, populate_space_for_core_ty, ComponentSection};
 
 mod alias;
 mod canons;
@@ -103,9 +103,9 @@ impl<'a> Component<'a> {
     }
 
     fn add_section(&mut self, space: Space, sect: ComponentSection, idx: usize) -> usize {
-        let mut store = self.index_store.borrow_mut();
         // get and save off the assumed id
-        let assumed_id = store.get_mut(&self.space_id).assign_assumed_id(&space, &sect, idx);
+        let assumed_id = self.index_store.borrow_mut()
+            .assign_assumed_id(&self.space_id, &space, &sect, idx);
 
         // add to section order list
         if self.sections[self.num_sections - 1].1 == sect {
@@ -116,41 +116,6 @@ impl<'a> Component<'a> {
 
         println!("assumed: {:?}", assumed_id);
         assumed_id.unwrap_or_else(|| idx)
-    }
-
-    fn enter_inner_idx_space(&mut self) -> SpaceId {
-        // let new_idx_space = self.indices.add_inner_space();
-        // new_idx_space.set_outer(Box::new(self.indices));
-        //
-        // self.indices = *new_idx_space;
-
-        // NOTES ON HOW TO DO THIS:
-        // Cleaner: make the field Option<T> and use take()
-        //
-        // This is usually the best design for transformations like this.
-        //
-        // struct Type {
-        //     r: Option<SomeType>,
-        // }
-        //
-        // impl Type {
-        //     fn visit(&mut self) {
-        //         let old_r = self.r.take().expect("r must exist");
-        //
-        //         let mut new_idx_space = old_r.add_inner_space();
-        //         new_idx_space.set_outer(Box::new(old_r));
-        //
-        //         self.r = Some(new_idx_space);
-        //     }
-        // }
-        //
-        //
-        // Why this is ideal:
-        // - No dummy placeholder needed
-        // - Clearly expresses “temporarily removed”
-        // - Very idiomatic Rust
-
-        todo!()
     }
 
     /// Add a Module to this Component.
@@ -224,7 +189,8 @@ impl<'a> Component<'a> {
         let id = if matches!(component_ty, ComponentType::Component(_) | ComponentType::Instance(_)) {
             // TODO: If this is injected, I need to populate its index space by processing its contents!
             //       will look similar to what I did in the original parsing logic of the bytes :)
-            Some(self.enter_inner_idx_space())
+            Some(self.index_store.borrow_mut().new_scope());
+            todo!()
         } else {
             None
         };
@@ -287,7 +253,9 @@ impl<'a> Component<'a> {
         }
 
         if can_collapse {
-            if *num_sections > 0 && sections[*num_sections - 1].1 == new_sections[*num_sections - 1] {
+            if *num_sections > 0 &&
+                sections[*num_sections - 1].1
+                    == *new_sections.last().unwrap() {
                 sections[*num_sections - 1].0 += sections_added;
                 return
             }
@@ -297,10 +265,6 @@ impl<'a> Component<'a> {
             sections.push((1, *sect));
             *num_sections += 1;
         }
-    }
-
-    fn with_index_store(&mut self, store: IndexStore) {
-        self.index_store = Rc::new(RefCell::new(store));
     }
 
     /// Parse a `Component` from a wasm binary.
@@ -399,7 +363,8 @@ impl<'a> Component<'a> {
                         .collect::<Result<_, _>>()?;
                     let l = temp.len();
                     let new_sections = vec![ComponentSection::ComponentImport; l];
-                    store_handle.borrow_mut().get_mut(&space_id).assign_assumed_id_for(
+                    store_handle.borrow_mut().assign_assumed_id_for(
+                        &space_id,
                         &temp,
                         imports.len(),
                         &new_sections,
@@ -418,7 +383,8 @@ impl<'a> Component<'a> {
                         .collect::<Result<_, _>>()?;
                     let l = temp.len();
                     let new_sections = vec![ComponentSection::ComponentExport; l];
-                    store_handle.borrow_mut().get_mut(&space_id).assign_assumed_id_for(
+                    store_handle.borrow_mut().assign_assumed_id_for(
+                        &space_id,
                         &temp,
                         exports.len(),
                         &new_sections,
@@ -437,7 +403,8 @@ impl<'a> Component<'a> {
                         .collect::<Result<_, _>>()?;
                     let l = temp.len();
                     let new_sections = vec![ComponentSection::ComponentExport; l];
-                    store_handle.borrow_mut().get_mut(&space_id).assign_assumed_id_for(
+                    store_handle.borrow_mut().assign_assumed_id_for(
+                        &space_id,
                         &temp,
                         instances.len(),
                         &new_sections,
@@ -456,17 +423,13 @@ impl<'a> Component<'a> {
 
                     let mut new_sects = vec![];
                     for ty in temp.iter() {
-                        let space_id = if matches!(ty, CoreType::Module(_)) {
-                            // TODO: I need to populate its index space by processing its contents!
-                            Some(store_handle.borrow_mut().new_scope())
-                        } else {
-                            None
-                        };
-                        new_sects.push(ComponentSection::CoreType(space_id))
+                        let section = populate_space_for_core_ty(ty, store_handle.clone());
+                        new_sects.push(section)
                     }
 
                     let l = temp.len();
-                    store_handle.borrow_mut().get_mut(&space_id).assign_assumed_id_for(
+                    store_handle.borrow_mut().assign_assumed_id_for(
+                        &space_id,
                         &temp,
                         core_types.len(),
                         &new_sects,
@@ -480,7 +443,6 @@ impl<'a> Component<'a> {
                     );
                 }
                 Payload::ComponentTypeSection(component_type_reader) => {
-                    let mut store = store_handle.borrow_mut();
                     let temp: &mut Vec<ComponentType> = &mut component_type_reader
                         .into_iter()
                         .collect::<Result<_, _>>()?;
@@ -488,17 +450,13 @@ impl<'a> Component<'a> {
                     let mut new_sects = vec![];
                     for ty in temp.iter() {
                         // CREATES A NEW IDX SPACE SCOPE (if Type::Component or Type::Instance)
-                        let space_id = if matches!(ty, ComponentType::Component(_) | ComponentType::Instance(_)) {
-                            // TODO: I need to populate its index space by processing its contents!
-                            Some(store.new_scope())
-                        } else {
-                            None
-                        };
-                        new_sects.push(ComponentSection::ComponentType(space_id))
+                        let section = populate_space_for_comp_ty(ty, store_handle.clone());
+                        new_sects.push(section);
                     }
 
                     let l = temp.len();
-                    store.get_mut(&space_id).assign_assumed_id_for(
+                    store_handle.borrow_mut().assign_assumed_id_for(
+                        &space_id,
                         &temp,
                         component_types.len(),
                         &new_sects,
@@ -516,7 +474,8 @@ impl<'a> Component<'a> {
                         &mut component_instances.into_iter().collect::<Result<_, _>>()?;
                     let l = temp.len();
                     let new_sections = vec![ComponentSection::ComponentInstance; l];
-                    store_handle.borrow_mut().get_mut(&space_id).assign_assumed_id_for(
+                    store_handle.borrow_mut().assign_assumed_id_for(
+                        &space_id,
                         &temp,
                         component_instance.len(),
                         &new_sections,
@@ -534,7 +493,7 @@ impl<'a> Component<'a> {
                         &mut alias_reader.into_iter().collect::<Result<_, _>>()?;
                     let l = temp.len();
                     let new_sections = vec![ComponentSection::Alias; l];
-                    store_handle.borrow_mut().get_mut(&space_id).assign_assumed_id_for(&temp, alias.len(), &new_sections);
+                    store_handle.borrow_mut().assign_assumed_id_for(&space_id, &temp, alias.len(), &new_sections);
                     alias.append(temp);
                     Self::add_to_sections(
                         &mut sections,
@@ -548,7 +507,7 @@ impl<'a> Component<'a> {
                         &mut canon_reader.into_iter().collect::<Result<_, _>>()?;
                     let l = temp.len();
                     let new_sections = vec![ComponentSection::Canon; l];
-                    store_handle.borrow_mut().get_mut(&space_id).assign_assumed_id_for(&temp, canons.len(), &new_sections);
+                    store_handle.borrow_mut().assign_assumed_id_for(&space_id,&temp, canons.len(), &new_sections);
                     canons.append(temp);
                     Self::add_to_sections(
                         &mut sections,
@@ -570,7 +529,8 @@ impl<'a> Component<'a> {
                         with_offsets,
                         parser,
                     )?;
-                    store_handle.borrow_mut().get_mut(&space_id).assign_assumed_id(
+                    store_handle.borrow_mut().assign_assumed_id(
+                        &space_id,
                         &m.index_space_of(),
                         &ComponentSection::Module,
                         modules.len(),
@@ -607,7 +567,8 @@ impl<'a> Component<'a> {
                         &mut stack,
                         Rc::clone(&store_handle)
                     )?;
-                    store_handle.borrow_mut().get_mut(&space_id).assign_assumed_id(
+                    store_handle.borrow_mut().assign_assumed_id(
+                        &space_id,
                         &cmp.index_space_of(),
                         &sect,
                         components.len(),
@@ -767,7 +728,7 @@ impl<'a> Component<'a> {
                 let list = refs.as_list();
                 assert_eq!(1, list.len());
 
-                let (vec, f_idx) = store.get(&self.space_id).index_from_assumed_id(&list[0]);
+                let (vec, f_idx) = store.index_from_assumed_id(&self.space_id, &list[0]);
                 let func = match vec {
                     SpaceSubtype::Export | SpaceSubtype::Components | SpaceSubtype::Import => {
                         unreachable!()
@@ -780,7 +741,7 @@ impl<'a> Component<'a> {
                     }
                 };
                 if let Some(func_refs) = func {
-                    let (ty, t_idx) = store.get(&self.space_id).index_from_assumed_id(func_refs.ty());
+                    let (ty, t_idx) = store.index_from_assumed_id(&self.space_id, func_refs.ty());
                     if !matches!(ty, SpaceSubtype::Main) {
                         panic!("Should've been an main space!")
                     }

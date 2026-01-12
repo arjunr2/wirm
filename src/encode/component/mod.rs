@@ -2,6 +2,7 @@ use crate::encode::component::assign::assign_indices;
 use crate::encode::component::collect::CollectCtx;
 use crate::encode::component::encode::encode_internal;
 use crate::Component;
+use crate::ir::component::idx_spaces::SpaceId;
 
 mod assign;
 mod collect;
@@ -122,9 +123,32 @@ pub fn encode(comp: &Component) -> Vec<u8> {
         let mut store = handle.borrow_mut();
         store.reset_indices();
     }
-    assign_indices(&mut plan, comp.space_id, handle.clone());
+    assign_indices(&mut plan, &mut SpaceStack::new(comp.space_id), handle.clone());
 
     // Phase 3: Encode (pass in the root-level component's plan, assigned indices, and original->new index map)
-    let bytes = encode_internal(&comp, &plan, comp.space_id, handle.clone());
+    let bytes = encode_internal(&comp, &plan, &mut SpaceStack::new(comp.space_id), handle.clone());
     bytes.finish()
+}
+
+pub(crate) struct SpaceStack {
+    pub(crate) stack: Vec<SpaceId>,
+}
+impl SpaceStack {
+    fn new(outermost_id: SpaceId) -> Self {
+        Self {
+            stack: vec![outermost_id]
+        }
+    }
+    fn curr_space_id(&self) -> SpaceId {
+        self.stack.last().cloned().unwrap()
+    }
+
+    pub fn enter_space(&mut self, id: SpaceId) {
+        self.stack.push(id)
+    }
+
+    pub fn exit_space(&mut self) -> SpaceId {
+        assert!(self.stack.len() >= 2, "Trying to exit the index space scope when there isn't an outer!");
+        self.stack.pop().unwrap()
+    }
 }
