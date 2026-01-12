@@ -836,7 +836,7 @@ impl IndexSpaceOf for ModuleTypeDeclaration<'_> {
 
 impl IndexSpaceOf for TypeRef {
     fn index_space_of(&self) -> Space {
-        todo!()
+        Space::CoreType
     }
 }
 
