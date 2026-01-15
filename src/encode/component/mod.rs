@@ -1,8 +1,8 @@
 use crate::encode::component::assign::assign_indices;
-use crate::encode::component::collect::CollectCtx;
 use crate::encode::component::encode::encode_internal;
-use crate::ir::component::idx_spaces::SpaceId;
+use crate::ir::component::idx_spaces::{IndexedRef, SpaceId, StoreHandle};
 use crate::Component;
+use crate::ir::component::scopes::{GetScopeKind, RegistryHandle};
 
 mod assign;
 mod collect;
@@ -113,28 +113,25 @@ mod fix_indices;
 /// rewriting that would be difficult to reason about or validate.
 pub fn encode(comp: &Component) -> Vec<u8> {
     // Phase 1: Collect
-    let mut ctx = CollectCtx::new(comp);
-    comp.collect_root(&mut ctx);
-    let mut plan = ctx.plan;
-    let handle = ctx.store;
+    let mut ctx = EncodeCtx::new(comp);
+    let mut plan = comp.collect_root(&mut ctx);
 
     // Phase 2: Assign indices
     {
-        let mut store = handle.borrow_mut();
+        let mut store = ctx.store.borrow_mut();
         store.reset_indices();
     }
     assign_indices(
         &mut plan,
-        &mut SpaceStack::new(comp.space_id),
-        handle.clone(),
+        &mut ctx
     );
 
     // Phase 3: Encode (pass in the root-level component's plan, assigned indices, and original->new index map)
+    assert_eq!(1, ctx.space_stack.stack.len());
     let bytes = encode_internal(
         &comp,
         &plan,
-        &mut SpaceStack::new(comp.space_id),
-        handle.clone(),
+        &mut ctx
     );
     bytes.finish()
 }
@@ -164,3 +161,46 @@ impl SpaceStack {
         self.stack.pop().unwrap()
     }
 }
+
+pub(crate) struct EncodeCtx {
+    pub(crate) space_stack: SpaceStack,
+    pub(crate) registry: RegistryHandle,
+    pub(crate) store: StoreHandle,
+}
+impl EncodeCtx {
+    pub fn new(comp: &Component) -> Self {
+        Self {
+            space_stack: SpaceStack::new(comp.space_id),
+            registry: comp.scope_registry.clone(),
+            store: comp.index_store.clone(),
+        }
+    }
+
+    fn in_space(&self, space_id: Option<SpaceId>) -> bool {
+        if let Some(space_id) = space_id {
+            return self.space_stack.curr_space_id() == space_id;
+        }
+        true
+    }
+
+    fn maybe_enter_scope<T: GetScopeKind>(&mut self, node: &T) {
+        if let Some(scope_entry) = self.registry.borrow().scope_entry(node) {
+            println!(">>> ENTER scope{}", scope_entry.space);
+            self.space_stack.enter_space(scope_entry.space);
+        }
+    }
+    fn maybe_exit_scope<T: GetScopeKind>(&mut self, node: &T) {
+        if let Some(scope_entry) = self.registry.borrow().scope_entry(node) {
+            println!("<<< EXIT scope{}", scope_entry.space);
+            // Exit the nested index space...should be equivalent to the ID
+            // of the scope that was entered by this node
+            debug_assert_eq!(scope_entry.space, self.space_stack.exit_space());
+        }
+    }
+
+    fn lookup_actual_id_or_panic(&self, r: &IndexedRef) -> usize {
+        let curr_scope_id = self.space_stack.curr_space_id();
+        self.store.borrow().scopes.get(&curr_scope_id).unwrap().lookup_actual_id_or_panic(&r)
+    }
+}
+

@@ -15,7 +15,7 @@ fn roundtrip(filename: String, component: bool) {
     let original = wasmprinter::print_bytes(&buff).expect("couldn't convert original Wasm to wat");
     println!("original: {:?}", original);
     if component {
-        let mut parser = Component::parse(&buff, false, false).expect("Unable to parse");
+        let parser = Component::parse(&buff, false, false).expect("Unable to parse");
         let result = parser.encode();
         let out = wasmprinter::print_bytes(result.clone()).expect("couldn't translate Wasm to wat");
         assert_eq!(out, original);

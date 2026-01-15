@@ -1,44 +1,28 @@
 //! Enums the represent a section of a Module or a Component
 
 use crate::ir::component::idx_spaces::{IndexSpaceOf, SpaceId, StoreHandle};
-use crate::{Component, Module};
 use wasmparser::{
     ComponentType, ComponentTypeDeclaration, CoreType, InstanceTypeDeclaration,
     ModuleTypeDeclaration,
 };
+use crate::assert_registered_with_id;
+use crate::ir::component::scopes::RegistryHandle;
 
-#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+#[derive(Debug, Clone, Eq, PartialEq)]
 /// Represents a Section in a Component
 pub enum ComponentSection {
     Module,
     Alias,
-    CoreType(Option<SpaceId>),
-    ComponentType(Option<SpaceId>),
+    CoreType,
+    ComponentType,
     ComponentImport,
     ComponentExport,
     CoreInstance,
     ComponentInstance,
     Canon,
     CustomSection,
-    Component(SpaceId),
+    Component,
     ComponentStartSection,
-}
-impl ComponentSection {
-    pub fn space_id(&self) -> Option<SpaceId> {
-        match self {
-            ComponentSection::Component(id) => Some(*id),
-            ComponentSection::CoreType(id) | ComponentSection::ComponentType(id) => *id,
-            ComponentSection::Module
-            | ComponentSection::Alias
-            | ComponentSection::ComponentImport
-            | ComponentSection::ComponentExport
-            | ComponentSection::CoreInstance
-            | ComponentSection::ComponentInstance
-            | ComponentSection::Canon
-            | ComponentSection::CustomSection
-            | ComponentSection::ComponentStartSection => None,
-        }
-    }
 }
 
 // =============================================================
@@ -47,40 +31,54 @@ impl ComponentSection {
 
 pub(crate) fn populate_space_for_comp_ty(
     ty: &ComponentType,
-    handle: StoreHandle,
-) -> ComponentSection {
+    registry: RegistryHandle,
+    store: StoreHandle,
+) -> (ComponentSection, bool) {
+    // TODO: This needs to be recursive somehow... (should be tested by a.wast)
+    //       Might also fix issue noted in collect_section?
     match ty {
         ComponentType::Component(decls) => {
-            let space_id = handle.borrow_mut().new_scope();
-            let section = ComponentSection::ComponentType(Some(space_id.clone()));
+            let space_id = store.borrow_mut().new_scope();
+            let section = ComponentSection::ComponentType;
+            registry.borrow_mut().register(ty, space_id);
+            assert_registered_with_id!(registry, ty, space_id);
+            println!("\t@parse COMP_TYPE ADDR: {:p}", ty);
+
             for (idx, decl) in decls.iter().enumerate() {
                 populate_space_for_comp_ty_comp_decl(
                     idx,
                     &space_id,
                     decl,
                     &section,
-                    handle.clone(),
+                    registry.clone(),
+                    store.clone(),
                 );
             }
 
-            section
+            (section, true)
         }
         ComponentType::Instance(decls) => {
-            let space_id = handle.borrow_mut().new_scope();
-            let section = ComponentSection::ComponentType(Some(space_id.clone()));
+            let space_id = store.borrow_mut().new_scope();
+            let section = ComponentSection::ComponentType;
+            registry.borrow_mut().register(ty, space_id);
+            assert_registered_with_id!(registry, ty, space_id);
+            println!("\t@parse COMP_TYPE ADDR: {:p}", ty);
+
+            assert_eq!(space_id, registry.borrow().scope_entry(ty).unwrap().space);
             for (idx, decl) in decls.iter().enumerate() {
                 populate_space_for_comp_ty_inst_decl(
                     idx,
                     &space_id,
                     decl,
                     &section,
-                    handle.clone(),
+                    registry.clone(),
+                    store.clone(),
                 );
             }
 
-            section
+            (section, true)
         }
-        _ => ComponentSection::ComponentType(None),
+        _ => (ComponentSection::ComponentType, false)
     }
 }
 
@@ -89,12 +87,21 @@ fn populate_space_for_comp_ty_comp_decl(
     space_id: &SpaceId,
     decl: &ComponentTypeDeclaration,
     section: &ComponentSection,
+    registry: RegistryHandle,
     handle: StoreHandle,
 ) {
     let space = decl.index_space_of();
     handle
         .borrow_mut()
         .assign_assumed_id(space_id, &space, section, idx);
+
+    match decl {
+        ComponentTypeDeclaration::CoreType(ty) => { populate_space_for_core_ty(ty, registry, handle); },
+        ComponentTypeDeclaration::Type(ty) => { populate_space_for_comp_ty(ty, registry, handle); },
+        ComponentTypeDeclaration::Alias(_)
+        | ComponentTypeDeclaration::Export { .. }
+        | ComponentTypeDeclaration::Import(_) => {},
+    }
 }
 
 fn populate_space_for_comp_ty_inst_decl(
@@ -102,26 +109,40 @@ fn populate_space_for_comp_ty_inst_decl(
     space_id: &SpaceId,
     decl: &InstanceTypeDeclaration,
     section: &ComponentSection,
+    registry: RegistryHandle,
     handle: StoreHandle,
 ) {
     let space = decl.index_space_of();
     handle
         .borrow_mut()
         .assign_assumed_id(space_id, &space, section, idx);
+
+    match decl {
+        InstanceTypeDeclaration::CoreType(ty) => { populate_space_for_core_ty(ty, registry, handle); },
+        InstanceTypeDeclaration::Type(ty) => { populate_space_for_comp_ty(ty, registry, handle); },
+        InstanceTypeDeclaration::Alias(_)
+        | InstanceTypeDeclaration::Export { .. } => {}
+    }
 }
 
-pub(crate) fn populate_space_for_core_ty(ty: &CoreType, handle: StoreHandle) -> ComponentSection {
+pub(crate) fn populate_space_for_core_ty(ty: &CoreType, registry: RegistryHandle, handle: StoreHandle) -> (ComponentSection, bool) {
+    // TODO: This needs to be recursive somehow... (should be tested by a.wast)
+    //       Might also fix issue noted in collect_section?
     match ty {
         CoreType::Module(decls) => {
             let space_id = handle.borrow_mut().new_scope();
-            let section = ComponentSection::CoreType(Some(space_id.clone()));
+            let section = ComponentSection::CoreType;
+            registry.borrow_mut().register(ty, space_id);
+            assert_registered_with_id!(registry, ty, space_id);
+            println!("\t@parse CORE_TYPE ADDR: {:p}", ty);
+
             for (idx, decl) in decls.iter().enumerate() {
                 populate_space_for_core_module_decl(idx, &space_id, decl, &section, handle.clone());
             }
 
-            section
+            (section, true)
         }
-        _ => ComponentSection::CoreType(None),
+        _ => (ComponentSection::CoreType, false)
     }
 }
 

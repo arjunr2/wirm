@@ -1,7 +1,6 @@
-use crate::encode::component::collect::{ComponentItem, ComponentPlan};
+use crate::encode::component::collect::{ComponentItem, ComponentPlan, SubItemPlan};
 use crate::encode::component::fix_indices::FixIndices;
-use crate::encode::component::SpaceStack;
-use crate::ir::component::idx_spaces::StoreHandle;
+use crate::encode::component::EncodeCtx;
 use crate::ir::types::CustomSection;
 use crate::{Component, Module};
 use wasm_encoder::reencode::{Reencode, ReencodeComponent, RoundtripReencoder};
@@ -71,30 +70,30 @@ use wasmparser::{
 pub(crate) fn encode_internal<'a>(
     comp: &Component,
     plan: &ComponentPlan<'a>,
-    space_stack: &mut SpaceStack,
-    handle: StoreHandle,
+    ctx: &mut EncodeCtx,
 ) -> wasm_encoder::Component {
     let mut component = wasm_encoder::Component::new();
     let mut reencode = RoundtripReencoder;
 
+    println!();
     for item in &plan.items {
+        println!("{item:?} Encoding!");
         match item {
             ComponentItem::Component {
                 node,
                 plan: subplan,
-                space_id: sub_space_id,
+                // space_id: sub_space_id,
                 ..
             } => unsafe {
                 // CREATES A NEW IDX SPACE SCOPE
                 let subcomp: &Component = &**node;
-                space_stack.enter_space(*sub_space_id);
+                // ctx.maybe_enter_scope(subcomp);
                 component.section(&NestedComponentSection(&encode_internal(
                     subcomp,
                     subplan,
-                    space_stack,
-                    handle.clone(),
+                    ctx
                 )));
-                space_stack.exit_space();
+                // ctx.maybe_exit_scope(subcomp);
             },
             ComponentItem::Module { node, .. } => unsafe {
                 let t: &Module = &**node;
@@ -104,74 +103,68 @@ pub(crate) fn encode_internal<'a>(
             },
             ComponentItem::CompType {
                 node,
-                space_id: sub_space_id,
+                // subspace,
+                subitem_plan,
                 ..
             } => unsafe {
                 // CREATES A NEW IDX SPACE SCOPE (if Type::Component or Type::Instance)
                 let t: &ComponentType = &**node;
-                if let Some(sub_space_id) = sub_space_id {
-                    space_stack.enter_space(*sub_space_id);
-                }
-                let fixed = t.fix(handle.borrow().get(&space_stack.curr_space_id()));
-                if sub_space_id.is_some() {
-                    space_stack.exit_space();
-                }
-                encode_comp_ty_section(&fixed, &mut component, &mut reencode);
+                // ctx.maybe_enter_scope(t);
+                let fixed = t.fix(subitem_plan, ctx);
+                // ctx.maybe_exit_scope(t);
+                encode_comp_ty_section(&fixed, subitem_plan, &mut component, &mut reencode);
             },
             ComponentItem::CompInst { node, .. } => unsafe {
                 let i: &ComponentInstance = &**node;
-                let fixed = i.fix(handle.borrow().get(&space_stack.curr_space_id()));
+                let fixed = i.fix(&None, ctx);
                 encode_comp_inst_section(&fixed, &mut component, &mut reencode);
             },
             ComponentItem::CanonicalFunc { node, .. } => unsafe {
                 let f: &CanonicalFunction = &**node;
-                let fixed = f.fix(handle.borrow().get(&space_stack.curr_space_id()));
+                let fixed = f.fix(&None, ctx);
                 encode_canon_section(&fixed, &mut component, &mut reencode);
             },
             ComponentItem::Alias { node, .. } => unsafe {
                 let a: &ComponentAlias = &**node;
-                let fixed = a.fix(handle.borrow().get(&space_stack.curr_space_id()));
+                let fixed = a.fix(&None, ctx);
                 encode_alias_section(&fixed, &mut component, &mut reencode);
             },
             ComponentItem::Import { node, .. } => unsafe {
                 let i: &ComponentImport = &**node;
-                let fixed = i.fix(handle.borrow().get(&space_stack.curr_space_id()));
+                let fixed = i.fix(&None, ctx);
                 encode_comp_import_section(&fixed, &mut component, &mut reencode);
             },
             ComponentItem::Export { node, .. } => unsafe {
                 let e: &ComponentExport = &**node;
-                let fixed = e.fix(handle.borrow().get(&space_stack.curr_space_id()));
+                let fixed = e.fix(&None, ctx);
                 encode_comp_export_section(&fixed, &mut component, &mut reencode);
             },
             ComponentItem::CoreType {
                 node,
-                space_id: sub_space_id,
+                // subspace,
+                subitem_plan,
                 ..
             } => unsafe {
                 // If this is a CoreType::Module, CREATES A NEW IDX SPACE SCOPE
                 let t: &CoreType = &**node;
-                if let Some(sub_space_id) = sub_space_id {
-                    space_stack.enter_space(*sub_space_id);
-                }
-                let fixed = t.fix(handle.borrow().get(&space_stack.curr_space_id()));
-                if sub_space_id.is_some() {
-                    space_stack.exit_space();
-                }
-                encode_core_ty_section(&fixed, &mut component, &mut reencode);
+                // ctx.maybe_enter_scope(t);
+                let fixed = t.fix(subitem_plan, ctx);
+                // ctx.maybe_exit_scope(t);
+                encode_core_ty_section(&fixed, subitem_plan, &mut component, &mut reencode);
             },
             ComponentItem::Inst { node, .. } => unsafe {
                 let i: &Instance = &**node;
-                let fixed = i.fix(handle.borrow().get(&space_stack.curr_space_id()));
+                let fixed = i.fix(&None, ctx);
                 encode_inst_section(&fixed, &mut component, &mut reencode);
             },
             ComponentItem::Start { node, .. } => unsafe {
                 let f: &ComponentStartFunction = &**node;
-                let fixed = f.fix(handle.borrow().get(&space_stack.curr_space_id()));
+                let fixed = f.fix(&None, ctx);
                 encode_start_section(&fixed, &mut component, &mut reencode);
             },
             ComponentItem::CustomSection { node, .. } => unsafe {
                 let c: &CustomSection = &**node;
-                let fixed = c.fix(handle.borrow().get(&space_stack.curr_space_id()));
+                let fixed = c.fix(&None, ctx);
                 encode_custom_section(&fixed, &mut component, &mut reencode);
             },
         }
@@ -211,6 +204,7 @@ fn encode_module_section(module: &Module, component: &mut wasm_encoder::Componen
 }
 fn encode_comp_ty_section(
     comp_ty: &ComponentType,
+    plan: &Option<SubItemPlan>,
     component: &mut wasm_encoder::Component,
     reencode: &mut RoundtripReencoder,
 ) {
@@ -221,17 +215,19 @@ fn encode_comp_ty_section(
             encode_comp_defined_ty(comp_ty, section.defined_type(), reencode)
         }
         ComponentType::Func(func_ty) => encode_comp_func_ty(func_ty, section.function(), reencode),
-        ComponentType::Component(comp) => {
+        ComponentType::Component(decls) => {
             let mut new_comp = wasm_encoder::ComponentType::new();
-            for c in comp.iter() {
-                encode_comp_ty_decl(c, &mut new_comp, component, reencode);
+            for (idx, subplan) in plan.as_ref().unwrap().order().iter() {
+                let decl = &decls[*idx];
+                encode_comp_ty_decl(decl, subplan, &mut new_comp, component, reencode);
             }
             section.component(&new_comp);
         }
-        ComponentType::Instance(inst) => {
+        ComponentType::Instance(decls) => {
             let mut ity = InstanceType::new();
-            for i in inst.iter() {
-                encode_inst_ty_decl(i, &mut ity, component, reencode);
+            for (idx, subplan) in plan.as_ref().unwrap().order().iter() {
+                let decl = &decls[*idx];
+                encode_inst_ty_decl(decl, subplan, &mut ity, component, reencode);
             }
             section.instance(&ity);
         }
@@ -530,13 +526,14 @@ fn encode_comp_export_section(
 }
 fn encode_core_ty_section(
     core_ty: &CoreType,
+    plan: &Option<SubItemPlan>,
     component: &mut wasm_encoder::Component,
     reencode: &mut RoundtripReencoder,
 ) {
     let mut type_section = CoreTypeSection::new();
     match core_ty {
         CoreType::Rec(group) => encode_rec_group_in_core_ty(group, &mut type_section, reencode),
-        CoreType::Module(decls) => encode_module_type_decls(decls, type_section.ty(), reencode),
+        CoreType::Module(decls) => encode_module_type_decls(plan, decls, type_section.ty(), reencode),
     }
     component.section(&type_section);
 }
@@ -656,16 +653,17 @@ fn encode_comp_func_ty(
 
 fn encode_comp_ty_decl(
     ty: &ComponentTypeDeclaration,
+    subitem_plan: &Option<SubItemPlan>,
     new_comp_ty: &mut wasm_encoder::ComponentType,
     component: &mut wasm_encoder::Component,
     reencode: &mut RoundtripReencoder,
 ) {
     match ty {
         ComponentTypeDeclaration::CoreType(core_ty) => {
-            encode_core_ty_in_comp_ty(core_ty, new_comp_ty, reencode)
+            encode_core_ty_in_comp_ty(core_ty, subitem_plan, new_comp_ty, reencode)
         }
         ComponentTypeDeclaration::Type(comp_ty) => {
-            encode_comp_ty(comp_ty, new_comp_ty.ty(), component, reencode)
+            encode_comp_ty(comp_ty, subitem_plan, new_comp_ty.ty(), component, reencode)
         }
         ComponentTypeDeclaration::Alias(a) => encode_alias_in_comp_ty(a, new_comp_ty, reencode),
         ComponentTypeDeclaration::Export { name, ty } => {
@@ -715,6 +713,7 @@ fn encode_rec_group_in_core_ty(
 
 fn encode_core_ty_in_comp_ty(
     core_ty: &CoreType,
+    subitem_plan: &Option<SubItemPlan>,
     comp_ty: &mut wasm_encoder::ComponentType,
     reencode: &mut RoundtripReencoder,
 ) {
@@ -724,23 +723,24 @@ fn encode_core_ty_in_comp_ty(
                 encode_subtype(sub, comp_ty.core_type().core(), reencode);
             }
         }
-        CoreType::Module(decls) => encode_module_type_decls(decls, comp_ty.core_type(), reencode),
+        CoreType::Module(decls) => encode_module_type_decls(subitem_plan, decls, comp_ty.core_type(), reencode),
     }
 }
 
 fn encode_inst_ty_decl(
     inst: &InstanceTypeDeclaration,
+    subitem_plan: &Option<SubItemPlan>,
     ity: &mut InstanceType,
     component: &mut wasm_encoder::Component,
     reencode: &mut RoundtripReencoder,
 ) {
     match inst {
         InstanceTypeDeclaration::CoreType(core_ty) => {
-            encode_core_ty_in_inst_ty(core_ty, ity, reencode)
+            encode_core_ty_in_inst_ty(core_ty, subitem_plan, ity, reencode)
         }
         InstanceTypeDeclaration::Type(ty) => {
             let enc = ity.ty();
-            encode_comp_ty(ty, enc, component, reencode);
+            encode_comp_ty(ty, subitem_plan, enc, component, reencode);
         }
         InstanceTypeDeclaration::Alias(alias) => match alias {
             ComponentAlias::InstanceExport {
@@ -794,6 +794,7 @@ fn encode_inst_ty_decl(
 }
 fn encode_core_ty_in_inst_ty(
     core_ty: &CoreType,
+    subitem_plan: &Option<SubItemPlan>,
     inst_ty: &mut InstanceType,
     reencode: &mut RoundtripReencoder,
 ) {
@@ -803,12 +804,13 @@ fn encode_core_ty_in_inst_ty(
                 encode_subtype(sub, inst_ty.core_type().core(), reencode);
             }
         }
-        CoreType::Module(decls) => encode_module_type_decls(decls, inst_ty.core_type(), reencode),
+        CoreType::Module(decls) => encode_module_type_decls(subitem_plan, decls, inst_ty.core_type(), reencode),
     }
 }
 
 fn encode_comp_ty(
     ty: &ComponentType,
+    subitem_plan: &Option<SubItemPlan>,
     enc: ComponentTypeEncoder,
     component: &mut wasm_encoder::Component,
     reencode: &mut RoundtripReencoder,
@@ -818,18 +820,21 @@ fn encode_comp_ty(
             encode_comp_defined_ty(comp_ty, enc.defined_type(), reencode)
         }
         ComponentType::Func(func_ty) => encode_comp_func_ty(func_ty, enc.function(), reencode),
-        ComponentType::Component(comp) => {
+        ComponentType::Component(decls) => {
             let mut new_comp = wasm_encoder::ComponentType::new();
-            for c in comp.iter() {
-                encode_comp_ty_decl(c, &mut new_comp, component, reencode);
+            for (idx, subplan) in subitem_plan.as_ref().unwrap().order().iter() {
+                encode_comp_ty_decl(&decls[*idx], subplan, &mut new_comp, component, reencode);
             }
             enc.component(&new_comp);
         }
-        ComponentType::Instance(inst) => {
+        ComponentType::Instance(decls) => {
             let mut ity = InstanceType::new();
-            for i in inst.iter() {
-                encode_inst_ty_decl(i, &mut ity, component, reencode);
+            if let Some(subplan) = subitem_plan {
+                for (idx, subplan) in subplan.order().iter() {
+                    encode_inst_ty_decl(&decls[*idx], subplan, &mut ity, component, reencode);
+                }
             }
+
             enc.instance(&ity);
         }
         ComponentType::Resource { rep, dtor } => {
@@ -897,13 +902,14 @@ pub fn into_wasm_encoder_recgroup(
 /// it must only add new module type declarations, it cannot edit already existing
 /// ones. And it must make sure that the dependencies are added in-order.
 pub fn encode_module_type_decls(
-    module: &[wasmparser::ModuleTypeDeclaration],
+    subitem_plan: &Option<SubItemPlan>,
+    decls: &[wasmparser::ModuleTypeDeclaration],
     enc: ComponentCoreTypeEncoder,
     reencode: &mut RoundtripReencoder,
 ) {
     let mut mty = wasm_encoder::ModuleType::new();
-    for m in module.iter() {
-        match m {
+    for (idx, subplan) in subitem_plan.as_ref().unwrap().order().iter() {
+        match &decls[*idx] {
             wasmparser::ModuleTypeDeclaration::Type(recgroup) => {
                 let types = into_wasm_encoder_recgroup(recgroup, reencode);
 

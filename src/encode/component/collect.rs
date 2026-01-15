@@ -2,16 +2,17 @@
 #[rustfmt::skip]
 
 use crate::ir::component::idx_spaces::{ReferencedIndices, Space, SpaceSubtype};
-use crate::encode::component::SpaceStack;
-use crate::ir::component::idx_spaces::{SpaceId, StoreHandle};
+use crate::encode::component::{EncodeCtx, SpaceStack};
+use crate::ir::component::idx_spaces::{Depth, SpaceId, StoreHandle};
+use crate::ir::component::scopes::{GetScopeKind, RegistryHandle};
 use crate::ir::component::section::ComponentSection;
 use crate::ir::types::CustomSection;
-use crate::{Component, Module};
-use std::collections::HashMap;
-use wasmparser::{
-    CanonicalFunction, ComponentAlias, ComponentExport, ComponentImport, ComponentInstance,
-    ComponentStartFunction, ComponentType, CoreType, Instance,
-};
+use crate::{assert_registered, Component, Module};
+use std::collections::{HashMap, HashSet};
+use std::fmt::Debug;
+use log::debug;
+use wasmparser::{CanonicalFunction, ComponentAlias, ComponentExport, ComponentImport, ComponentInstance, ComponentStartFunction, ComponentType, ComponentTypeDeclaration, CoreType, Instance, InstanceTypeDeclaration, ModuleTypeDeclaration};
+use crate::ir::component::ComponentHandle;
 
 /// A trait for each IR node to implement --> The node knows how to `collect` itself.
 /// Passes the collection context AND a pointer to the containing Component
@@ -20,15 +21,29 @@ trait Collect<'a> {
         &'a self,
         idx: usize,
         space_id: Option<SpaceId>,
-        ctx: &mut CollectCtx<'a>,
+        subitem_order: Option<SubItemPlan>,
+        collect_ctx: &mut CollectCtx<'a>,
+        ctx: &mut EncodeCtx,
         comp: &'a Component<'a>,
     );
 }
 
+trait CollectSubItem<'a> {
+    fn collect_subitem(
+        &'a self,
+        idx: usize,
+        collect_ctx: &mut CollectCtx<'a>,
+        ctx: &mut EncodeCtx
+    ) -> Option<SubItemPlan>;
+}
+
 impl Component<'_> {
     /// This is the entrypoint for collecting a component!
-    pub(crate) fn collect_root<'a>(&'a self, ctx: &mut CollectCtx<'a>) {
-        self.collect(0, Some(self.space_id), ctx, self) // pass self as “container”
+    pub(crate) fn collect_root(&self, ctx: &mut EncodeCtx) -> ComponentPlan {
+        // I'm already in the root scope of the component at this point.
+        let mut collect_ctx = CollectCtx::default();
+        self.collect(0, Some(self.space_id), None, &mut collect_ctx, ctx, self); // pass self as “container”
+        collect_ctx.plan
     }
 }
 
@@ -37,17 +52,21 @@ impl<'a> Collect<'a> for Component<'a> {
         &'a self,
         _idx: usize,
         _: Option<SpaceId>,
-        ctx: &mut CollectCtx<'a>,
+        _: Option<SubItemPlan>,
+        collect_ctx: &mut CollectCtx<'a>,
+        ctx: &mut EncodeCtx,
         _comp: &'a Component<'a>,
     ) {
+        // ctx.maybe_enter_scope(self);
+
         let ptr = self as *const _;
-        if ctx.seen.components.contains_key(&ptr) {
+        if collect_ctx.seen.components.contains_key(&ptr) {
             return;
         }
 
         // Collect dependencies first (in the order of the sections)
         for (num, section) in self.sections.iter() {
-            let (start_idx, space) = {
+            let start_idx = {
                 let mut store = ctx.store.borrow_mut();
                 let indices = {
                     store
@@ -58,60 +77,64 @@ impl<'a> Collect<'a> for Component<'a> {
                 indices.visit_section(section, *num as usize)
             };
 
-            if let Some(space) = space {
-                ctx.space_stack.enter_space(space);
-            }
-
             println!("{section:?} Collecting {num} nodes starting @{start_idx}");
             match section {
                 ComponentSection::Module => {
-                    collect_vec(start_idx, *num as usize, &self.modules, ctx, None, &self);
+                    collect_vec(start_idx, *num as usize, &self.modules, collect_ctx, ctx, None, None, &self);
                 }
-                ComponentSection::CoreType(_) => {
+                ComponentSection::CoreType {..} => {
                     collect_vec(
                         start_idx,
                         *num as usize,
                         &self.core_types,
+                        collect_ctx,
                         ctx,
-                        space,
+                        None,
+                        None,
                         &self,
                     );
                 }
-                ComponentSection::ComponentType(_) => {
+                ComponentSection::ComponentType {..} => {
                     collect_vec(
                         start_idx,
                         *num as usize,
                         &self.component_types.items,
+                        collect_ctx,
                         ctx,
-                        space,
+                        None,
+                        None,
                         &self,
                     );
                 }
                 ComponentSection::ComponentImport => {
-                    collect_vec(start_idx, *num as usize, &self.imports, ctx, None, &self);
+                    collect_vec(start_idx, *num as usize, &self.imports, collect_ctx, ctx, None, None, &self);
                 }
                 ComponentSection::ComponentExport => {
-                    collect_vec(start_idx, *num as usize, &self.exports, ctx, None, &self);
+                    collect_vec(start_idx, *num as usize, &self.exports, collect_ctx, ctx, None, None, &self);
                 }
                 ComponentSection::ComponentInstance => {
                     collect_vec(
                         start_idx,
                         *num as usize,
                         &self.component_instance,
+                        collect_ctx,
                         ctx,
+                        None,
                         None,
                         &self,
                     );
                 }
                 ComponentSection::CoreInstance => {
-                    collect_vec(start_idx, *num as usize, &self.instances, ctx, None, &self);
+                    collect_vec(start_idx, *num as usize, &self.instances, collect_ctx, ctx, None, None, &self);
                 }
                 ComponentSection::Alias => {
                     collect_vec(
                         start_idx,
                         *num as usize,
                         &self.alias.items,
+                        collect_ctx,
                         ctx,
+                        None,
                         None,
                         &self,
                     );
@@ -121,7 +144,9 @@ impl<'a> Collect<'a> for Component<'a> {
                         start_idx,
                         *num as usize,
                         &self.canons.items,
+                        collect_ctx,
                         ctx,
+                        None,
                         None,
                         &self,
                     );
@@ -131,7 +156,9 @@ impl<'a> Collect<'a> for Component<'a> {
                         start_idx,
                         *num as usize,
                         &self.start_section,
+                        collect_ctx,
                         ctx,
+                        None,
                         None,
                         &self,
                     );
@@ -141,12 +168,14 @@ impl<'a> Collect<'a> for Component<'a> {
                         start_idx,
                         *num as usize,
                         &self.custom_sections.custom_sections,
+                        collect_ctx,
                         ctx,
+                        None,
                         None,
                         &self,
                     );
                 }
-                ComponentSection::Component(_) => {
+                ComponentSection::Component => {
                     // CREATES A NEW IDX SPACE SCOPE
                     assert!(start_idx + *num as usize <= self.components.len());
 
@@ -154,163 +183,395 @@ impl<'a> Collect<'a> for Component<'a> {
                         let idx = start_idx + i as usize;
                         let c = &self.components[idx];
 
-                        let ptr = c as *const _;
+                        // let ptr = c as *const _;
                         // Check if i've seen this subcomponent before during MY visitation
-                        if ctx.seen.components.contains_key(&ptr) {
+                        if collect_ctx.seen.components.contains_key(&ptr) {
                             return;
                         }
 
-                        let mut subctx = CollectCtx::new(c);
-                        c.collect(idx, space, &mut subctx, &self);
+                        let mut subcollect_ctx = CollectCtx::default();
+                        let mut subctx = EncodeCtx::new(c);
+                        c.collect(idx, None, None, &mut subcollect_ctx, &mut subctx, &self);
 
                         // I want to add this subcomponent to MY plan (not the subplan)
-                        ctx.plan.items.push(ComponentItem::Component {
-                            node: c as *const _,
-                            plan: subctx.plan,
+                        collect_ctx.plan.items.push(ComponentItem::Component {
+                            node: c.clone(),
+                            plan: subcollect_ctx.plan,
                             idx,
-                            space_id: space.unwrap(),
+                            // space_id: space.unwrap(),
                         });
 
                         // Remember that I've seen this component before in MY plan
-                        ctx.seen.components.insert(ptr, idx);
+                        collect_ctx.seen.components.insert(ptr, idx);
                     }
                 }
             }
 
-            if let Some(space) = space {
-                // Exit the nested index space...should be equivalent
-                // to what we entered at the beginning of this function.
-                assert_eq!(space, ctx.space_stack.exit_space());
-            }
+            // if let Some(space) = space {
+            //     // Exit the nested index space...should be equivalent
+            //     // to what we entered at the beginning of this function.
+            //     assert_eq!(space, ctx.space_stack.exit_space());
+            // }
         }
+
+        // ctx.maybe_exit_scope(self);
     }
 }
 
 #[rustfmt::skip]
-fn collect_section<'a, N: ReferencedIndices + 'a>(node: &'a N, idx: usize, space_id: Option<SpaceId>, ctx: &mut CollectCtx<'a>, comp: &'a Component<'a>, create_ptr: fn(*const N) -> TrackedItem<'a>, create_item: fn(*const N, usize, Option<SpaceId>) -> ComponentItem<'a>) {
+fn collect_section<'a, N: GetScopeKind + ReferencedIndices + 'a>(
+    node: &'a N,
+    idx: usize,
+    subitem_order: Option<SubItemPlan>,
+    collect_ctx: &mut CollectCtx<'a>,
+    ctx: &mut EncodeCtx,
+    comp: &'a Component<'a>,
+    create_ptr: fn(*const N) -> TrackedItem<'a>,
+    create_item: fn(*const N, usize, Option<SubItemPlan>) -> ComponentItem<'a>
+) {
     let ptr = node as *const _;
     let r = create_ptr(ptr);
-    if ctx.seen.contains_key(&r) {
+    if collect_ctx.seen.contains_key(&r) {
         return;
     }
     // assign a temporary index during collection
-    ctx.seen.insert(r, idx);
+    collect_ctx.seen.insert(r, idx);
 
     // Collect dependencies first
-    if space_id.is_none() {
-        collect_deps(node, ctx, comp);
-    } else {
-        // TODO: Do I need to handle this or not?
-        // If so, I'd need to rewrite quite a bit of the IR.
-        // Basically this would let me plan the order of encoding
-        // items INSIDE some nested scoped index space.
-        //
-        // ignore for now...
-    }
+    ctx.maybe_enter_scope(node);
+    collect_deps(node, collect_ctx, ctx, comp);
+    ctx.maybe_exit_scope(node);
 
     // push to ordered plan
-    ctx.plan.items.push(create_item(ptr, idx, space_id));
+    collect_ctx.plan.items.push(create_item(ptr, idx, subitem_order));
 }
+
+// fn collect_subitems<'a, N: ReferencedIndices + 'a>(
+//     node: &'a N, idx: usize,
+//     subspace: Option<SubSpace>,
+//     subitem_order: SubItemOrder,
+//     ctx: &mut CollectCtx<'a>,
+//     comp: &'a Component<'a>,
+//     create_ptr: fn(*const N) -> TrackedSubItem<'a>,
+//     create_item: fn(*const N, usize, Option<SubSpace>, Option<SubItemOrder>) -> ComponentItem<'a>
+// ) {
+//     let ptr = node as *const _;
+//     let r = create_ptr(ptr);
+//     if ctx.seen.contains_key(&r) {
+//         return;
+//     }
+//     // assign a temporary index during collection
+//     ctx.seen.insert(r, idx);
+//
+//     // Collect dependencies first
+//     collect_deps(node, ctx, comp);
+//
+//     // push to ordered plan
+//     ctx.plan.items.push(create_item(ptr, idx, subspace, subitem_order));
+// }
 
 impl<'a> Collect<'a> for Module<'a> {
     #[rustfmt::skip]
-    fn collect(&'a self, idx: usize, space_id: Option<SpaceId>, ctx: &mut CollectCtx<'a>, comp: &'a Component<'a>) {
-        collect_section(self, idx, space_id, ctx, comp, TrackedItem::new_module, ComponentItem::new_module);
+    fn collect(&'a self, idx: usize, space_id: Option<SpaceId>, subitem_order: Option<SubItemPlan>, collect_ctx: &mut CollectCtx<'a>, ctx: &mut EncodeCtx, comp: &'a Component<'a>) {
+        collect_section(self, idx, subitem_order, collect_ctx, ctx, comp, TrackedItem::new_module, ComponentItem::new_module);
     }
 }
 
 impl<'a> Collect<'a> for ComponentType<'a> {
-    #[rustfmt::skip]
-    fn collect(&'a self, idx: usize, space_id: Option<SpaceId>, ctx: &mut CollectCtx<'a>, comp: &'a Component<'a>) {
-        collect_section(self, idx, space_id, ctx, comp, TrackedItem::new_comp_type, ComponentItem::new_comp_type);
+    // #[rustfmt::skip]
+    fn collect(&'a self, idx: usize, space_id: Option<SpaceId>, subitem_order: Option<SubItemPlan>, collect_ctx: &mut CollectCtx<'a>, ctx: &mut EncodeCtx, comp: &'a Component<'a>) {
+        let ptr = self as *const _;
+        let r = TrackedItem::new_comp_type(ptr);
+        if collect_ctx.seen.contains_key(&r) {
+            return;
+        }
+        // assign a temporary index during collection
+        collect_ctx.seen.insert(r, idx);
+
+        // Either create a new ordering context or thread through from higher up
+
+        let subitem_order = self.collect_subitem(idx, collect_ctx, ctx);
+        // let subitem_order = match self {
+        //     ComponentType::Component(decls) => todo!(),
+        //     ComponentType::Instance(decls) => {
+        //         let mut subitems = if let Some(order) = subitem_order {
+        //             order
+        //         } else {
+        //             SubItemPlan::default()
+        //         };
+        //
+        //         // let scope_entry = ctx.registry.borrow().scope_entry(self);
+        //         // if let Some(scope_entry) = scope_entry {
+        //         //     ctx.space_stack.enter_space(scope_entry.space);
+        //         // }
+        //         for (decl_idx, decl) in decls.iter().enumerate() {
+        //             // let inner_space = subspace.as_ref().unwrap().subspaces.get(&decl_idx).cloned();
+        //             // let space = if let Some(inner_space) = &inner_space {
+        //             //     inner_space
+        //             // } else {
+        //             //     outer_space
+        //             // };
+        //
+        //             // TODO: To support (outer ...) maybe have this return a Vec<Ref> to collect
+        //             //       at this point? Then the plan would have those component-level items first!
+        //             match decl {
+        //                 InstanceTypeDeclaration::CoreType(ty) => ctx.maybe_enter_scope(ty),
+        //                 InstanceTypeDeclaration::Type(ty) => ctx.maybe_enter_scope(ty),
+        //                 InstanceTypeDeclaration::Alias(_)
+        //                 | InstanceTypeDeclaration::Export { .. } => {}
+        //             }
+        //             collect_subitem(decl, decl_idx, decls, &SubSpace::default(), &mut subitems, ctx, TrackedSubItem::new_inst_type_decl);
+        //             match decl {
+        //                 InstanceTypeDeclaration::CoreType(ty) => ctx.maybe_exit_scope(ty),
+        //                 InstanceTypeDeclaration::Type(ty) => ctx.maybe_exit_scope(ty),
+        //                 InstanceTypeDeclaration::Alias(_)
+        //                 | InstanceTypeDeclaration::Export { .. } => {}
+        //             }
+        //
+        //             // let ptr = decl as *const _;
+        //             // let r = TrackedSubItem::InstTypeDecl(ptr);
+        //             // if ctx.seen.contains_subitem_key(&r) {
+        //             //     continue;
+        //             // }
+        //             // // assign a temporary index during collection
+        //             // ctx.seen.insert_subitem(r, decl_idx);
+        //             //
+        //             // // Collect dependencies first
+        //             // collect_subitem_deps(decl, space.clone(), ctx, decls);
+        //             //
+        //             // // push to ordered plan
+        //             // subitems.order.push((decl_idx, None));
+        //         }
+        //         // if scope_entry.is_some() {
+        //         //     ctx.space_stack.exit_space();
+        //         // }
+        //
+        //         Some(subitems)
+        //     },
+        //     ComponentType::Defined(_)
+        //     | ComponentType::Func(_)
+        //     | ComponentType::Resource { .. } => None
+        // };
+        collect_ctx.plan.items.push(ComponentItem::new_comp_type(self as *const _, idx, subitem_order));
+    }
+}
+impl<'a> CollectSubItem<'a> for ComponentType<'a> {
+    fn collect_subitem(&'a self, idx: usize, collect_ctx: &mut CollectCtx<'a>, ctx: &mut EncodeCtx) -> Option<SubItemPlan> {
+
+        // Either create a new ordering context or thread through from higher up
+        match self {
+            ComponentType::Component(decls) => todo!(),
+            ComponentType::Instance(decls) => {
+                ctx.maybe_enter_scope(self);
+                println!("\t@collect COMP_TYPE ADDR: {:p}", self);
+                assert_registered!(ctx.registry, self);
+
+                let subitems = collect_subitem_vec(decls, collect_ctx, ctx);
+                // let mut subitems = SubItemPlan::default();
+                // for (decl_idx, decl) in decls.iter().enumerate() {
+                //
+                //     match decl {
+                //         InstanceTypeDeclaration::CoreType(ty) => ctx.maybe_enter_scope(ty),
+                //         InstanceTypeDeclaration::Type(ty) => ctx.maybe_enter_scope(ty),
+                //         InstanceTypeDeclaration::Alias(_)
+                //         | InstanceTypeDeclaration::Export { .. } => {}
+                //     }
+                //     collect_subitem(decl, decl_idx, decls, &SubSpace::default(), &mut subitems, ctx, TrackedSubItem::new_inst_type_decl);
+                //     match decl {
+                //         InstanceTypeDeclaration::CoreType(ty) => ctx.maybe_exit_scope(ty),
+                //         InstanceTypeDeclaration::Type(ty) => ctx.maybe_exit_scope(ty),
+                //         InstanceTypeDeclaration::Alias(_)
+                //         | InstanceTypeDeclaration::Export { .. } => {}
+                //     }
+                //
+                //     // let ptr = decl as *const _;
+                //     // let r = TrackedSubItem::InstTypeDecl(ptr);
+                //     // if ctx.seen.contains_subitem_key(&r) {
+                //     //     continue;
+                //     // }
+                //     // // assign a temporary index during collection
+                //     // ctx.seen.insert_subitem(r, decl_idx);
+                //     //
+                //     // // Collect dependencies first
+                //     // collect_subitem_deps(decl, space.clone(), ctx, decls);
+                //     //
+                //     // // push to ordered plan
+                //     // subitems.order.push((decl_idx, None));
+                // }
+                ctx.maybe_exit_scope(self);
+                Some(subitems)
+            },
+            ComponentType::Defined(_)
+            | ComponentType::Func(_)
+            | ComponentType::Resource { .. } => None,
+        }
+    }
+}
+
+impl<'a> CollectSubItem<'a> for InstanceTypeDeclaration<'a> {
+    fn collect_subitem(&'a self, idx: usize, collect_ctx: &mut CollectCtx<'a>, ctx: &mut EncodeCtx) -> Option<SubItemPlan> {
+        match self {
+            InstanceTypeDeclaration::CoreType(ty) => ty.collect_subitem(idx, collect_ctx, ctx),
+            InstanceTypeDeclaration::Type(ty) => ty.collect_subitem(idx, collect_ctx, ctx),
+            InstanceTypeDeclaration::Alias(_)
+            | InstanceTypeDeclaration::Export { .. } => None
+        }
+    }
+}
+
+impl<'a> CollectSubItem<'a> for CoreType<'a> {
+    fn collect_subitem(&'a self, idx: usize, collect_ctx: &mut CollectCtx<'a>, ctx: &mut EncodeCtx) -> Option<SubItemPlan> {
+        match self {
+            CoreType::Module(decls) => {
+                ctx.maybe_enter_scope(self);
+                assert_registered!(ctx.registry, self);
+                let mut subitems = SubItemPlan::default();
+                for (decl_idx, decl) in decls.iter().enumerate() {
+
+
+                    // TODO: To support (outer ...) maybe have this return a Vec<Ref> to collect
+                    //       at this point? Then the plan would have those component-level items first!
+                    collect_subitem(decl, decl_idx, decls, &mut subitems, collect_ctx, ctx, TrackedSubItem::new_core_type_module_decl);
+
+
+                    // let ptr = decl as *const _;
+                    // let r = TrackedSubItem::InstTypeDecl(ptr);
+                    // if ctx.seen.contains_subitem_key(&r) {
+                    //     continue;
+                    // }
+                    // // assign a temporary index during collection
+                    // ctx.seen.insert_subitem(r, decl_idx);
+                    //
+                    // // Collect dependencies first
+                    // collect_subitem_deps(decl, space.clone(), ctx, decls);
+                    //
+                    // // push to ordered plan
+                    // subitems.order.push((decl_idx, None));
+                }
+                ctx.maybe_exit_scope(self);
+                Some(subitems)
+            },
+            CoreType::Rec(_) => None
+        }
+    }
+}
+
+impl<'a> CollectSubItem<'a> for ModuleTypeDeclaration<'a> {
+    fn collect_subitem(&'a self, idx: usize, collect_ctx: &mut CollectCtx<'a>, ctx: &mut EncodeCtx) -> Option<SubItemPlan> {
+        match self {
+            ModuleTypeDeclaration::Type(ty) => None, // TODO -- all of these need to actually be done!
+            ModuleTypeDeclaration::OuterAlias { .. } => None,
+            ModuleTypeDeclaration::Export { .. }
+            | ModuleTypeDeclaration::Import(_) => None
+        }
     }
 }
 
 impl<'a> Collect<'a> for ComponentInstance<'a> {
     #[rustfmt::skip]
-    fn collect(&'a self, idx: usize, space_id: Option<SpaceId>, ctx: &mut CollectCtx<'a>, comp: &'a Component<'a>) {
-        collect_section(self, idx, space_id, ctx, comp, TrackedItem::new_comp_inst, ComponentItem::new_comp_inst);
+    fn collect(&'a self, idx: usize, space_id: Option<SpaceId>, subitem_order: Option<SubItemPlan>, collect_ctx: &mut CollectCtx<'a>, ctx: &mut EncodeCtx, comp: &'a Component<'a>) {
+        collect_section(self, idx, subitem_order, collect_ctx, ctx, comp, TrackedItem::new_comp_inst, ComponentItem::new_comp_inst);
     }
 }
 
 impl<'a> Collect<'a> for CanonicalFunction {
     #[rustfmt::skip]
-    fn collect(&'a self, idx: usize, space_id: Option<SpaceId>, ctx: &mut CollectCtx<'a>, comp: &'a Component<'a>) {
-        collect_section(self, idx, space_id, ctx, comp, TrackedItem::new_canon, ComponentItem::new_canon);
+    fn collect(&'a self, idx: usize, space_id: Option<SpaceId>, subitem_order: Option<SubItemPlan>, collect_ctx: &mut CollectCtx<'a>, ctx: &mut EncodeCtx, comp: &'a Component<'a>) {
+        collect_section(self, idx, subitem_order, collect_ctx, ctx, comp, TrackedItem::new_canon, ComponentItem::new_canon);
     }
 }
 
 impl<'a> Collect<'a> for ComponentAlias<'a> {
     #[rustfmt::skip]
-    fn collect(&'a self, idx: usize, space_id: Option<SpaceId>, ctx: &mut CollectCtx<'a>, comp: &'a Component<'a>) {
-        collect_section(self, idx, space_id, ctx, comp, TrackedItem::new_alias, ComponentItem::new_alias);
+    fn collect(&'a self, idx: usize, space_id: Option<SpaceId>, subitem_order: Option<SubItemPlan>, collect_ctx: &mut CollectCtx<'a>, ctx: &mut EncodeCtx, comp: &'a Component<'a>) {
+        collect_section(self, idx, subitem_order, collect_ctx, ctx, comp, TrackedItem::new_alias, ComponentItem::new_alias);
     }
 }
 
 impl<'a> Collect<'a> for ComponentImport<'a> {
     #[rustfmt::skip]
-    fn collect(&'a self, idx: usize, space_id: Option<SpaceId>, ctx: &mut CollectCtx<'a>, comp: &'a Component<'a>) {
-        collect_section(self, idx, space_id, ctx, comp, TrackedItem::new_import, ComponentItem::new_import);
+    fn collect(&'a self, idx: usize, space_id: Option<SpaceId>, subitem_order: Option<SubItemPlan>, collect_ctx: &mut CollectCtx<'a>, ctx: &mut EncodeCtx, comp: &'a Component<'a>) {
+        collect_section(self, idx, subitem_order, collect_ctx, ctx, comp, TrackedItem::new_import, ComponentItem::new_import);
     }
 }
 
 impl<'a> Collect<'a> for ComponentExport<'a> {
     #[rustfmt::skip]
-    fn collect(&'a self, idx: usize, space_id: Option<SpaceId>, ctx: &mut CollectCtx<'a>, comp: &'a Component<'a>) {
-        collect_section(self, idx, space_id, ctx, comp, TrackedItem::new_export, ComponentItem::new_export);
+    fn collect(&'a self, idx: usize, space_id: Option<SpaceId>, subitem_order: Option<SubItemPlan>, collect_ctx: &mut CollectCtx<'a>, ctx: &mut EncodeCtx, comp: &'a Component<'a>) {
+        collect_section(self, idx, subitem_order, collect_ctx, ctx, comp, TrackedItem::new_export, ComponentItem::new_export);
     }
 }
 
 impl<'a> Collect<'a> for CoreType<'a> {
     #[rustfmt::skip]
-    fn collect(&'a self, idx: usize, space_id: Option<SpaceId>, ctx: &mut CollectCtx<'a>, comp: &'a Component<'a>) {
-        collect_section(self, idx, space_id, ctx, comp, TrackedItem::new_core_type, ComponentItem::new_core_type);
+    fn collect(&'a self, idx: usize, space_id: Option<SpaceId>, subitem_order: Option<SubItemPlan>, collect_ctx: &mut CollectCtx<'a>, ctx: &mut EncodeCtx, comp: &'a Component<'a>) {
+        // // Either create a new ordering context or thread through from higher up
+        // let subitems = if let Some(order) = subitem_order {
+        //     order
+        // } else {
+        //     SubItemOrder::default()
+        // };
+        // collect_subitems(self, idx, subitems, ctx, comp, TrackedSubItem::new_core_type_module_decl, ComponentItem::new_core_type);
+        todo!()
     }
 }
 
 impl<'a> Collect<'a> for Instance<'a> {
     #[rustfmt::skip]
-    fn collect(&'a self, idx: usize, space_id: Option<SpaceId>, ctx: &mut CollectCtx<'a>, comp: &'a Component<'a>) {
-        collect_section(self, idx, space_id, ctx, comp, TrackedItem::new_inst, ComponentItem::new_inst);
+    fn collect(&'a self, idx: usize, space_id: Option<SpaceId>, subitem_order: Option<SubItemPlan>, collect_ctx: &mut CollectCtx<'a>, ctx: &mut EncodeCtx, comp: &'a Component<'a>) {
+        collect_section(self, idx, subitem_order, collect_ctx, ctx, comp, TrackedItem::new_inst, ComponentItem::new_inst);
     }
 }
 
 impl<'a> Collect<'a> for CustomSection<'a> {
     #[rustfmt::skip]
-    fn collect(&'a self, idx: usize, space_id: Option<SpaceId>, ctx: &mut CollectCtx<'a>, comp: &'a Component<'a>) {
-        collect_section(self, idx, space_id, ctx, comp, TrackedItem::new_custom, ComponentItem::new_custom);
+    fn collect(&'a self, idx: usize, space_id: Option<SpaceId>, subitem_order: Option<SubItemPlan>, collect_ctx: &mut CollectCtx<'a>, ctx: &mut EncodeCtx, comp: &'a Component<'a>) {
+        collect_section(self, idx, subitem_order, collect_ctx, ctx, comp, TrackedItem::new_custom, ComponentItem::new_custom);
     }
 }
 
 impl<'a> Collect<'a> for ComponentStartFunction {
     #[rustfmt::skip]
-    fn collect(&'a self, idx: usize, space_id: Option<SpaceId>, ctx: &mut CollectCtx<'a>, comp: &'a Component<'a>) {
-        collect_section(self, idx, space_id, ctx, comp, TrackedItem::new_start, ComponentItem::new_start);
+    fn collect(&'a self, idx: usize, space_id: Option<SpaceId>, subitem_order: Option<SubItemPlan>, collect_ctx: &mut CollectCtx<'a>, ctx: &mut EncodeCtx, comp: &'a Component<'a>) {
+        collect_section(self, idx, subitem_order, collect_ctx, ctx, comp, TrackedItem::new_start, ComponentItem::new_start);
     }
+}
+
+fn collect_subitem_vec<'a, T: CollectSubItem<'a> + 'a>(all: &'a Box<[T]>, collect_ctx: &mut CollectCtx<'a>, ctx: &mut EncodeCtx) -> SubItemPlan {
+    let mut subitems = SubItemPlan::default();
+    for (idx, item) in all.iter().enumerate() {
+        subitems.push(idx, item.collect_subitem(idx, collect_ctx, ctx));
+    }
+    subitems
 }
 
 fn collect_vec<'a, T: Collect<'a> + 'a>(
     start: usize,
     num: usize,
     all: &'a Vec<T>,
-    ctx: &mut CollectCtx<'a>,
+    collect_ctx: &mut CollectCtx<'a>,
+    ctx: &mut EncodeCtx,
     space_id: Option<SpaceId>,
+    subitem_order: Option<SubItemPlan>,
     comp: &'a Component<'a>,
 ) {
     assert!(start + num <= all.len(), "{start} + {num} > {}", all.len());
     for i in 0..num {
         let idx = start + i;
-        all[idx].collect(idx, space_id, ctx, comp);
+        let item = &all[idx];
+
+        item.collect(idx, space_id, subitem_order.clone(), collect_ctx, ctx, comp);
     }
 }
 
 fn collect_deps<'a, T: ReferencedIndices + 'a>(
     item: &T,
-    ctx: &mut CollectCtx<'a>,
+    collect_ctx: &mut CollectCtx<'a>,
+    ctx: &mut EncodeCtx,
     comp: &'a Component<'a>,
 ) {
-    if let Some(refs) = item.referenced_indices() {
-        for r in refs.as_list().iter() {
+    if let Some(refs) = item.referenced_indices(Depth::default()) {
+        for (ref_idx, r) in refs.as_list().iter().enumerate() {
             println!("\tLooking up: {r:?}");
             let curr_space_id = ctx.space_stack.curr_space_id();
             let (vec, idx) = {
@@ -319,19 +580,18 @@ fn collect_deps<'a, T: ReferencedIndices + 'a>(
                 indices.index_from_assumed_id(r)
             };
 
-            // TODO: For nested index spaces, dependencies would actually reference their own decls!
             let space = r.space;
             match vec {
                 SpaceSubtype::Main => match space {
                     Space::CompType => {
-                        comp.component_types.items[idx].collect(idx, None, ctx, comp)
+                        comp.component_types.items[idx].collect(idx, None, None, collect_ctx, ctx, comp)
                     }
-                    Space::CompInst => comp.component_instance[idx].collect(idx, None, ctx, comp),
-                    Space::CoreInst => comp.instances[idx].collect(idx, None, ctx, comp),
-                    Space::CoreModule => comp.modules[idx].collect(idx, None, ctx, comp),
-                    Space::CoreType => comp.core_types[idx].collect(idx, None, ctx, comp),
+                    Space::CompInst => comp.component_instance[idx].collect(idx, None, None, collect_ctx, ctx, comp),
+                    Space::CoreInst => comp.instances[idx].collect(idx, None, None, collect_ctx, ctx, comp),
+                    Space::CoreModule => comp.modules[idx].collect(idx, None, None, collect_ctx, ctx, comp),
+                    Space::CoreType => comp.core_types[idx].collect(idx, None, None, collect_ctx, ctx, comp),
                     Space::CompFunc | Space::CoreFunc => {
-                        comp.canons.items[idx].collect(idx, None, ctx, comp)
+                        comp.canons.items[idx].collect(idx, None, None, collect_ctx, ctx, comp)
                     }
                     Space::CompVal
                     | Space::CoreMemory
@@ -342,13 +602,57 @@ fn collect_deps<'a, T: ReferencedIndices + 'a>(
                     ),
                     // Space::NA => continue,
                 },
-                SpaceSubtype::Export => comp.exports[idx].collect(idx, None, ctx, comp),
-                SpaceSubtype::Import => comp.imports[idx].collect(idx, None, ctx, comp),
-                SpaceSubtype::Alias => comp.alias.items[idx].collect(idx, None, ctx, comp),
-                SpaceSubtype::Components => comp.components[idx].collect(idx, None, ctx, comp),
+                SpaceSubtype::Export => comp.exports[idx].collect(idx, None, None, collect_ctx, ctx, comp),
+                SpaceSubtype::Import => comp.imports[idx].collect(idx, None, None, collect_ctx, ctx, comp),
+                SpaceSubtype::Alias => comp.alias.items[idx].collect(idx, None, None, collect_ctx, ctx, comp),
+                SpaceSubtype::Components => comp.components[idx].collect(idx, None, None, collect_ctx, ctx, comp),
             }
         }
     }
+}
+
+fn collect_subitem_deps<'a, T: Debug + ReferencedIndices + CollectSubItem<'a> + 'a>(
+    item : &'a T,
+    subitem_order: &mut SubItemPlan,
+    collect_ctx: &mut CollectCtx<'a>,
+    ctx: &mut EncodeCtx,
+    nodes: &'a [T]
+) {
+    println!("\nAt node: {item:?}");
+    if let Some(refs) = item.referenced_indices(Depth::default()) {
+        for r in refs.as_list().iter() {
+            if r.depth.is_inner() { continue; }
+            println!("\tLooking up: {r:?}");
+            let (vec, idx) = {
+                let mut store = ctx.store.borrow_mut();
+                let scope_id = ctx.space_stack.curr_space_id();
+                let indices = { store.scopes.get_mut(&scope_id).unwrap() };
+                indices.index_from_assumed_id(r)
+            };
+
+            // let subspace = subspace.subspaces.get(&idx).cloned();
+            let idx_order = nodes[idx].collect_subitem(idx, collect_ctx, ctx);
+            // TODO: Do I actually somehow need the below??
+            subitem_order.push(idx, idx_order);
+        }
+    }
+    println!();
+}
+
+fn collect_subitem<'a, N: Debug + ReferencedIndices + CollectSubItem<'a> + 'a>(node: &'a N, idx: usize, nodes: &'a [N], subitem_order: &mut SubItemPlan, collect_ctx: &mut CollectCtx<'a>, ctx: &mut EncodeCtx, create_ptr: fn(*const N) -> TrackedSubItem<'a>) {
+    let ptr = node as *const _;
+    let r = create_ptr(ptr);
+    if collect_ctx.seen.contains_subitem_key(&r) {
+        return;
+    }
+    // assign a temporary index during collection
+    collect_ctx.seen.insert_subitem(r, idx);
+
+    // Collect dependencies first
+    collect_subitem_deps(node, subitem_order, collect_ctx, ctx, nodes);
+
+    // push to ordered plan
+    subitem_order.push(idx, None);
 }
 
 /// `ComponentItem` stores raw pointers to IR nodes (e.g., `CanonicalFunction`, `Module`, `Component`)
@@ -384,10 +688,9 @@ fn collect_deps<'a, T: ReferencedIndices + 'a>(
 #[derive(Debug)]
 pub(crate) enum ComponentItem<'a> {
     Component {
-        node: *const Component<'a>,
+        node: ComponentHandle<'a>,
         plan: ComponentPlan<'a>,
         idx: usize,
-        space_id: SpaceId,
     },
     Module {
         node: *const Module<'a>,
@@ -396,7 +699,7 @@ pub(crate) enum ComponentItem<'a> {
     CompType {
         node: *const ComponentType<'a>,
         idx: usize,
-        space_id: Option<SpaceId>,
+        subitem_plan: Option<SubItemPlan>,
     },
     CompInst {
         node: *const ComponentInstance<'a>,
@@ -423,7 +726,7 @@ pub(crate) enum ComponentItem<'a> {
     CoreType {
         node: *const CoreType<'a>,
         idx: usize,
-        space_id: Option<SpaceId>,
+        subitem_plan: Option<SubItemPlan>,
     },
     Inst {
         node: *const Instance<'a>,
@@ -441,87 +744,116 @@ pub(crate) enum ComponentItem<'a> {
     // ... add others as needed
 }
 impl<'a> ComponentItem<'a> {
-    fn new_module(node: *const Module<'a>, idx: usize, space_id: Option<SpaceId>) -> Self {
-        if space_id.is_some() {
-            unreachable!("modules don't have space IDs!")
+    fn new_module(node: *const Module<'a>, idx: usize, subitem_order: Option<SubItemPlan>) -> Self {
+        if subitem_order.is_some() {
+            unreachable!("modules don't have subspaces!")
         }
         Self::Module { node, idx }
     }
-    fn new_comp_type(
-        node: *const ComponentType<'a>,
-        idx: usize,
-        space_id: Option<SpaceId>,
-    ) -> Self {
+    fn new_comp_type(node: *const ComponentType<'a>, idx: usize, subitem_order: Option<SubItemPlan>) -> Self {
         Self::CompType {
             node,
             idx,
-            space_id,
+            // subspace,
+            subitem_plan: subitem_order
         }
     }
-    fn new_comp_inst(
-        node: *const ComponentInstance<'a>,
-        idx: usize,
-        space_id: Option<SpaceId>,
-    ) -> Self {
-        if space_id.is_some() {
-            unreachable!("modules don't have space IDs!")
+    fn new_comp_inst(node: *const ComponentInstance<'a>, idx: usize, subitem_order: Option<SubItemPlan>) -> Self {
+        if subitem_order.is_some() {
+            unreachable!("component instances don't have subspaces!")
         }
         Self::CompInst { node, idx }
     }
-    fn new_canon(node: *const CanonicalFunction, idx: usize, space_id: Option<SpaceId>) -> Self {
-        if space_id.is_some() {
-            unreachable!("modules don't have space IDs!")
+    fn new_canon(node: *const CanonicalFunction, idx: usize, subitem_order: Option<SubItemPlan>) -> Self {
+        if subitem_order.is_some() {
+            unreachable!("canonical funcs don't have subspaces!")
         }
         Self::CanonicalFunc { node, idx }
     }
-    fn new_alias(node: *const ComponentAlias<'a>, idx: usize, space_id: Option<SpaceId>) -> Self {
-        if space_id.is_some() {
-            unreachable!("modules don't have space IDs!")
+    fn new_alias(node: *const ComponentAlias<'a>, idx: usize, subitem_order: Option<SubItemPlan>) -> Self {
+        if subitem_order.is_some() {
+            unreachable!("aliases don't have subspaces!")
         }
         Self::Alias { node, idx }
     }
-    fn new_import(node: *const ComponentImport<'a>, idx: usize, space_id: Option<SpaceId>) -> Self {
-        if space_id.is_some() {
-            unreachable!("modules don't have space IDs!")
+    fn new_import(node: *const ComponentImport<'a>, idx: usize, subitem_order: Option<SubItemPlan>) -> Self {
+        if subitem_order.is_some() {
+            unreachable!("imports don't have space IDs!")
         }
         Self::Import { node, idx }
     }
-    fn new_export(node: *const ComponentExport<'a>, idx: usize, space_id: Option<SpaceId>) -> Self {
-        if space_id.is_some() {
-            unreachable!("modules don't have space IDs!")
+    fn new_export(node: *const ComponentExport<'a>, idx: usize, subitem_order: Option<SubItemPlan>) -> Self {
+        if subitem_order.is_some() {
+            unreachable!("exports don't have space IDs!")
         }
         Self::Export { node, idx }
     }
-    fn new_core_type(node: *const CoreType<'a>, idx: usize, space_id: Option<SpaceId>) -> Self {
+    fn new_core_type(node: *const CoreType<'a>, idx: usize, subitem_order: Option<SubItemPlan>) -> Self {
         Self::CoreType {
             node,
             idx,
-            space_id,
+            // subspace,
+            subitem_plan: subitem_order
         }
     }
-    fn new_inst(node: *const Instance<'a>, idx: usize, space_id: Option<SpaceId>) -> Self {
-        if space_id.is_some() {
-            unreachable!("modules don't have space IDs!")
+    fn new_inst(node: *const Instance<'a>, idx: usize, subitem_order: Option<SubItemPlan>) -> Self {
+        if subitem_order.is_some() {
+            unreachable!("instances don't have subspaces!")
         }
         Self::Inst { node, idx }
     }
-    fn new_custom(node: *const CustomSection<'a>, _: usize, space_id: Option<SpaceId>) -> Self {
-        if space_id.is_some() {
-            unreachable!("modules don't have space IDs!")
+    fn new_custom(node: *const CustomSection<'a>, _: usize, subitem_order: Option<SubItemPlan>) -> Self {
+        if subitem_order.is_some() {
+            unreachable!("custom sections don't have subspaces!")
         }
         Self::CustomSection { node }
     }
-    fn new_start(node: *const ComponentStartFunction, _: usize, space_id: Option<SpaceId>) -> Self {
-        if space_id.is_some() {
-            unreachable!("modules don't have space IDs!")
+    fn new_start(node: *const ComponentStartFunction, _: usize, subitem_order: Option<SubItemPlan>) -> Self {
+        if subitem_order.is_some() {
+            unreachable!("start sections don't have subspaces!")
         }
         Self::Start { node }
+    }
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct SubItemPlan {
+    /// item index -> optional order of ITS subitems
+    order: Vec<(usize, Option<SubItemPlan>)>,
+    seen: HashSet<usize>,
+}
+impl SubItemPlan {
+    pub fn order(&self) -> &[(usize, Option<SubItemPlan>)] {
+        &self.order
+    }
+    pub fn push(&mut self, idx: usize, subplan: Option<SubItemPlan>) {
+        if !self.seen.contains(&idx) {
+            self.order.push((idx, subplan));
+        }
+        self.seen.insert(idx);
     }
 }
 
 #[derive(Debug, Default)]
 pub(crate) struct ComponentPlan<'a> {
     pub(crate) items: Vec<ComponentItem<'a>>,
+}
+
+enum TrackedSubItem<'a> {
+    CompTypeDecl(*const ComponentTypeDeclaration<'a>),
+    InstTypeDecl(*const InstanceTypeDeclaration<'a>),
+    CoreTypeModuleDecl(*const ModuleTypeDeclaration<'a>),
+}
+impl<'a> TrackedSubItem<'a> {
+    fn new_comp_type_decl(node: *const ComponentTypeDeclaration<'a>) -> Self {
+        Self::CompTypeDecl(node)
+    }
+    fn new_inst_type_decl(node: *const InstanceTypeDeclaration<'a>) -> Self {
+        Self::InstTypeDecl(node)
+    }
+    fn new_core_type_module_decl(node: *const ModuleTypeDeclaration<'a>) -> Self {
+        Self::CoreTypeModuleDecl(node)
+    }
 }
 
 /// This is just used to unify the `collect` logic into a generic function.
@@ -597,6 +929,10 @@ struct Seen<'a> {
 
     start: HashMap<*const ComponentStartFunction, usize>,
     custom_sections: HashMap<*const CustomSection<'a>, usize>,
+
+    comp_type_decls: HashMap<*const ComponentTypeDeclaration<'a>, usize>,
+    inst_type_decls: HashMap<*const InstanceTypeDeclaration<'a>, usize>,
+    core_type_module_decls: HashMap<*const ModuleTypeDeclaration<'a>, usize>,
 }
 impl<'a> Seen<'a> {
     pub fn contains_key(&self, ty: &TrackedItem) -> bool {
@@ -629,30 +965,24 @@ impl<'a> Seen<'a> {
             TrackedItem::CustomSection(node) => self.custom_sections.insert(node, idx),
         }
     }
+    pub fn contains_subitem_key(&self, ty: &TrackedSubItem) -> bool {
+        match ty {
+            TrackedSubItem::CompTypeDecl(node) => self.comp_type_decls.contains_key(node),
+            TrackedSubItem::InstTypeDecl(node) => self.inst_type_decls.contains_key(node),
+            TrackedSubItem::CoreTypeModuleDecl(node) => self.core_type_module_decls.contains_key(node),
+        }
+    }
+    pub fn insert_subitem(&mut self, ty: TrackedSubItem<'a>, idx: usize) -> Option<usize> {
+        match ty {
+            TrackedSubItem::CompTypeDecl(node) => self.comp_type_decls.insert(node, idx),
+            TrackedSubItem::InstTypeDecl(node) => self.inst_type_decls.insert(node, idx),
+            TrackedSubItem::CoreTypeModuleDecl(node) => self.core_type_module_decls.insert(node, idx),
+        }
+    }
 }
 
-pub(crate) struct CollectCtx<'a> {
+#[derive(Default)]
+pub struct CollectCtx<'a> {
+    pub(crate) seen: Seen<'a>,
     pub(crate) plan: ComponentPlan<'a>,
-    seen: Seen<'a>,
-
-    pub(crate) space_stack: SpaceStack,
-    pub(crate) store: StoreHandle,
-}
-impl CollectCtx<'_> {
-    pub fn new(comp: &Component) -> Self {
-        Self {
-            plan: ComponentPlan::default(),
-            seen: Seen::default(),
-
-            space_stack: SpaceStack::new(comp.space_id),
-            store: comp.index_store.clone(),
-        }
-    }
-
-    fn in_space(&self, space_id: Option<SpaceId>) -> bool {
-        if let Some(space_id) = space_id {
-            return self.space_stack.curr_space_id() == space_id;
-        }
-        true
-    }
 }

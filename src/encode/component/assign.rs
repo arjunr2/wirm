@@ -1,8 +1,8 @@
-use crate::encode::component::collect::{ComponentItem, ComponentPlan};
-use crate::encode::component::SpaceStack;
-use crate::ir::component::idx_spaces::{IndexSpaceOf, SpaceId, StoreHandle};
+use crate::encode::component::collect::{ComponentItem, ComponentPlan, SubItemPlan};
+use crate::encode::component::EncodeCtx;
+use crate::ir::component::idx_spaces::IndexSpaceOf;
 use crate::ir::component::section::ComponentSection;
-use crate::{Component, Module};
+use crate::{assert_registered, Component, Module};
 use wasmparser::{
     CanonicalFunction, ComponentAlias, ComponentExport, ComponentImport, ComponentInstance,
     ComponentType, ComponentTypeDeclaration, CoreType, Instance, InstanceTypeDeclaration,
@@ -89,36 +89,41 @@ use wasmparser::{
 /// assignment is safe.
 pub(crate) fn assign_indices(
     plan: &mut ComponentPlan,
-    space_stack: &mut SpaceStack,
-    handle: StoreHandle,
+    ctx: &mut EncodeCtx,
+    // space_stack: &mut SpaceStack,
+    // registry: RegistryHandle,
+    // store: StoreHandle,
 ) {
     for item in &mut plan.items {
+        println!("{item:?} Assigning!");
         match item {
             ComponentItem::Component {
                 node,
                 plan: subplan,
-                space_id: sub_space_id,
+                // space_id: sub_space_id,
                 idx,
-            } => unsafe {
+            } => {
+                let ptr: &Component = &**node;
+
                 // CREATES A NEW IDX SPACE SCOPE
                 // Visit this component's internals
-                handle.borrow_mut().reset_ids(sub_space_id);
-                space_stack.enter_space(*sub_space_id);
-                assign_indices(subplan, space_stack, handle.clone());
-                space_stack.exit_space();
+                let subscope_entry = ctx.registry.borrow().scope_entry(ptr).unwrap();
+                ctx.store.borrow_mut().reset_ids(&subscope_entry.space);
+                ctx.space_stack.enter_space(subscope_entry.space);
+                assign_indices(subplan, ctx);
+                ctx.space_stack.exit_space();
 
-                let ptr: &Component = &**node;
-                handle.borrow_mut().assign_actual_id(
-                    &space_stack.curr_space_id(),
+                ctx.store.borrow_mut().assign_actual_id(
+                    &ctx.space_stack.curr_space_id(),
                     &ptr.index_space_of(),
-                    &ComponentSection::Component(*sub_space_id),
+                    &ComponentSection::Component,
                     *idx,
                 );
             },
             ComponentItem::Module { node, idx } => unsafe {
                 let ptr: &Module = &**node;
-                handle.borrow_mut().assign_actual_id(
-                    &space_stack.curr_space_id(),
+                ctx.store.borrow_mut().assign_actual_id(
+                    &ctx.space_stack.curr_space_id(),
                     &ptr.index_space_of(),
                     &ComponentSection::Module,
                     *idx,
@@ -127,23 +132,24 @@ pub(crate) fn assign_indices(
             ComponentItem::CompType {
                 node,
                 idx,
-                space_id: sub_space_id,
+                // subspace,
+                subitem_plan
             } => unsafe {
                 // CREATES A NEW IDX SPACE SCOPE (if Type::Component or Type::Instance)
                 let ptr: &ComponentType = &**node;
-                assignments_for_comp_ty(ptr, sub_space_id, handle.clone());
+                assignments_for_comp_ty(ptr, subitem_plan, ctx);
 
-                handle.borrow_mut().assign_actual_id(
-                    &space_stack.curr_space_id(),
+                ctx.store.borrow_mut().assign_actual_id(
+                    &ctx.space_stack.curr_space_id(),
                     &ptr.index_space_of(),
-                    &ComponentSection::ComponentType(None), // the ID doesn't actually matter...
+                    &ComponentSection::ComponentType,
                     *idx,
                 );
             },
             ComponentItem::CompInst { node, idx } => unsafe {
                 let ptr: &ComponentInstance = &**node;
-                handle.borrow_mut().assign_actual_id(
-                    &space_stack.curr_space_id(),
+                ctx.store.borrow_mut().assign_actual_id(
+                    &ctx.space_stack.curr_space_id(),
                     &ptr.index_space_of(),
                     &ComponentSection::ComponentInstance,
                     *idx,
@@ -151,8 +157,8 @@ pub(crate) fn assign_indices(
             },
             ComponentItem::CanonicalFunc { node, idx } => unsafe {
                 let ptr: &CanonicalFunction = &**node;
-                handle.borrow_mut().assign_actual_id(
-                    &space_stack.curr_space_id(),
+                ctx.store.borrow_mut().assign_actual_id(
+                    &ctx.space_stack.curr_space_id(),
                     &ptr.index_space_of(),
                     &ComponentSection::Canon,
                     *idx,
@@ -160,8 +166,8 @@ pub(crate) fn assign_indices(
             },
             ComponentItem::Alias { node, idx } => unsafe {
                 let ptr: &ComponentAlias = &**node;
-                handle.borrow_mut().assign_actual_id(
-                    &space_stack.curr_space_id(),
+                ctx.store.borrow_mut().assign_actual_id(
+                    &ctx.space_stack.curr_space_id(),
                     &ptr.index_space_of(),
                     &ComponentSection::Alias,
                     *idx,
@@ -169,8 +175,8 @@ pub(crate) fn assign_indices(
             },
             ComponentItem::Import { node, idx } => unsafe {
                 let ptr: &ComponentImport = &**node;
-                handle.borrow_mut().assign_actual_id(
-                    &space_stack.curr_space_id(),
+                ctx.store.borrow_mut().assign_actual_id(
+                    &ctx.space_stack.curr_space_id(),
                     &ptr.index_space_of(),
                     &ComponentSection::ComponentImport,
                     *idx,
@@ -179,22 +185,23 @@ pub(crate) fn assign_indices(
             ComponentItem::CoreType {
                 node,
                 idx,
-                space_id: sub_space_id,
+                // subspace,
+                subitem_plan
             } => unsafe {
                 let ptr: &CoreType = &**node;
-                assignments_for_core_ty(ptr, sub_space_id, handle.clone());
+                assignments_for_core_ty(ptr, subitem_plan, ctx);
 
-                handle.borrow_mut().assign_actual_id(
-                    &space_stack.curr_space_id(),
+                ctx.store.borrow_mut().assign_actual_id(
+                    &ctx.space_stack.curr_space_id(),
                     &ptr.index_space_of(),
-                    &ComponentSection::CoreType(None), // the ID doesn't actually matter...
+                    &ComponentSection::CoreType,
                     *idx,
                 );
             },
             ComponentItem::Inst { node, idx } => unsafe {
                 let ptr: &Instance = &**node;
-                handle.borrow_mut().assign_actual_id(
-                    &space_stack.curr_space_id(),
+                ctx.store.borrow_mut().assign_actual_id(
+                    &ctx.space_stack.curr_space_id(),
                     &ptr.index_space_of(),
                     &ComponentSection::CoreInstance,
                     *idx,
@@ -203,8 +210,8 @@ pub(crate) fn assign_indices(
             ComponentItem::Export { node, idx } => unsafe {
                 let ptr: &ComponentExport = &**node;
                 // NA: exports don't get IDs
-                handle.borrow_mut().assign_actual_id(
-                    &space_stack.curr_space_id(),
+                ctx.store.borrow_mut().assign_actual_id(
+                    &ctx.space_stack.curr_space_id(),
                     &ptr.index_space_of(),
                     &ComponentSection::ComponentExport,
                     *idx,
@@ -222,86 +229,124 @@ pub(crate) fn assign_indices(
 
 pub(crate) fn assignments_for_comp_ty(
     ty: &ComponentType,
-    space_id: &Option<SpaceId>,
-    handle: StoreHandle,
+    subitem_plan: &Option<SubItemPlan>,
+    ctx: &mut EncodeCtx,
 ) -> ComponentSection {
     match ty {
         ComponentType::Component(decls) => {
-            let id = space_id.unwrap();
-            let section = ComponentSection::ComponentType(*space_id);
-            for (idx, decl) in decls.iter().enumerate() {
-                assignments_for_comp_ty_comp_decl(idx, &id, decl, &section, handle.clone());
+            ctx.maybe_enter_scope(ty);
+            println!("\t@assign COMP_TYPE ADDR: {:p}", ty);
+            assert_registered!(ctx.registry, ty);
+
+            // TODO: I also need to assign an ID for THIS component type!
+            //       (see the parse logic)
+            let section = ComponentSection::ComponentType;
+            for (idx, subplan) in subitem_plan.as_ref().unwrap().order().iter() {
+                let decl = &decls[*idx];
+                assignments_for_comp_ty_comp_decl(*idx, subplan, decl, &section, ctx);
             }
 
+            ctx.maybe_exit_scope(ty);
             section
         }
         ComponentType::Instance(decls) => {
-            let id = space_id.unwrap();
-            let section = ComponentSection::ComponentType(*space_id);
-            for (idx, decl) in decls.iter().enumerate() {
-                assignments_for_comp_ty_inst_decl(idx, &id, decl, &section, handle.clone());
+            ctx.maybe_enter_scope(ty);
+            println!("\t@assign COMP_TYPE ADDR: {:p}", ty);
+            assert_registered!(ctx.registry, ty);
+
+            // TODO: I also need to assign an ID for THIS component type!
+            //       (see the parse logic)
+            let section = ComponentSection::ComponentType;
+            if let Some(subplan) = subitem_plan {
+                for (idx, subplan) in subplan.order().iter() {
+                    let decl = &decls[*idx];
+                    assignments_for_comp_ty_inst_decl(*idx, subplan, decl, &section, ctx);
+                }
             }
 
+            ctx.maybe_exit_scope(ty);
             section
         }
-        _ => ComponentSection::ComponentType(None),
+        _ => ComponentSection::ComponentType,
     }
 }
 
 fn assignments_for_comp_ty_comp_decl(
-    idx: usize,
-    space_id: &SpaceId,
+    decl_idx: usize,
+    subitem_plan: &Option<SubItemPlan>,
     decl: &ComponentTypeDeclaration,
     section: &ComponentSection,
-    handle: StoreHandle,
+    ctx: &mut EncodeCtx,
 ) {
     let space = decl.index_space_of();
-    handle
+    ctx.store
         .borrow_mut()
-        .assign_actual_id(space_id, &space, section, idx);
+        .assign_actual_id(&ctx.space_stack.curr_space_id(), &space, section, decl_idx);
+
+    match decl {
+        ComponentTypeDeclaration::CoreType(ty) => { assignments_for_core_ty(ty, subitem_plan, ctx); },
+        ComponentTypeDeclaration::Type(ty) => { assignments_for_comp_ty(ty, subitem_plan, ctx); },
+        ComponentTypeDeclaration::Alias(_)
+        | ComponentTypeDeclaration::Export { .. }
+        | ComponentTypeDeclaration::Import(_) => {},
+    }
 }
 
 fn assignments_for_comp_ty_inst_decl(
-    idx: usize,
-    space_id: &SpaceId,
+    decl_idx: usize,
+    subitem_plan: &Option<SubItemPlan>,
     decl: &InstanceTypeDeclaration,
     section: &ComponentSection,
-    handle: StoreHandle,
+    ctx: &mut EncodeCtx,
 ) {
     let space = decl.index_space_of();
-    handle
+    ctx.store
         .borrow_mut()
-        .assign_actual_id(space_id, &space, section, idx);
+        .assign_actual_id(&ctx.space_stack.curr_space_id(), &space, section, decl_idx);
+
+    match decl {
+        InstanceTypeDeclaration::CoreType(ty) => { assignments_for_core_ty(ty, subitem_plan, ctx); },
+        InstanceTypeDeclaration::Type(ty) => { assignments_for_comp_ty(ty, subitem_plan, ctx); },
+        InstanceTypeDeclaration::Alias(_)
+        | InstanceTypeDeclaration::Export { .. } => {}
+    }
 }
 
 pub(crate) fn assignments_for_core_ty(
     ty: &CoreType,
-    space_id: &Option<SpaceId>,
-    handle: StoreHandle,
+    subitem_plan: &Option<SubItemPlan>,
+    ctx: &mut EncodeCtx,
 ) -> ComponentSection {
     match ty {
         CoreType::Module(decls) => {
-            let id = space_id.unwrap();
-            let section = ComponentSection::CoreType(*space_id);
-            for (idx, decl) in decls.iter().enumerate() {
-                assignments_for_core_module_decl(idx, &id, decl, &section, handle.clone());
+            // TODO: I also need to assign an ID for THIS core type!
+            //       (see the parse logic)
+            ctx.maybe_enter_scope(ty);
+            println!("\t@assign COMP_TYPE ADDR: {:p}", ty);
+            assert_registered!(ctx.registry, ty);
+
+            let section = ComponentSection::CoreType;
+            for (idx, subplan) in subitem_plan.as_ref().unwrap().order().iter() {
+                assert!(subplan.is_none());
+                let decl = &decls[*idx];
+                assignments_for_core_module_decl(*idx, decl, &section, ctx);
             }
 
+            ctx.maybe_exit_scope(ty);
             section
         }
-        _ => ComponentSection::CoreType(None),
+        _ => ComponentSection::CoreType,
     }
 }
 
 fn assignments_for_core_module_decl(
-    idx: usize,
-    space_id: &SpaceId,
+    decl_idx: usize,
     decl: &ModuleTypeDeclaration,
     section: &ComponentSection,
-    handle: StoreHandle,
+    ctx: &mut EncodeCtx,
 ) {
     let space = decl.index_space_of();
-    handle
+    ctx.store
         .borrow_mut()
-        .assign_actual_id(space_id, &space, section, idx);
+        .assign_actual_id(&ctx.space_stack.curr_space_id(), &space, section, decl_idx);
 }
