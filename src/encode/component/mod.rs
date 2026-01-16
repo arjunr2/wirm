@@ -129,6 +129,7 @@ pub fn encode(comp: &Component) -> Vec<u8> {
     bytes.finish()
 }
 
+#[derive(Clone)]
 pub(crate) struct SpaceStack {
     pub(crate) stack: Vec<SpaceId>,
 }
@@ -164,6 +165,17 @@ impl EncodeCtx {
     pub fn new(comp: &Component) -> Self {
         Self {
             space_stack: SpaceStack::new(comp.space_id),
+            registry: comp.scope_registry.clone(),
+            store: comp.index_store.clone(),
+        }
+    }
+
+    pub fn new_sub_ctx(comp: &Component, outer: &EncodeCtx) -> Self {
+        let mut new_stack = outer.space_stack.clone();
+        new_stack.enter_space(comp.space_id);
+
+        Self {
+            space_stack: new_stack,
             registry: comp.scope_registry.clone(),
             store: comp.index_store.clone(),
         }

@@ -75,9 +75,8 @@ pub(crate) fn encode_internal<'a>(
     let mut component = wasm_encoder::Component::new();
     let mut reencode = RoundtripReencoder;
 
-    println!();
     for item in &plan.items {
-        println!("{item:?} Encoding!");
+        // println!("{item:?} Encoding!");
         match item {
             ComponentItem::Component {
                 node,
@@ -87,11 +86,11 @@ pub(crate) fn encode_internal<'a>(
             } => unsafe {
                 // CREATES A NEW IDX SPACE SCOPE
                 let subcomp: &Component = &**node;
-                // ctx.maybe_enter_scope(subcomp);
+                ctx.maybe_enter_scope(subcomp);
                 component.section(&NestedComponentSection(&encode_internal(
                     subcomp, subplan, ctx,
                 )));
-                // ctx.maybe_exit_scope(subcomp);
+                ctx.maybe_exit_scope(subcomp);
             },
             ComponentItem::Module { node, .. } => unsafe {
                 let t: &Module = &**node;

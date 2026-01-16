@@ -63,6 +63,7 @@ impl IndexStore {
     ) -> Option<usize> {
         self.get_mut(id).assign_assumed_id(space, section, curr_idx)
     }
+
     pub fn assign_assumed_id_for<I: Debug + IndexSpaceOf>(
         &mut self,
         id: &SpaceId,
@@ -72,6 +73,16 @@ impl IndexStore {
     ) {
         self.get_mut(id)
             .assign_assumed_id_for(items, curr_idx, sections)
+    }
+    pub fn assign_assumed_id_with_name_for<I: Debug + IndexSpaceOf + NameOf>(
+        &mut self,
+        id: &SpaceId,
+        items: &Vec<I>,
+        curr_idx: usize,
+        sections: &Vec<ComponentSection>,
+    ) {
+        self.get_mut(id)
+            .assign_assumed_id_with_name_for(items, curr_idx, sections)
     }
 
     pub(crate) fn get(&self, id: &SpaceId) -> &IndexScope {
@@ -225,6 +236,22 @@ impl IndexScope {
             self.assign_assumed_id(&item.index_space_of(), section, curr_idx + i);
         }
     }
+    pub fn assign_assumed_id_with_name_for<I: Debug + IndexSpaceOf + NameOf>(
+        &mut self,
+        items: &Vec<I>,
+        curr_idx: usize,
+        sections: &Vec<ComponentSection>, // one per item
+    ) {
+        debug_assert_eq!(items.len(), sections.len());
+        for ((i, item), section) in items.iter().enumerate().zip(sections) {
+            self.assign_assumed_id_with_export_name(
+                &item.index_space_of(),
+                section,
+                curr_idx + i,
+                item.name_of(),
+            );
+        }
+    }
 
     /// This is also called as I parse a component for the same reason mentioned above in the documentation for [`IdxSpaces.assign_assumed_id_for`].
     pub fn assign_assumed_id(
@@ -233,17 +260,22 @@ impl IndexScope {
         section: &ComponentSection,
         curr_idx: usize,
     ) -> Option<usize> {
-        // Actually, if I'm here, i'm not inside the section, I'm in the outer scope that contains
-        // that section!
-        // section.space_id().map(|id| {
-        //     // If this section has a space ID associated with it, let's make
-        //     // sure we're actually in the correct index space scope :)
-        //     // If this panics, we've forgotten to update which index space
-        //     // we're operating in.
-        //     assert_eq!(self.id, id);
-        // });
         if let Some(space) = self.get_space_mut(space) {
-            Some(space.assign_assumed_id(section, curr_idx))
+            Some(space.assign_assumed_id(section, curr_idx, None))
+        } else {
+            None
+        }
+    }
+
+    pub fn assign_assumed_id_with_export_name(
+        &mut self,
+        space: &Space,
+        section: &ComponentSection,
+        curr_idx: usize,
+        name: String,
+    ) -> Option<usize> {
+        if let Some(space) = self.get_space_mut(space) {
+            Some(space.assign_assumed_id(section, curr_idx, Some(name)))
         } else {
             None
         }
@@ -417,6 +449,7 @@ pub(crate) struct IdxSpace {
     /// Tracks the index in the EXPORT item vector to the ID we've assumed for it: `exports_idx -> assumed_id`
     /// This ID will be used to reference that item in the IR.
     exports_assumed_ids: HashMap<usize, usize>,
+    exports_assumed_ids_by_name: HashMap<String, usize>,
 
     /// (Only relevant for component_types)
     /// Tracks the index in the COMPONENT item vector to the ID we've assumed for it: `component_idx -> assumed_id`
@@ -493,7 +526,12 @@ impl IdxSpace {
         None
     }
 
-    pub fn assign_assumed_id(&mut self, section: &ComponentSection, vec_idx: usize) -> usize {
+    pub fn assign_assumed_id(
+        &mut self,
+        section: &ComponentSection,
+        vec_idx: usize,
+        export_name: Option<String>,
+    ) -> usize {
         let assumed_id = self.curr_id();
         self.next();
         let to_update = match section {
@@ -512,6 +550,11 @@ impl IdxSpace {
             | ComponentSection::ComponentStartSection => &mut self.main_assumed_ids,
         };
         to_update.insert(vec_idx, assumed_id);
+
+        if let Some(name) = export_name {
+            assert_eq!(ComponentSection::ComponentExport, *section);
+            self.exports_assumed_ids_by_name.insert(name, assumed_id);
+        }
 
         assumed_id
     }
@@ -549,6 +592,15 @@ pub enum Space {
     CoreTable,
     CoreGlobal,
     CoreTag,
+}
+
+trait NameOf {
+    fn name_of(&self) -> String;
+}
+impl NameOf for ComponentExport<'_> {
+    fn name_of(&self) -> String {
+        self.name.0.to_string()
+    }
 }
 
 // Trait for centralizing index space mapping

@@ -42,26 +42,26 @@ impl Component<'_> {
     /// This is the entrypoint for collecting a component!
     pub(crate) fn collect_root(&self, ctx: &mut EncodeCtx) -> ComponentPlan {
         // I'm already in the root scope of the component at this point.
-        let mut collect_ctx = CollectCtx::default();
+        let mut collect_ctx = CollectCtx::new();
         self.collect(0, &mut collect_ctx, ctx, self); // pass self as “container”
-        collect_ctx.plan
+        collect_ctx.pop_plan().unwrap()
     }
 }
 
 impl<'a> Collect<'a> for Component<'a> {
     fn collect(
         &'a self,
-        _idx: usize,
+        idx: usize,
         collect_ctx: &mut CollectCtx<'a>,
         ctx: &mut EncodeCtx,
         _comp: &'a Component<'a>,
     ) {
-        // ctx.maybe_enter_scope(self);
-
         let ptr = self as *const _;
         if collect_ctx.seen.components.contains_key(&ptr) {
             return;
         }
+        // assign a temporary index during collection
+        collect_ctx.seen.components.insert(ptr, idx);
 
         // Collect dependencies first (in the order of the sections)
         for (num, section) in self.sections.iter() {
@@ -197,25 +197,34 @@ impl<'a> Collect<'a> for Component<'a> {
                         let c = &self.components[idx];
 
                         // let ptr = c as *const _;
-                        // Check if i've seen this subcomponent before during MY visitation
-                        if collect_ctx.seen.components.contains_key(&ptr) {
-                            return;
-                        }
+                        // // Check if i've seen this subcomponent before during MY visitation
+                        // if collect_ctx.seen.component_handles.contains_key(&ptr) {
+                        //     continue;
+                        // }
 
-                        let mut subcollect_ctx = CollectCtx::default();
-                        let mut subctx = EncodeCtx::new(c);
-                        c.collect(idx, &mut subcollect_ctx, &mut subctx, &self);
+                        // let mut subcollect_ctx = CollectCtx::new_from(collect_ctx);
+                        // let mut subctx = EncodeCtx::new_sub_ctx(c, ctx);
+                        collect_ctx.push_plan();
+                        ctx.maybe_enter_scope(c);
+                        c.collect(idx, collect_ctx, ctx, &self);
+                        ctx.maybe_exit_scope(c);
+
+                        // collect_ctx.seen = subcollect_ctx.seen;
 
                         // I want to add this subcomponent to MY plan (not the subplan)
-                        collect_ctx.plan.items.push(ComponentItem::Component {
-                            node: c.clone(),
-                            plan: subcollect_ctx.plan,
-                            idx,
-                            // space_id: space.unwrap(),
-                        });
+                        let subplan = { collect_ctx.pop_plan().unwrap() };
+                        collect_ctx
+                            .curr_plan_mut()
+                            .items
+                            .push(ComponentItem::Component {
+                                node: c.clone(),
+                                plan: subplan,
+                                idx,
+                                // space_id: space.unwrap(),
+                            });
 
                         // Remember that I've seen this component before in MY plan
-                        collect_ctx.seen.components.insert(ptr, idx);
+                        // collect_ctx.seen.component_handles.insert(ptr, idx);
                     }
                 }
             }
@@ -226,8 +235,6 @@ impl<'a> Collect<'a> for Component<'a> {
             //     assert_eq!(space, ctx.space_stack.exit_space());
             // }
         }
-
-        // ctx.maybe_exit_scope(self);
     }
 }
 
@@ -255,7 +262,7 @@ fn collect_section<'a, N: GetScopeKind + ReferencedIndices + 'a>(
     ctx.maybe_exit_scope(node);
 
     // push to ordered plan
-    collect_ctx.plan.items.push(create_item(ptr, idx, None));
+    collect_ctx.curr_plan_mut().items.push(create_item(ptr, idx, None));
 }
 
 // fn collect_subitems<'a, N: ReferencedIndices + 'a>(
@@ -301,7 +308,7 @@ impl<'a> Collect<'a> for ComponentType<'a> {
         collect_ctx.seen.insert(r, idx);
 
         let subitem_order = self.collect_subitem(idx, collect_ctx, ctx);
-        collect_ctx.plan.items.push(ComponentItem::new_comp_type(self as *const _, idx, subitem_order));
+        collect_ctx.curr_plan_mut().items.push(ComponentItem::new_comp_type(self as *const _, idx, subitem_order));
     }
 }
 impl<'a> CollectSubItem<'a> for ComponentType<'a> {
@@ -313,7 +320,15 @@ impl<'a> CollectSubItem<'a> for ComponentType<'a> {
     ) -> Option<SubItemPlan> {
         // Either create a new ordering context or thread through from higher up
         match self {
-            ComponentType::Component(decls) => todo!(),
+            ComponentType::Component(decls) => {
+                ctx.maybe_enter_scope(self);
+                println!("\t@collect COMP_TYPE ADDR: {:p}", self);
+                assert_registered!(ctx.registry, self);
+
+                let subitems = collect_subitem_vec(decls, collect_ctx, ctx);
+                ctx.maybe_exit_scope(self);
+                Some(subitems)
+            }
             ComponentType::Instance(decls) => {
                 ctx.maybe_enter_scope(self);
                 println!("\t@collect COMP_TYPE ADDR: {:p}", self);
@@ -357,6 +372,23 @@ impl<'a> CollectSubItem<'a> for ComponentType<'a> {
             ComponentType::Defined(_) | ComponentType::Func(_) | ComponentType::Resource { .. } => {
                 None
             }
+        }
+    }
+}
+
+impl<'a> CollectSubItem<'a> for ComponentTypeDeclaration<'a> {
+    fn collect_subitem(
+        &'a self,
+        idx: usize,
+        collect_ctx: &mut CollectCtx<'a>,
+        ctx: &mut EncodeCtx,
+    ) -> Option<SubItemPlan> {
+        match self {
+            ComponentTypeDeclaration::CoreType(ty) => ty.collect_subitem(idx, collect_ctx, ctx),
+            ComponentTypeDeclaration::Type(ty) => ty.collect_subitem(idx, collect_ctx, ctx),
+            ComponentTypeDeclaration::Alias(_)
+            | ComponentTypeDeclaration::Export { .. }
+            | ComponentTypeDeclaration::Import(_) => None,
         }
     }
 }
@@ -485,7 +517,7 @@ impl<'a> Collect<'a> for CoreType<'a> {
         collect_ctx.seen.insert(r, idx);
 
         let subitem_order = self.collect_subitem(idx, collect_ctx, ctx);
-        collect_ctx.plan.items.push(ComponentItem::new_core_type(self as *const _, idx, subitem_order));
+        collect_ctx.curr_plan_mut().items.push(ComponentItem::new_core_type(self as *const _, idx, subitem_order));
     }
 }
 
@@ -597,7 +629,7 @@ fn collect_subitem_deps<'a, T: Debug + ReferencedIndices + CollectSubItem<'a> + 
     ctx: &mut EncodeCtx,
     nodes: &'a [T],
 ) {
-    println!("\nAt node: {item:?}");
+    println!("At node: {item:?}");
     if let Some(refs) = item.referenced_indices(Depth::default()) {
         for r in refs.as_list().iter() {
             if r.depth.is_inner() {
@@ -617,7 +649,6 @@ fn collect_subitem_deps<'a, T: Debug + ReferencedIndices + CollectSubItem<'a> + 
             subitem_order.push(idx, idx_order);
         }
     }
-    println!();
 }
 
 fn collect_subitem<'a, N: Debug + ReferencedIndices + CollectSubItem<'a> + 'a>(
@@ -940,6 +971,7 @@ struct Seen<'a> {
     /// Points to a TEMPORARY ID -- this is just for bookkeeping, not the final ID
     /// The final ID is assigned during the "Assign" phase.
     components: HashMap<*const Component<'a>, usize>,
+    component_handles: HashMap<*const ComponentHandle<'a>, usize>,
     modules: HashMap<*const Module<'a>, usize>,
     comp_types: HashMap<*const ComponentType<'a>, usize>,
     comp_instances: HashMap<*const ComponentInstance<'a>, usize>,
@@ -1010,8 +1042,27 @@ impl<'a> Seen<'a> {
     }
 }
 
-#[derive(Default)]
 pub struct CollectCtx<'a> {
     pub(crate) seen: Seen<'a>,
-    pub(crate) plan: ComponentPlan<'a>,
+    pub(crate) plan_stack: Vec<ComponentPlan<'a>>,
+}
+impl<'a> CollectCtx<'a> {
+    fn new() -> Self {
+        Self {
+            plan_stack: vec![ComponentPlan::default()],
+            seen: Seen::default(),
+        }
+    }
+    fn curr_plan(&self) -> &ComponentPlan {
+        self.plan_stack.last().unwrap()
+    }
+    fn curr_plan_mut(&mut self) -> &mut ComponentPlan<'a> {
+        self.plan_stack.last_mut().unwrap()
+    }
+    fn push_plan(&mut self) {
+        self.plan_stack.push(ComponentPlan::default());
+    }
+    fn pop_plan(&mut self) -> Option<ComponentPlan<'a>> {
+        self.plan_stack.pop()
+    }
 }
