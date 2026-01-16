@@ -10,9 +10,7 @@ use crate::ir::component::idx_spaces::{
     Depth, IndexSpaceOf, IndexStore, ReferencedIndices, Space, SpaceId, SpaceSubtype, StoreHandle,
 };
 use crate::ir::component::scopes::{IndexScopeRegistry, RegistryHandle};
-use crate::ir::component::section::{
-    populate_space_for_comp_ty, populate_space_for_core_ty, ComponentSection,
-};
+use crate::ir::component::section::{get_sections_for_comp_ty, get_sections_for_core_ty, populate_space_for_comp_ty, populate_space_for_core_ty, ComponentSection};
 use crate::ir::component::types::ComponentTypes;
 use crate::ir::helpers::{
     print_alias, print_component_export, print_component_import, print_component_type,
@@ -471,22 +469,16 @@ impl<'a> Component<'a> {
                     let temp: &mut Vec<CoreType> =
                         &mut core_type_reader.into_iter().collect::<Result<_, _>>()?;
 
-                    let mut new_sects = vec![];
-                    let mut has_subscope = false;
-
                     let old_len = core_types.len();
                     let l = temp.len();
-                    // keeps from reallocating during `append` (important for scope registration)
-                    core_types.reserve(l);
                     core_types.append(temp);
+
+                    let mut new_sects = vec![];
+                    let mut has_subscope = false;
                     for ty in &core_types[old_len..] {
-                        let (section, sect_has_subscope) = populate_space_for_core_ty(
-                            ty,
-                            registry_handle.clone(),
-                            store_handle.clone(),
-                        );
+                        let (new_sect, sect_has_subscope) = get_sections_for_core_ty(ty);
                         has_subscope |= sect_has_subscope;
-                        new_sects.push(section)
+                        new_sects.push(new_sect);
                     }
 
                     store_handle.borrow_mut().assign_assumed_id_for(
@@ -508,25 +500,18 @@ impl<'a> Component<'a> {
                         .into_iter()
                         .collect::<Result<_, _>>()?;
 
-                    let mut new_sects = vec![];
-                    let mut has_subscope = false;
-
                     let old_len = component_types.len();
                     let l = temp.len();
-                    // keeps from reallocating during `append` (important for scope registration)
-                    component_types.reserve(l);
                     component_types.append(temp);
+
+                    let mut new_sects = vec![];
+                    let mut has_subscope = false;
                     for ty in &component_types[old_len..] {
-                        // MUST iterate over the component_types rather than `temp` so that
-                        // the ownership of the items is consistent with scope registration.
-                        let (section, sect_has_subscope) = populate_space_for_comp_ty(
-                            ty,
-                            registry_handle.clone(),
-                            store_handle.clone(),
-                        );
-                        new_sects.push(section);
+                        let (new_sect, sect_has_subscope) = get_sections_for_comp_ty(ty);
                         has_subscope |= sect_has_subscope;
+                        new_sects.push(new_sect);
                     }
+
                     store_handle.borrow_mut().assign_assumed_id_for(
                         &space_id,
                         &component_types[old_len..].to_vec(),
@@ -662,11 +647,6 @@ impl<'a> Component<'a> {
                         components.len(),
                     );
                     components.push(cmp);
-                    let pushed_component = components.last().unwrap();
-                    registry_handle
-                        .borrow_mut()
-                        .register(pushed_component, sub_space_id);
-                    assert_registered_with_id!(registry_handle, pushed_component, sub_space_id);
 
                     Self::add_to_sections(true, &mut sections, &vec![sect], &mut num_sections, 1);
                 }
@@ -753,6 +733,29 @@ impl<'a> Component<'a> {
                 Payload::Version { .. } | Payload::End { .. } => {} // nothing to do
                 other => println!("TODO: Not sure what to do for: {:?}", other),
             }
+        }
+
+        // Scope discovery
+        for comp in &components {
+            let sub_space_id = comp.space_id;
+            registry_handle
+                .borrow_mut()
+                .register(comp, sub_space_id);
+            assert_registered_with_id!(registry_handle, comp, sub_space_id);
+        }
+        for ty in &core_types {
+            let (section, sect_has_subscope) = populate_space_for_core_ty(
+                ty,
+                registry_handle.clone(),
+                store_handle.clone(),
+            );
+        }
+        for ty in &component_types {
+            let (section, sect_has_subscope) = populate_space_for_comp_ty(
+                ty,
+                registry_handle.clone(),
+                store_handle.clone(),
+            );
         }
 
         let comp_rc = Rc::new(Component {

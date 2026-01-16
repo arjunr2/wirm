@@ -92,7 +92,7 @@ use std::collections::HashMap;
 use std::ptr::NonNull;
 use std::rc::Rc;
 use wasmparser::{
-    ArrayType, CanonicalFunction, CanonicalOption, ComponentAlias, ComponentDefinedType,
+    CanonicalFunction, CanonicalOption, ComponentAlias, ComponentDefinedType,
     ComponentExport, ComponentFuncType, ComponentImport, ComponentInstance,
     ComponentInstantiationArg, ComponentStartFunction, ComponentType, ComponentTypeDeclaration,
     ComponentTypeRef, ComponentValType, CompositeInnerType, CompositeType, CoreType, Export,

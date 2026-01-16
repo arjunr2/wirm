@@ -76,14 +76,12 @@ pub(crate) fn encode_internal<'a>(
     let mut reencode = RoundtripReencoder;
 
     for item in &plan.items {
-        // println!("{item:?} Encoding!");
         match item {
             ComponentItem::Component {
                 node,
                 plan: subplan,
-                // space_id: sub_space_id,
                 ..
-            } => unsafe {
+            } => {
                 // CREATES A NEW IDX SPACE SCOPE
                 let subcomp: &Component = &**node;
                 ctx.maybe_enter_scope(subcomp);

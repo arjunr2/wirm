@@ -76,7 +76,7 @@ impl<'a> Collect<'a> for Component<'a> {
                 indices.visit_section(section, *num as usize)
             };
 
-            println!("{section:?} Collecting {num} nodes starting @{start_idx}");
+            // println!("{section:?} Collecting {num} nodes starting @{start_idx}");
             match section {
                 ComponentSection::Module => {
                     collect_vec(
@@ -298,7 +298,7 @@ impl<'a> Collect<'a> for Module<'a> {
 
 impl<'a> Collect<'a> for ComponentType<'a> {
     #[rustfmt::skip]
-    fn collect(&'a self, idx: usize, collect_ctx: &mut CollectCtx<'a>, ctx: &mut EncodeCtx, comp: &'a Component<'a>) {
+    fn collect(&'a self, idx: usize, collect_ctx: &mut CollectCtx<'a>, ctx: &mut EncodeCtx, _: &'a Component<'a>) {
         let ptr = self as *const _;
         let r = TrackedItem::new_comp_type(ptr);
         if collect_ctx.seen.contains_key(&r) {
@@ -314,7 +314,7 @@ impl<'a> Collect<'a> for ComponentType<'a> {
 impl<'a> CollectSubItem<'a> for ComponentType<'a> {
     fn collect_subitem(
         &'a self,
-        idx: usize,
+        _: usize,
         collect_ctx: &mut CollectCtx<'a>,
         ctx: &mut EncodeCtx,
     ) -> Option<SubItemPlan> {
@@ -322,7 +322,7 @@ impl<'a> CollectSubItem<'a> for ComponentType<'a> {
         match self {
             ComponentType::Component(decls) => {
                 ctx.maybe_enter_scope(self);
-                println!("\t@collect COMP_TYPE ADDR: {:p}", self);
+                // println!("\t@collect COMP_TYPE::component ADDR: {:p}\n\t\t{self:?}", self);
                 assert_registered!(ctx.registry, self);
 
                 let subitems = collect_subitem_vec(decls, collect_ctx, ctx);
@@ -331,7 +331,7 @@ impl<'a> CollectSubItem<'a> for ComponentType<'a> {
             }
             ComponentType::Instance(decls) => {
                 ctx.maybe_enter_scope(self);
-                println!("\t@collect COMP_TYPE ADDR: {:p}", self);
+                // println!("\t@collect COMP_TYPE::instance ADDR: {:p}\n\t\t{self:?}", self);
                 assert_registered!(ctx.registry, self);
 
                 let subitems = collect_subitem_vec(decls, collect_ctx, ctx);
@@ -411,7 +411,7 @@ impl<'a> CollectSubItem<'a> for InstanceTypeDeclaration<'a> {
 impl<'a> CollectSubItem<'a> for CoreType<'a> {
     fn collect_subitem(
         &'a self,
-        idx: usize,
+        _: usize,
         collect_ctx: &mut CollectCtx<'a>,
         ctx: &mut EncodeCtx,
     ) -> Option<SubItemPlan> {
@@ -507,7 +507,7 @@ impl<'a> Collect<'a> for ComponentExport<'a> {
 
 impl<'a> Collect<'a> for CoreType<'a> {
     #[rustfmt::skip]
-    fn collect(&'a self, idx: usize, collect_ctx: &mut CollectCtx<'a>, ctx: &mut EncodeCtx, comp: &'a Component<'a>) {
+    fn collect(&'a self, idx: usize, collect_ctx: &mut CollectCtx<'a>, ctx: &mut EncodeCtx, _: &'a Component<'a>) {
         let ptr = self as *const _;
         let r = TrackedItem::new_core_type(ptr);
         if collect_ctx.seen.contains_key(&r) {
@@ -635,7 +635,7 @@ fn collect_subitem_deps<'a, T: Debug + ReferencedIndices + CollectSubItem<'a> + 
             if r.depth.is_inner() {
                 continue;
             }
-            println!("\tLooking up: {r:?}");
+            // println!("\tLooking up: {r:?}");
             let (_, idx) = {
                 let mut store = ctx.store.borrow_mut();
                 let scope_id = ctx.space_stack.curr_space_id();
@@ -895,7 +895,7 @@ pub(crate) struct ComponentPlan<'a> {
     pub(crate) items: Vec<ComponentItem<'a>>,
 }
 
-enum TrackedSubItem<'a> {
+pub(crate) enum TrackedSubItem<'a> {
     CompTypeDecl(*const ComponentTypeDeclaration<'a>),
     InstTypeDecl(*const InstanceTypeDeclaration<'a>),
     CoreTypeModuleDecl(*const ModuleTypeDeclaration<'a>),
@@ -914,7 +914,7 @@ impl<'a> TrackedSubItem<'a> {
 
 /// This is just used to unify the `collect` logic into a generic function.
 /// Should be the same items as `ComponentItem`, but without state.
-enum TrackedItem<'a> {
+pub(crate) enum TrackedItem<'a> {
     // unnecessary since this is handled in a non-generic way
     // Component(*const Component<'a>),
     Module(*const Module<'a>),
@@ -967,7 +967,7 @@ impl<'a> TrackedItem<'a> {
 }
 
 #[derive(Default)]
-struct Seen<'a> {
+pub(crate) struct Seen<'a> {
     /// Points to a TEMPORARY ID -- this is just for bookkeeping, not the final ID
     /// The final ID is assigned during the "Assign" phase.
     components: HashMap<*const Component<'a>, usize>,
@@ -1053,7 +1053,7 @@ impl<'a> CollectCtx<'a> {
             seen: Seen::default(),
         }
     }
-    fn curr_plan(&self) -> &ComponentPlan {
+    fn curr_plan(&'_ self) -> &ComponentPlan {
         self.plan_stack.last().unwrap()
     }
     fn curr_plan_mut(&mut self) -> &mut ComponentPlan<'a> {

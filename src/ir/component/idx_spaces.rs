@@ -595,7 +595,7 @@ pub enum Space {
     CoreTag,
 }
 
-trait NameOf {
+pub trait NameOf {
     fn name_of(&self) -> String;
 }
 impl NameOf for ComponentExport<'_> {
