@@ -300,70 +300,7 @@ impl<'a> Collect<'a> for ComponentType<'a> {
         // assign a temporary index during collection
         collect_ctx.seen.insert(r, idx);
 
-        // Either create a new ordering context or thread through from higher up
-
         let subitem_order = self.collect_subitem(idx, collect_ctx, ctx);
-        // let subitem_order = match self {
-        //     ComponentType::Component(decls) => todo!(),
-        //     ComponentType::Instance(decls) => {
-        //         let mut subitems = if let Some(order) = subitem_order {
-        //             order
-        //         } else {
-        //             SubItemPlan::default()
-        //         };
-        //
-        //         // let scope_entry = ctx.registry.borrow().scope_entry(self);
-        //         // if let Some(scope_entry) = scope_entry {
-        //         //     ctx.space_stack.enter_space(scope_entry.space);
-        //         // }
-        //         for (decl_idx, decl) in decls.iter().enumerate() {
-        //             // let inner_space = subspace.as_ref().unwrap().subspaces.get(&decl_idx).cloned();
-        //             // let space = if let Some(inner_space) = &inner_space {
-        //             //     inner_space
-        //             // } else {
-        //             //     outer_space
-        //             // };
-        //
-        //             // TODO: To support (outer ...) maybe have this return a Vec<Ref> to collect
-        //             //       at this point? Then the plan would have those component-level items first!
-        //             match decl {
-        //                 InstanceTypeDeclaration::CoreType(ty) => ctx.maybe_enter_scope(ty),
-        //                 InstanceTypeDeclaration::Type(ty) => ctx.maybe_enter_scope(ty),
-        //                 InstanceTypeDeclaration::Alias(_)
-        //                 | InstanceTypeDeclaration::Export { .. } => {}
-        //             }
-        //             collect_subitem(decl, decl_idx, decls, &SubSpace::default(), &mut subitems, ctx, TrackedSubItem::new_inst_type_decl);
-        //             match decl {
-        //                 InstanceTypeDeclaration::CoreType(ty) => ctx.maybe_exit_scope(ty),
-        //                 InstanceTypeDeclaration::Type(ty) => ctx.maybe_exit_scope(ty),
-        //                 InstanceTypeDeclaration::Alias(_)
-        //                 | InstanceTypeDeclaration::Export { .. } => {}
-        //             }
-        //
-        //             // let ptr = decl as *const _;
-        //             // let r = TrackedSubItem::InstTypeDecl(ptr);
-        //             // if ctx.seen.contains_subitem_key(&r) {
-        //             //     continue;
-        //             // }
-        //             // // assign a temporary index during collection
-        //             // ctx.seen.insert_subitem(r, decl_idx);
-        //             //
-        //             // // Collect dependencies first
-        //             // collect_subitem_deps(decl, space.clone(), ctx, decls);
-        //             //
-        //             // // push to ordered plan
-        //             // subitems.order.push((decl_idx, None));
-        //         }
-        //         // if scope_entry.is_some() {
-        //         //     ctx.space_stack.exit_space();
-        //         // }
-        //
-        //         Some(subitems)
-        //     },
-        //     ComponentType::Defined(_)
-        //     | ComponentType::Func(_)
-        //     | ComponentType::Resource { .. } => None
-        // };
         collect_ctx.plan.items.push(ComponentItem::new_comp_type(self as *const _, idx, subitem_order));
     }
 }
@@ -539,14 +476,16 @@ impl<'a> Collect<'a> for ComponentExport<'a> {
 impl<'a> Collect<'a> for CoreType<'a> {
     #[rustfmt::skip]
     fn collect(&'a self, idx: usize, collect_ctx: &mut CollectCtx<'a>, ctx: &mut EncodeCtx, comp: &'a Component<'a>) {
-        // // Either create a new ordering context or thread through from higher up
-        // let subitems = if let Some(order) = subitem_order {
-        //     order
-        // } else {
-        //     SubItemOrder::default()
-        // };
-        // collect_subitems(self, idx, subitems, ctx, comp, TrackedSubItem::new_core_type_module_decl, ComponentItem::new_core_type);
-        todo!()
+        let ptr = self as *const _;
+        let r = TrackedItem::new_core_type(ptr);
+        if collect_ctx.seen.contains_key(&r) {
+            return;
+        }
+        // assign a temporary index during collection
+        collect_ctx.seen.insert(r, idx);
+
+        let subitem_order = self.collect_subitem(idx, collect_ctx, ctx);
+        collect_ctx.plan.items.push(ComponentItem::new_core_type(self as *const _, idx, subitem_order));
     }
 }
 
