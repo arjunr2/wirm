@@ -843,7 +843,7 @@ impl IndexSpaceOf for ComponentOuterAliasKind {
             ComponentOuterAliasKind::CoreModule => Space::CoreModule,
             ComponentOuterAliasKind::CoreType => Space::CoreType,
             ComponentOuterAliasKind::Type => Space::CompType,
-            ComponentOuterAliasKind::Component => Space::CompInst,
+            ComponentOuterAliasKind::Component => Space::CompType,
         }
     }
 }
