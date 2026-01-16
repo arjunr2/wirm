@@ -775,7 +775,7 @@ impl FixIndicesImpl for CoreType<'_> {
 }
 
 impl sealed::Sealed for ModuleTypeDeclaration<'_> {}
-#[rustfmt::skip]
+// #[rustfmt::skip]
 impl FixIndicesImpl for ModuleTypeDeclaration<'_> {
     fn fixme<'a>(&self, plan: &Option<SubItemPlan>, ctx: &mut EncodeCtx) -> Self {
         println!("\t---> ModuleTypeDeclaration: {:p}", self);
@@ -783,11 +783,23 @@ impl FixIndicesImpl for ModuleTypeDeclaration<'_> {
             ModuleTypeDeclaration::Type(group) => ModuleTypeDeclaration::Type(group.fix(plan, ctx)),
             ModuleTypeDeclaration::Export { name, ty } => ModuleTypeDeclaration::Export {
                 name,
-                ty: ty.fix(plan, ctx)
+                ty: ty.fix(plan, ctx),
             },
-            ModuleTypeDeclaration::Import(import) => ModuleTypeDeclaration::Import(import.fix(plan, ctx)),
+            ModuleTypeDeclaration::Import(import) => {
+                ModuleTypeDeclaration::Import(import.fix(plan, ctx))
+            }
             // In the case of outer aliases, the u32 pair serves as a de Bruijn index, with first u32 being the number of enclosing components/modules to skip and the second u32 being an index into the target's sort's index space. In particular, the first u32 can be 0, in which case the outer alias refers to the current component. To maintain the acyclicity of module instantiation, outer aliases are only allowed to refer to preceding outer definitions.
-            ModuleTypeDeclaration::OuterAlias { .. } => todo!(), // TODO: Fix this after scoped index spaces!
+            ModuleTypeDeclaration::OuterAlias { kind, count, .. } => {
+                let refs = self.referenced_indices(Depth::default());
+                let misc = refs.as_ref().unwrap().misc();
+                let new_id = ctx.lookup_actual_id_or_panic(&misc);
+
+                ModuleTypeDeclaration::OuterAlias {
+                    kind: *kind,
+                    count: *count,
+                    index: new_id as u32,
+                }
+            }
         }
     }
 }

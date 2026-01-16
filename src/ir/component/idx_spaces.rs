@@ -890,7 +890,9 @@ impl IndexSpaceOf for TypeRef {
 
 impl IndexSpaceOf for OuterAliasKind {
     fn index_space_of(&self) -> Space {
-        todo!()
+        match self {
+            OuterAliasKind::Type => Space::CoreType,
+        }
     }
 }
 
@@ -1019,6 +1021,9 @@ impl Refs {
 #[derive(Clone, Copy, Debug, Default)]
 pub struct Depth(i32);
 impl Depth {
+    pub fn val(&self) -> i32 {
+        self.0
+    }
     pub fn is_inner(&self) -> bool {
         self.0 < 0
     }
@@ -1028,6 +1033,10 @@ impl Depth {
     }
     pub fn outer(mut self) -> Self {
         self.0 += 1;
+        self
+    }
+    pub fn outer_at(mut self, depth: u32) -> Self {
+        self.0 += depth as i32;
         self
     }
 }
@@ -1359,7 +1368,14 @@ impl ReferencedIndices for ModuleTypeDeclaration<'_> {
             ModuleTypeDeclaration::Export { ty, .. } => ty.referenced_indices(depth),
             ModuleTypeDeclaration::Import(i) => i.ty.referenced_indices(depth),
             // In the case of outer aliases, the u32 pair serves as a de Bruijn index, with first u32 being the number of enclosing components/modules to skip and the second u32 being an index into the target's sort's index space. In particular, the first u32 can be 0, in which case the outer alias refers to the current component. To maintain the acyclicity of module instantiation, outer aliases are only allowed to refer to preceding outer definitions.
-            ModuleTypeDeclaration::OuterAlias { .. } => todo!(),
+            ModuleTypeDeclaration::OuterAlias { kind, count, index } => Some(Refs {
+                misc: Some(IndexedRef {
+                    depth: depth.outer_at(*count),
+                    space: kind.index_space_of(),
+                    index: *index,
+                }),
+                ..Default::default()
+            }),
         }
     }
 }
@@ -1824,7 +1840,14 @@ impl ReferencedIndices for ComponentAlias<'_> {
                 }),
                 ..Default::default()
             }),
-            ComponentAlias::Outer { count, index, .. } => todo!(),
+            ComponentAlias::Outer { count, index, kind } => Some(Refs {
+                misc: Some(IndexedRef {
+                    depth: depth.outer_at(*count),
+                    space: kind.index_space_of(),
+                    index: *index,
+                }),
+                ..Default::default()
+            }),
         }
     }
 }

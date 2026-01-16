@@ -1,6 +1,6 @@
 use crate::encode::component::assign::assign_indices;
 use crate::encode::component::encode::encode_internal;
-use crate::ir::component::idx_spaces::{IndexedRef, SpaceId, StoreHandle};
+use crate::ir::component::idx_spaces::{Depth, IndexedRef, SpaceId, StoreHandle};
 use crate::ir::component::scopes::{GetScopeKind, RegistryHandle};
 use crate::Component;
 
@@ -142,6 +142,18 @@ impl SpaceStack {
     fn curr_space_id(&self) -> SpaceId {
         self.stack.last().cloned().unwrap()
     }
+    fn space_at_depth(&self, depth: &Depth) -> SpaceId {
+        *self
+            .stack
+            .get(self.stack.len() - depth.val() as usize - 1)
+            .unwrap_or_else(|| {
+                panic!(
+                    "couldn't find scope at depth {}; this is the current scope stack: {:?}",
+                    depth.val(),
+                    self.stack
+                )
+            })
+    }
 
     pub fn enter_space(&mut self, id: SpaceId) {
         self.stack.push(id)
@@ -204,11 +216,11 @@ impl EncodeCtx {
     }
 
     fn lookup_actual_id_or_panic(&self, r: &IndexedRef) -> usize {
-        let curr_scope_id = self.space_stack.curr_space_id();
+        let scope_id = self.space_stack.space_at_depth(&r.depth);
         self.store
             .borrow()
             .scopes
-            .get(&curr_scope_id)
+            .get(&scope_id)
             .unwrap()
             .lookup_actual_id_or_panic(&r)
     }
