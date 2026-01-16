@@ -7,26 +7,26 @@
   (export $g2 "g2" (func $g))
 )
 
-;;(component
-;;  (type (component
-;;    (type $t u8)
-;;    (import "x" (instance $i (export "t" (type (eq $t)))))
-;;    (alias export $i "t" (type $my-t))
-;;  ))
-;;)
-;;
-;;(component
-;;  (type (component
-;;    (type $t u8)
-;;    (import "x" (instance $i
-;;      (export "i" (instance
-;;        (export "t" (type (eq $t)))
-;;      ))
-;;    ))
-;;    (alias export $i "i" (instance $my-i))
-;;    (alias export $my-i "t" (type $my-t))
-;;  ))
-;;)
+(component
+  (type (component
+    (type $t u8)
+    (import "x" (instance $i (export "t" (type (eq $t)))))
+    (alias export $i "t" (type $my-t))
+  ))
+)
+
+(component
+  (type (component
+    (type $t u8)
+    (import "x" (instance $i
+      (export "i" (instance
+        (export "t" (type (eq $t)))
+      ))
+    ))
+    (alias export $i "i" (instance $my-i))
+    (alias export $my-i "t" (type $my-t))
+  ))
+)
 
 (assert_malformed
   (component quote

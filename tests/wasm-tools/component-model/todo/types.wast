@@ -134,12 +134,12 @@
   )
   "type index out of bounds")
 
-;;(component $c
-;;  (core type $f (func))
-;;  (core type $t (module
-;;    (alias outer $c $f (type))
-;;  ))
-;;)
+(component $c
+  (core type $f (func))
+  (core type $t (module
+    (alias outer $c $f (type))
+  ))
+)
 
 (assert_malformed
   (component quote
@@ -238,33 +238,33 @@
   (type $t (func (result (tuple (list u8) u32))))
 )
 
-;;(component $C
-;;  (core type $t (func))
-;;  (core type (module
-;;    (alias outer $C $t (type $a))
-;;    (import "" "" (func (type $a)))
-;;  ))
-;;)
+(component $C
+  (core type $t (func))
+  (core type (module
+    (alias outer $C $t (type $a))
+    (import "" "" (func (type $a)))
+  ))
+)
 
-;;(component $C
-;;  (component $C2
-;;    (core type $t (func))
-;;    (core type (module
-;;      (alias outer $C2 $t (type $a))
-;;      (import "" "" (func (type $a)))
-;;    ))
-;;  )
-;;)
-;;
-;;(component $C
-;;  (core type $t (func))
-;;  (component $C2
-;;    (core type (module
-;;      (alias outer $C $t (type $a))
-;;      (import "" "" (func (type $a)))
-;;    ))
-;;  )
-;;)
+(component $C
+  (component $C2
+    (core type $t (func))
+    (core type (module
+      (alias outer $C2 $t (type $a))
+      (import "" "" (func (type $a)))
+    ))
+  )
+)
+
+(component $C
+  (core type $t (func))
+  (component $C2
+    (core type (module
+      (alias outer $C $t (type $a))
+      (import "" "" (func (type $a)))
+    ))
+  )
+)
 
 (component
   (type (instance
@@ -311,14 +311,14 @@
   )
   "tuple type must have at least one type")
 
-;;(component $c
-;;  (core type $f (func))
-;;  (component $c2
-;;    (core type $t (module
-;;      (alias outer $c $f (type))
-;;    ))
-;;  )
-;;)
+(component $c
+  (core type $f (func))
+  (component $c2
+    (core type $t (module
+      (alias outer $c $f (type))
+    ))
+  )
+)
 
 (assert_invalid
   (component
@@ -360,34 +360,34 @@
   )
   "cannot have more than 32 flags")
 
-;;;; test components with non-mvp types
-;;(component
-;;  ;; all abstract heap types work
-;;  (core type (func (param (ref any))))
-;;  (core type (func (param (ref func))))
-;;  (core type (func (param (ref extern))))
-;;  (core type (func (param (ref exn))))
-;;  (core type (func (param (ref noexn))))
-;;  (core type (func (param (ref eq))))
-;;  (core type (func (param (ref struct))))
-;;  (core type (func (param (ref array))))
-;;  (core type (func (param (ref nofunc))))
-;;  (core type (func (param (ref noextern))))
-;;  (core type (func (param (ref none))))
-;;  (core type (func (param (ref i31))))
-;;
-;;  ;; some shorthands work
-;;  (core type (func (param anyref)))
-;;  (core type (func (param eqref)))
-;;
-;;  ;; simd types work
-;;  (core type (func (param v128)))
-;;
-;;  ;; types-pointing-to-types works
-;;  (core type $t (func))
-;;  (core type (func (param (ref $t))))
-;;
-;;)
+;; test components with non-mvp types
+(component
+  ;; all abstract heap types work
+  (core type (func (param (ref any))))
+  (core type (func (param (ref func))))
+  (core type (func (param (ref extern))))
+  (core type (func (param (ref exn))))
+  (core type (func (param (ref noexn))))
+  (core type (func (param (ref eq))))
+  (core type (func (param (ref struct))))
+  (core type (func (param (ref array))))
+  (core type (func (param (ref nofunc))))
+  (core type (func (param (ref noextern))))
+  (core type (func (param (ref none))))
+  (core type (func (param (ref i31))))
+
+  ;; some shorthands work
+  (core type (func (param anyref)))
+  (core type (func (param eqref)))
+
+  ;; simd types work
+  (core type (func (param v128)))
+
+  ;; types-pointing-to-types works
+  (core type $t (func))
+  (core type (func (param (ref $t))))
+
+)
 
 (assert_invalid
   (component

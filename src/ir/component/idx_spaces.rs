@@ -74,6 +74,7 @@ impl IndexStore {
         self.get_mut(id)
             .assign_assumed_id_for(items, curr_idx, sections)
     }
+    // TODO: Possibly remove all this?
     pub fn assign_assumed_id_with_name_for<I: Debug + IndexSpaceOf + NameOf>(
         &mut self,
         id: &SpaceId,

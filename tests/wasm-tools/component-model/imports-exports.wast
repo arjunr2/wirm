@@ -2,7 +2,6 @@
 
 ;; With what's defined so far, we can define a component that imports, links and exports other components:
 
-;; TODO: This has multiple nested levels of types to handle!
 (component
   (import "c" (instance $c
     (export "f" (func (result string)))

@@ -1,139 +1,139 @@
 ;; RUN: wast --assert default --snapshot tests/snapshots % -f cm-values
 
-;;(component
-;;  (import "a" (core module $m))
-;;  (core instance $a (instantiate $m))
-;;)
-;;
-;;(component
-;;  (import "a" (func $i))
-;;  (import "b" (component $c (import "a" (func))))
-;;  (instance (instantiate $c (with "a" (func $i))))
-;;)
-;;
-;;(component
-;;  (import "a" (value $i string))
-;;  (import "b" (component $c (import "a" (value string))))
-;;  (instance (instantiate $c (with "a" (value $i))))
-;;)
-;;
-;;(component
-;;  (import "a" (component $i))
-;;  (import "b" (component $c (import "a" (component))))
-;;  (instance (instantiate $c (with "a" (component $i))))
-;;)
-;;
-;;(component
-;;  (import "a" (core module $i))
-;;  (import "b" (component $c (import "a" (core module))))
-;;  (instance (instantiate $c (with "a" (core module $i))))
-;;)
-;;
-;;(component
-;;  (import "a" (instance $i))
-;;  (import "b" (component $c (import "a" (instance))))
-;;  (instance (instantiate $c (with "a" (instance $i))))
-;;)
-;;
-;;(component
-;;  (import "a" (core module $m
-;;    (import "" "a" (func))
-;;    (import "" "b" (global i32))
-;;    (import "" "c" (table 1 funcref))
-;;    (import "" "d" (memory 1))
-;;  ))
-;;  (import "b" (core module $m2
-;;    (export "a" (func))
-;;    (export "b" (global i32))
-;;    (export "c" (table 1 funcref))
-;;    (export "d" (memory 1))
-;;  ))
-;;  (core instance $x (instantiate $m2))
-;;  (core instance (instantiate $m (with "" (instance $x))))
-;;)
-;;
-;;(component
-;;  (import "a" (core module $m
-;;    (import "" "d" (func))
-;;    (import "" "c" (global i32))
-;;    (import "" "b" (table 1 funcref))
-;;    (import "" "a" (memory 1))
-;;  ))
-;;  (import "b" (core module $m2
-;;    (export "a" (func))
-;;    (export "b" (global i32))
-;;    (export "c" (table 1 funcref))
-;;    (export "d" (memory 1))
-;;  ))
-;;  (core instance $x (instantiate $m2))
-;;
-;;  (core instance (instantiate $m (with "" (instance
-;;    (export "d" (func $x "a"))
-;;    (export "c" (global $x "b"))
-;;    (export "b" (table $x "c"))
-;;    (export "a" (memory $x "d"))
-;;  ))))
-;;)
-;;
-;;(component
-;;  (type $t string)
-;;  (import "a" (value (type $t)))
-;;  (component $c (import "a" (value string)) (export "b" (value 0)))
-;;  (instance (instantiate $c (with "a" (value 0))))
-;;)
-;;
-;;;;(component
-;;;;  (import "a" (component $m
-;;;;    (import "a" (instance
-;;;;      (export "a" (core module))
-;;;;    ))
-;;;;  ))
-;;;;  (import "b" (component $m2
-;;;;    (export "b" (core module))
-;;;;  ))
-;;;;  (instance $x (instantiate $m2))
-;;;;
-;;;;  (instance (instantiate $m (with "a" (instance
-;;;;    (export "a" (core module $x "b"))
-;;;;  ))))
-;;;;)
-;;
-;;;;(component
-;;;;  (import "a" (component $c
-;;;;    (import "a" (core module))
-;;;;    (import "b" (func))
-;;;;    (import "c" (component))
-;;;;    (import "d" (instance))
-;;;;    (import "e" (value string))
-;;;;  ))
-;;;;  (core module $m (import "b"))
-;;;;  (func $f (import "c"))
-;;;;  (component $c2 (import "d"))
-;;;;  (instance $i (import "e"))
-;;;;  (import "f" (value $v string))
-;;;;
-;;;;  (instance
-;;;;    (instantiate $c
-;;;;      (with "a" (core module $m))
-;;;;      (with "b" (func $f))
-;;;;      (with "c" (component $c2))
-;;;;      (with "d" (instance $i))
-;;;;      (with "e" (value $v))
-;;;;    )
-;;;;  )
-;;;;
-;;;;  (core instance $c (instantiate $m))
-;;;;  (core instance (instantiate $m))
-;;;;
-;;;;  ;; inline exports/imports
-;;;;  (type $empty (instance))
-;;;;  (instance $d (import "g") (type $empty))
-;;;;  (instance (import "h"))
-;;;;  (instance (import "i")
-;;;;    (export "x" (func)))
-;;;;  (instance (export "j") (export "k") (import "x"))
-;;;;)
-;;
+(component
+  (import "a" (core module $m))
+  (core instance $a (instantiate $m))
+)
+
+(component
+  (import "a" (func $i))
+  (import "b" (component $c (import "a" (func))))
+  (instance (instantiate $c (with "a" (func $i))))
+)
+
+(component
+  (import "a" (value $i string))
+  (import "b" (component $c (import "a" (value string))))
+  (instance (instantiate $c (with "a" (value $i))))
+)
+
+(component
+  (import "a" (component $i))
+  (import "b" (component $c (import "a" (component))))
+  (instance (instantiate $c (with "a" (component $i))))
+)
+
+(component
+  (import "a" (core module $i))
+  (import "b" (component $c (import "a" (core module))))
+  (instance (instantiate $c (with "a" (core module $i))))
+)
+
+(component
+  (import "a" (instance $i))
+  (import "b" (component $c (import "a" (instance))))
+  (instance (instantiate $c (with "a" (instance $i))))
+)
+
+(component
+  (import "a" (core module $m
+    (import "" "a" (func))
+    (import "" "b" (global i32))
+    (import "" "c" (table 1 funcref))
+    (import "" "d" (memory 1))
+  ))
+  (import "b" (core module $m2
+    (export "a" (func))
+    (export "b" (global i32))
+    (export "c" (table 1 funcref))
+    (export "d" (memory 1))
+  ))
+  (core instance $x (instantiate $m2))
+  (core instance (instantiate $m (with "" (instance $x))))
+)
+
+(component
+  (import "a" (core module $m
+    (import "" "d" (func))
+    (import "" "c" (global i32))
+    (import "" "b" (table 1 funcref))
+    (import "" "a" (memory 1))
+  ))
+  (import "b" (core module $m2
+    (export "a" (func))
+    (export "b" (global i32))
+    (export "c" (table 1 funcref))
+    (export "d" (memory 1))
+  ))
+  (core instance $x (instantiate $m2))
+
+  (core instance (instantiate $m (with "" (instance
+    (export "d" (func $x "a"))
+    (export "c" (global $x "b"))
+    (export "b" (table $x "c"))
+    (export "a" (memory $x "d"))
+  ))))
+)
+
+(component
+  (type $t string)
+  (import "a" (value (type $t)))
+  (component $c (import "a" (value string)) (export "b" (value 0)))
+  (instance (instantiate $c (with "a" (value 0))))
+)
+
+(component
+  (import "a" (component $m
+    (import "a" (instance
+      (export "a" (core module))
+    ))
+  ))
+  (import "b" (component $m2
+    (export "b" (core module))
+  ))
+  (instance $x (instantiate $m2))
+
+  (instance (instantiate $m (with "a" (instance
+    (export "a" (core module $x "b"))
+  ))))
+)
+
+(component
+  (import "a" (component $c
+    (import "a" (core module))
+    (import "b" (func))
+    (import "c" (component))
+    (import "d" (instance))
+    (import "e" (value string))
+  ))
+  (core module $m (import "b"))
+  (func $f (import "c"))
+  (component $c2 (import "d"))
+  (instance $i (import "e"))
+  (import "f" (value $v string))
+
+  (instance
+    (instantiate $c
+      (with "a" (core module $m))
+      (with "b" (func $f))
+      (with "c" (component $c2))
+      (with "d" (instance $i))
+      (with "e" (value $v))
+    )
+  )
+
+  (core instance $c (instantiate $m))
+  (core instance (instantiate $m))
+
+  ;; inline exports/imports
+  (type $empty (instance))
+  (instance $d (import "g") (type $empty))
+  (instance (import "h"))
+  (instance (import "i")
+    (export "x" (func)))
+  (instance (export "j") (export "k") (import "x"))
+)
+
 ;;(assert_invalid
 ;;  (component
 ;;    (core instance (instantiate 0))
