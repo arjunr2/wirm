@@ -10,7 +10,10 @@ use crate::ir::component::idx_spaces::{
     Depth, IndexSpaceOf, IndexStore, ReferencedIndices, Space, SpaceId, SpaceSubtype, StoreHandle,
 };
 use crate::ir::component::scopes::{IndexScopeRegistry, RegistryHandle};
-use crate::ir::component::section::{get_sections_for_comp_ty, get_sections_for_core_ty, populate_space_for_comp_ty, populate_space_for_core_ty, ComponentSection};
+use crate::ir::component::section::{
+    get_sections_for_comp_ty, get_sections_for_core_ty, populate_space_for_comp_ty,
+    populate_space_for_core_ty, ComponentSection,
+};
 use crate::ir::component::types::ComponentTypes;
 use crate::ir::helpers::{
     print_alias, print_component_export, print_component_import, print_component_type,
@@ -738,24 +741,16 @@ impl<'a> Component<'a> {
         // Scope discovery
         for comp in &components {
             let sub_space_id = comp.space_id;
-            registry_handle
-                .borrow_mut()
-                .register(comp, sub_space_id);
+            registry_handle.borrow_mut().register(comp, sub_space_id);
             assert_registered_with_id!(registry_handle, comp, sub_space_id);
         }
         for ty in &core_types {
-            let (section, sect_has_subscope) = populate_space_for_core_ty(
-                ty,
-                registry_handle.clone(),
-                store_handle.clone(),
-            );
+            let (section, sect_has_subscope) =
+                populate_space_for_core_ty(ty, registry_handle.clone(), store_handle.clone());
         }
         for ty in &component_types {
-            let (section, sect_has_subscope) = populate_space_for_comp_ty(
-                ty,
-                registry_handle.clone(),
-                store_handle.clone(),
-            );
+            let (section, sect_has_subscope) =
+                populate_space_for_comp_ty(ty, registry_handle.clone(), store_handle.clone());
         }
 
         let comp_rc = Rc::new(Component {

@@ -28,11 +28,10 @@ pub enum ComponentSection {
 pub(crate) fn get_sections_for_comp_ty(ty: &ComponentType) -> (ComponentSection, bool) {
     let section = ComponentSection::ComponentType;
     match ty {
-        ComponentType::Component(_)
-        | ComponentType::Instance(_) => (section, true),
-        ComponentType::Defined(_)
-        | ComponentType::Func(_)
-        | ComponentType::Resource { .. } => (section, false),
+        ComponentType::Component(_) | ComponentType::Instance(_) => (section, true),
+        ComponentType::Defined(_) | ComponentType::Func(_) | ComponentType::Resource { .. } => {
+            (section, false)
+        }
     }
 }
 
@@ -40,7 +39,7 @@ pub(crate) fn get_sections_for_core_ty(ty: &CoreType) -> (ComponentSection, bool
     let section = ComponentSection::CoreType;
     match ty {
         CoreType::Module(_) => (section, true),
-        CoreType::Rec(_) => (section, false)
+        CoreType::Rec(_) => (section, false),
     }
 }
 

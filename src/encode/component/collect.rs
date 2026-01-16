@@ -579,7 +579,7 @@ fn collect_deps<'a, T: ReferencedIndices + 'a>(
 ) {
     if let Some(refs) = item.referenced_indices(Depth::default()) {
         for r in refs.as_list().iter() {
-            println!("\tLooking up: {r:?}");
+            // println!("\tLooking up: {r:?}");
             let curr_space_id = ctx.space_stack.curr_space_id();
             let (vec, idx) = {
                 let mut store = ctx.store.borrow_mut();
@@ -629,7 +629,7 @@ fn collect_subitem_deps<'a, T: Debug + ReferencedIndices + CollectSubItem<'a> + 
     ctx: &mut EncodeCtx,
     nodes: &'a [T],
 ) {
-    println!("At node: {item:?}");
+    // println!("At node: {item:?}");
     if let Some(refs) = item.referenced_indices(Depth::default()) {
         for r in refs.as_list().iter() {
             if r.depth.is_inner() {

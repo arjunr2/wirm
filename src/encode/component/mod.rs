@@ -202,13 +202,13 @@ impl EncodeCtx {
 
     fn maybe_enter_scope<T: GetScopeKind>(&mut self, node: &T) {
         if let Some(scope_entry) = self.registry.borrow().scope_entry(node) {
-            println!(">>> ENTER scope{}", scope_entry.space);
+            // println!(">>> ENTER scope{}", scope_entry.space);
             self.space_stack.enter_space(scope_entry.space);
         }
     }
     fn maybe_exit_scope<T: GetScopeKind>(&mut self, node: &T) {
         if let Some(scope_entry) = self.registry.borrow().scope_entry(node) {
-            println!("<<< EXIT scope{}", scope_entry.space);
+            // println!("<<< EXIT scope{}", scope_entry.space);
             // Exit the nested index space...should be equivalent to the ID
             // of the scope that was entered by this node
             debug_assert_eq!(scope_entry.space, self.space_stack.exit_space());

@@ -92,13 +92,12 @@ use std::collections::HashMap;
 use std::ptr::NonNull;
 use std::rc::Rc;
 use wasmparser::{
-    CanonicalFunction, CanonicalOption, ComponentAlias, ComponentDefinedType,
-    ComponentExport, ComponentFuncType, ComponentImport, ComponentInstance,
-    ComponentInstantiationArg, ComponentStartFunction, ComponentType, ComponentTypeDeclaration,
-    ComponentTypeRef, ComponentValType, CompositeInnerType, CompositeType, CoreType, Export,
-    FieldType, FuncType, Import, Instance, InstanceTypeDeclaration, InstantiationArg,
-    ModuleTypeDeclaration, PrimitiveValType, RecGroup, RefType, StorageType, StructType, TypeRef,
-    ValType, VariantCase,
+    CanonicalFunction, CanonicalOption, ComponentAlias, ComponentDefinedType, ComponentExport,
+    ComponentFuncType, ComponentImport, ComponentInstance, ComponentInstantiationArg,
+    ComponentStartFunction, ComponentType, ComponentTypeDeclaration, ComponentTypeRef,
+    ComponentValType, CompositeInnerType, CompositeType, CoreType, Export, FieldType, FuncType,
+    Import, Instance, InstanceTypeDeclaration, InstantiationArg, ModuleTypeDeclaration,
+    PrimitiveValType, RecGroup, RefType, StorageType, StructType, TypeRef, ValType, VariantCase,
 };
 
 /// A shared registry that maps IR node identity to the index scope it owns.

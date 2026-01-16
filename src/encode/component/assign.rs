@@ -95,7 +95,7 @@ pub(crate) fn assign_indices(
     // store: StoreHandle,
 ) {
     for item in &mut plan.items {
-        println!("{item:?} Assigning!");
+        // println!("{item:?} Assigning!");
         match item {
             ComponentItem::Component {
                 node,
@@ -235,7 +235,7 @@ pub(crate) fn assignments_for_comp_ty(
     match ty {
         ComponentType::Component(decls) => {
             ctx.maybe_enter_scope(ty);
-            println!("\t@assign COMP_TYPE ADDR: {:p}", ty);
+            // println!("\t@assign COMP_TYPE ADDR: {:p}", ty);
             assert_registered!(ctx.registry, ty);
 
             // TODO: I also need to assign an ID for THIS component type!
@@ -251,7 +251,7 @@ pub(crate) fn assignments_for_comp_ty(
         }
         ComponentType::Instance(decls) => {
             ctx.maybe_enter_scope(ty);
-            println!("\t@assign COMP_TYPE ADDR: {:p}", ty);
+            // println!("\t@assign COMP_TYPE ADDR: {:p}", ty);
             assert_registered!(ctx.registry, ty);
 
             // TODO: I also need to assign an ID for THIS component type!
@@ -335,7 +335,7 @@ pub(crate) fn assignments_for_core_ty(
             // TODO: I also need to assign an ID for THIS core type!
             //       (see the parse logic)
             ctx.maybe_enter_scope(ty);
-            println!("\t@assign COMP_TYPE ADDR: {:p}", ty);
+            // println!("\t@assign COMP_TYPE ADDR: {:p}", ty);
             assert_registered!(ctx.registry, ty);
 
             let section = ComponentSection::CoreType;

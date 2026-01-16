@@ -79,7 +79,7 @@ impl sealed::Sealed for ComponentType<'_> {}
 #[rustfmt::skip]
 impl FixIndicesImpl for ComponentType<'_> {
     fn fixme<'a>(&self, plan: &Option<SubItemPlan>, ctx: &mut EncodeCtx) -> Self {
-        println!("\t---> ComponentType: {:p}", self);
+        // println!("\t---> ComponentType: {:p}", self);
         match self {
             ComponentType::Defined(ty) => ComponentType::Defined(ty.fix(plan, ctx)),
             ComponentType::Func(ty) => ComponentType::Func(ty.fix(plan, ctx)),
@@ -96,7 +96,7 @@ impl FixIndicesImpl for ComponentType<'_> {
                 let mut new_tys = vec![];
                 for (idx, subplan) in plan.as_ref().unwrap().order().iter() {
                     let decl = &tys[*idx];
-                    println!("\t---> comp_type: {:p}", decl);
+                    // println!("\t---> comp_type: {:p}", decl);
                     new_tys.push(decl.fix(subplan, ctx));
                 }
 
@@ -756,7 +756,7 @@ impl sealed::Sealed for CoreType<'_> {}
 #[rustfmt::skip]
 impl FixIndicesImpl for CoreType<'_> {
     fn fixme<'a>(&self, plan: &Option<SubItemPlan>, ctx: &mut EncodeCtx) -> Self {
-        println!("\t---> CoreType: {:p}", self);
+        // println!("\t---> CoreType: {:p}", self);
         match &self {
             CoreType::Rec(recgroup) => {
                 CoreType::Rec(recgroup.fix(plan, ctx))
@@ -778,7 +778,7 @@ impl sealed::Sealed for ModuleTypeDeclaration<'_> {}
 // #[rustfmt::skip]
 impl FixIndicesImpl for ModuleTypeDeclaration<'_> {
     fn fixme<'a>(&self, plan: &Option<SubItemPlan>, ctx: &mut EncodeCtx) -> Self {
-        println!("\t---> ModuleTypeDeclaration: {:p}", self);
+        // println!("\t---> ModuleTypeDeclaration: {:p}", self);
         match self {
             ModuleTypeDeclaration::Type(group) => ModuleTypeDeclaration::Type(group.fix(plan, ctx)),
             ModuleTypeDeclaration::Export { name, ty } => ModuleTypeDeclaration::Export {
@@ -991,7 +991,7 @@ impl sealed::Sealed for InstanceTypeDeclaration<'_> {}
 #[rustfmt::skip]
 impl FixIndicesImpl for InstanceTypeDeclaration<'_> {
     fn fixme<'a>(&self, plan: &Option<SubItemPlan>, ctx: &mut EncodeCtx) -> Self {
-        println!("\t---> InstanceTypeDeclaration: {:p}", self);
+        // println!("\t---> InstanceTypeDeclaration: {:p}", self);
         match self {
             InstanceTypeDeclaration::CoreType(core_type) => InstanceTypeDeclaration::CoreType(core_type.fix(plan, ctx)),
             InstanceTypeDeclaration::Type(ty) => InstanceTypeDeclaration::Type(ty.fix(plan, ctx)),

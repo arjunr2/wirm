@@ -89,7 +89,7 @@ pub(crate) fn encode_internal<'a>(
                     subcomp, subplan, ctx,
                 )));
                 ctx.maybe_exit_scope(subcomp);
-            },
+            }
             ComponentItem::Module { node, .. } => unsafe {
                 let t: &Module = &**node;
                 // TODO: Should I implement the below?
