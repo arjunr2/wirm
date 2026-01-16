@@ -85,6 +85,7 @@
 
 use crate::ir::component::idx_spaces::SpaceId;
 use crate::ir::component::ComponentHandle;
+use crate::ir::id::ComponentId;
 use crate::ir::types::CustomSection;
 use crate::{Component, Module};
 use std::cell::RefCell;
@@ -307,4 +308,30 @@ macro_rules! assert_registered_with_id {
                 .space
         );
     }};
+}
+
+#[derive(Clone, Debug)]
+pub struct ComponentStore<'a> {
+    components: HashMap<ComponentId, &'a Component<'a>>,
+}
+impl<'a> ComponentStore<'a> {
+    pub fn get(&self, id: &ComponentId) -> &'a Component<'a> {
+        self.components.get(id).unwrap()
+        // unsafe { ptr.cast::<Component<'a>>().as_ref() }
+    }
+}
+
+pub fn build_component_store<'a>(root: &'a Component<'a>) -> ComponentStore<'a> {
+    let mut map = HashMap::new();
+
+    fn walk<'a>(comp: &'a Component<'a>, map: &mut HashMap<ComponentId, &'a Component<'a>>) {
+        map.insert(comp.id, comp);
+        for child in comp.components.iter() {
+            walk(child, map);
+        }
+    }
+
+    walk(root, &mut map);
+
+    ComponentStore { components: map }
 }

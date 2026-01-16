@@ -212,6 +212,16 @@ impl std::ops::DerefMut for ElementID {
     }
 }
 
+/// ComponentId of a Component
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct ComponentId(pub u32);
+impl std::ops::Deref for ComponentId {
+    type Target = u32;
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
 /// ComponentTypeId in a Component
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct ComponentTypeId(pub u32);

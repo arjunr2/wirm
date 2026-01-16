@@ -1,7 +1,7 @@
 use crate::encode::component::assign::assign_indices;
 use crate::encode::component::encode::encode_internal;
-use crate::ir::component::idx_spaces::{Depth, IndexedRef, SpaceId, StoreHandle};
-use crate::ir::component::scopes::{GetScopeKind, RegistryHandle};
+use crate::ir::component::idx_spaces::{Depth, IndexedRef, SpaceId, SpaceSubtype, StoreHandle};
+use crate::ir::component::scopes::{build_component_store, GetScopeKind, RegistryHandle};
 use crate::Component;
 
 mod assign;
@@ -202,13 +202,13 @@ impl EncodeCtx {
 
     fn maybe_enter_scope<T: GetScopeKind>(&mut self, node: &T) {
         if let Some(scope_entry) = self.registry.borrow().scope_entry(node) {
-            // println!(">>> ENTER scope{}", scope_entry.space);
+            println!(">>> ENTER scope{}", scope_entry.space);
             self.space_stack.enter_space(scope_entry.space);
         }
     }
     fn maybe_exit_scope<T: GetScopeKind>(&mut self, node: &T) {
         if let Some(scope_entry) = self.registry.borrow().scope_entry(node) {
-            // println!("<<< EXIT scope{}", scope_entry.space);
+            println!("<<< EXIT scope{}", scope_entry.space);
             // Exit the nested index space...should be equivalent to the ID
             // of the scope that was entered by this node
             debug_assert_eq!(scope_entry.space, self.space_stack.exit_space());
@@ -223,5 +223,15 @@ impl EncodeCtx {
             .get(&scope_id)
             .unwrap()
             .lookup_actual_id_or_panic(&r)
+    }
+
+    fn index_from_assumed_id(&self, r: &IndexedRef) -> (SpaceSubtype, usize) {
+        let scope_id = self.space_stack.space_at_depth(&r.depth);
+        self.store
+            .borrow()
+            .scopes
+            .get(&scope_id)
+            .unwrap()
+            .index_from_assumed_id(&r)
     }
 }

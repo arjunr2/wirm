@@ -9,7 +9,9 @@ use crate::ir::component::canons::Canons;
 use crate::ir::component::idx_spaces::{
     Depth, IndexSpaceOf, IndexStore, ReferencedIndices, Space, SpaceId, SpaceSubtype, StoreHandle,
 };
-use crate::ir::component::scopes::{IndexScopeRegistry, RegistryHandle};
+use crate::ir::component::scopes::{
+    build_component_store, ComponentStore, IndexScopeRegistry, RegistryHandle,
+};
 use crate::ir::component::section::{
     get_sections_for_comp_ty, get_sections_for_core_ty, populate_space_for_comp_ty,
     populate_space_for_core_ty, ComponentSection,
@@ -20,8 +22,8 @@ use crate::ir::helpers::{
     print_core_type,
 };
 use crate::ir::id::{
-    AliasFuncId, AliasId, CanonicalFuncId, ComponentExportId, ComponentTypeFuncId, ComponentTypeId,
-    ComponentTypeInstanceId, CoreInstanceId, FunctionID, GlobalID, ModuleID,
+    AliasFuncId, AliasId, CanonicalFuncId, ComponentExportId, ComponentId, ComponentTypeFuncId,
+    ComponentTypeId, ComponentTypeInstanceId, CoreInstanceId, FunctionID, GlobalID, ModuleID,
 };
 use crate::ir::module::module_functions::FuncKind;
 use crate::ir::module::module_globals::Global;
@@ -87,6 +89,7 @@ impl<'a> Deref for ComponentHandle<'a> {
 #[derive(Debug)]
 /// Intermediate Representation of a wasm component.
 pub struct Component<'a> {
+    pub id: ComponentId,
     /// Nested Components
     pub components: Vec<ComponentHandle<'a>>,
     /// Modules
@@ -332,6 +335,7 @@ impl<'a> Component<'a> {
         let registry = IndexScopeRegistry::default();
         let mut store = IndexStore::default();
         let space_id = store.new_scope();
+        let mut next_comp_id = 0;
         let res = Component::parse_comp(
             wasm,
             enable_multi_memory,
@@ -342,6 +346,7 @@ impl<'a> Component<'a> {
             space_id,
             Rc::new(RefCell::new(registry)),
             Rc::new(RefCell::new(store)),
+            &mut next_comp_id,
         );
         //
         // if let Ok(comp) = &res {
@@ -361,7 +366,11 @@ impl<'a> Component<'a> {
         space_id: SpaceId,
         registry_handle: RegistryHandle,
         store_handle: StoreHandle,
+        next_comp_id: &mut u32,
     ) -> Result<ComponentHandle<'a>, Error> {
+        let my_comp_id = ComponentId(*next_comp_id);
+        *next_comp_id += 1;
+
         let mut modules = vec![];
         let mut core_types = vec![];
         let mut component_types = vec![];
@@ -642,6 +651,7 @@ impl<'a> Component<'a> {
                         sub_space_id,
                         Rc::clone(&registry_handle),
                         Rc::clone(&store_handle),
+                        next_comp_id,
                     )?;
                     store_handle.borrow_mut().assign_assumed_id(
                         &space_id,
@@ -754,6 +764,7 @@ impl<'a> Component<'a> {
         }
 
         let comp_rc = Rc::new(Component {
+            id: my_comp_id,
             modules,
             alias: Aliases::new(alias),
             core_types,
