@@ -1,8 +1,8 @@
 use crate::encode::component::assign::assign_indices;
 use crate::encode::component::encode::encode_internal;
 use crate::ir::component::idx_spaces::{IndexedRef, SpaceId, StoreHandle};
-use crate::Component;
 use crate::ir::component::scopes::{GetScopeKind, RegistryHandle};
+use crate::Component;
 
 mod assign;
 mod collect;
@@ -121,18 +121,11 @@ pub fn encode(comp: &Component) -> Vec<u8> {
         let mut store = ctx.store.borrow_mut();
         store.reset_indices();
     }
-    assign_indices(
-        &mut plan,
-        &mut ctx
-    );
+    assign_indices(&mut plan, &mut ctx);
 
     // Phase 3: Encode (pass in the root-level component's plan, assigned indices, and original->new index map)
     assert_eq!(1, ctx.space_stack.stack.len());
-    let bytes = encode_internal(
-        &comp,
-        &plan,
-        &mut ctx
-    );
+    let bytes = encode_internal(&comp, &plan, &mut ctx);
     bytes.finish()
 }
 
@@ -200,7 +193,11 @@ impl EncodeCtx {
 
     fn lookup_actual_id_or_panic(&self, r: &IndexedRef) -> usize {
         let curr_scope_id = self.space_stack.curr_space_id();
-        self.store.borrow().scopes.get(&curr_scope_id).unwrap().lookup_actual_id_or_panic(&r)
+        self.store
+            .borrow()
+            .scopes
+            .get(&curr_scope_id)
+            .unwrap()
+            .lookup_actual_id_or_panic(&r)
     }
 }
-

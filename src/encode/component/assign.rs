@@ -119,7 +119,7 @@ pub(crate) fn assign_indices(
                     &ComponentSection::Component,
                     *idx,
                 );
-            },
+            }
             ComponentItem::Module { node, idx } => unsafe {
                 let ptr: &Module = &**node;
                 ctx.store.borrow_mut().assign_actual_id(
@@ -133,7 +133,7 @@ pub(crate) fn assign_indices(
                 node,
                 idx,
                 // subspace,
-                subitem_plan
+                subitem_plan,
             } => unsafe {
                 // CREATES A NEW IDX SPACE SCOPE (if Type::Component or Type::Instance)
                 let ptr: &ComponentType = &**node;
@@ -186,7 +186,7 @@ pub(crate) fn assign_indices(
                 node,
                 idx,
                 // subspace,
-                subitem_plan
+                subitem_plan,
             } => unsafe {
                 let ptr: &CoreType = &**node;
                 assignments_for_core_ty(ptr, subitem_plan, ctx);
@@ -279,16 +279,23 @@ fn assignments_for_comp_ty_comp_decl(
     ctx: &mut EncodeCtx,
 ) {
     let space = decl.index_space_of();
-    ctx.store
-        .borrow_mut()
-        .assign_actual_id(&ctx.space_stack.curr_space_id(), &space, section, decl_idx);
+    ctx.store.borrow_mut().assign_actual_id(
+        &ctx.space_stack.curr_space_id(),
+        &space,
+        section,
+        decl_idx,
+    );
 
     match decl {
-        ComponentTypeDeclaration::CoreType(ty) => { assignments_for_core_ty(ty, subitem_plan, ctx); },
-        ComponentTypeDeclaration::Type(ty) => { assignments_for_comp_ty(ty, subitem_plan, ctx); },
+        ComponentTypeDeclaration::CoreType(ty) => {
+            assignments_for_core_ty(ty, subitem_plan, ctx);
+        }
+        ComponentTypeDeclaration::Type(ty) => {
+            assignments_for_comp_ty(ty, subitem_plan, ctx);
+        }
         ComponentTypeDeclaration::Alias(_)
         | ComponentTypeDeclaration::Export { .. }
-        | ComponentTypeDeclaration::Import(_) => {},
+        | ComponentTypeDeclaration::Import(_) => {}
     }
 }
 
@@ -300,15 +307,21 @@ fn assignments_for_comp_ty_inst_decl(
     ctx: &mut EncodeCtx,
 ) {
     let space = decl.index_space_of();
-    ctx.store
-        .borrow_mut()
-        .assign_actual_id(&ctx.space_stack.curr_space_id(), &space, section, decl_idx);
+    ctx.store.borrow_mut().assign_actual_id(
+        &ctx.space_stack.curr_space_id(),
+        &space,
+        section,
+        decl_idx,
+    );
 
     match decl {
-        InstanceTypeDeclaration::CoreType(ty) => { assignments_for_core_ty(ty, subitem_plan, ctx); },
-        InstanceTypeDeclaration::Type(ty) => { assignments_for_comp_ty(ty, subitem_plan, ctx); },
-        InstanceTypeDeclaration::Alias(_)
-        | InstanceTypeDeclaration::Export { .. } => {}
+        InstanceTypeDeclaration::CoreType(ty) => {
+            assignments_for_core_ty(ty, subitem_plan, ctx);
+        }
+        InstanceTypeDeclaration::Type(ty) => {
+            assignments_for_comp_ty(ty, subitem_plan, ctx);
+        }
+        InstanceTypeDeclaration::Alias(_) | InstanceTypeDeclaration::Export { .. } => {}
     }
 }
 
@@ -346,7 +359,10 @@ fn assignments_for_core_module_decl(
     ctx: &mut EncodeCtx,
 ) {
     let space = decl.index_space_of();
-    ctx.store
-        .borrow_mut()
-        .assign_actual_id(&ctx.space_stack.curr_space_id(), &space, section, decl_idx);
+    ctx.store.borrow_mut().assign_actual_id(
+        &ctx.space_stack.curr_space_id(),
+        &space,
+        section,
+        decl_idx,
+    );
 }

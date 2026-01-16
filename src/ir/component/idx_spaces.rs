@@ -274,7 +274,10 @@ impl IndexScope {
         } else {
             println!("couldn't find space");
         }
-        panic!("[{:?}@scope{}] No index for assumed ID: {}", r.space, self.id, r.index)
+        panic!(
+            "[{:?}@scope{}] No index for assumed ID: {}",
+            r.space, self.id, r.index
+        )
     }
 
     pub fn assign_actual_id(&mut self, space: &Space, section: &ComponentSection, vec_idx: usize) {
@@ -304,11 +307,7 @@ impl IndexScope {
     /// calling function should use this return value to then context switch into
     /// this new index space. When we've finished visiting the section, swap back
     /// to the returned index space's `parent` (a field on the space).
-    pub fn visit_section(
-        &mut self,
-        section: &ComponentSection,
-        num: usize,
-    ) -> usize {
+    pub fn visit_section(&mut self, section: &ComponentSection, num: usize) -> usize {
         let tracker = match section {
             ComponentSection::Component => {
                 // CREATES A NEW IDX SPACE SCOPE
@@ -967,9 +966,17 @@ impl Refs {
 #[derive(Clone, Copy, Debug, Default)]
 pub struct Depth(i32);
 impl Depth {
-    pub fn is_inner(&self) -> bool { self.0 < 0}
-    pub fn inner(mut self) -> Self { self.0 -= 1; self }
-    pub fn outer(mut self) -> Self { self.0 += 1; self }
+    pub fn is_inner(&self) -> bool {
+        self.0 < 0
+    }
+    pub fn inner(mut self) -> Self {
+        self.0 -= 1;
+        self
+    }
+    pub fn outer(mut self) -> Self {
+        self.0 += 1;
+        self
+    }
 }
 
 /// A single referenced index with semantic metadata

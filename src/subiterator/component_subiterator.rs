@@ -114,6 +114,21 @@ impl ComponentSubIterator {
         }
     }
 
+    pub(crate) fn curr_loc_indices(&self) -> (usize, FunctionID, usize) {
+        match self.curr_loc() {
+            (
+                Location::Component {
+                    mod_idx,
+                    func_idx,
+                    instr_idx,
+                    ..
+                },
+                ..,
+            ) => (*mod_idx as usize, func_idx, instr_idx),
+            _ => panic!("Should have gotten component location!"),
+        }
+    }
+
     #[allow(clippy::should_implement_trait)]
     /// Goes to the next instruction in the component
     pub fn next(&mut self) -> bool {

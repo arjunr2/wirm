@@ -1,6 +1,6 @@
 //! Iterator to traverse a Component
 
-use crate::ir::component::Component;
+use crate::ir::component::ComponentHandle;
 use crate::ir::id::{FunctionID, GlobalID, LocalID, ModuleID};
 use crate::ir::module::module_functions::FuncKind;
 use crate::ir::module::module_globals::Global;
@@ -16,7 +16,7 @@ use wasmparser::Operator;
 /// Iterator for a Component.
 pub struct ComponentIterator<'a, 'b> {
     /// The Component to iterate
-    pub comp: &'a mut Component<'b>,
+    pub comp: &'a mut ComponentHandle<'b>,
     /// The SubIterator for this Component
     comp_iterator: ComponentSubIterator,
 }
@@ -34,7 +34,7 @@ fn print_metadata(metadata: &HashMap<ModuleID, Vec<(FunctionID, usize)>>) {
 impl<'a, 'b> ComponentIterator<'a, 'b> {
     /// Creates a new Component Iterator
     pub fn new(
-        comp: &'a mut Component<'b>,
+        comp: &'a mut ComponentHandle<'b>,
         skip_funcs: HashMap<ModuleID, Vec<FunctionID>>,
     ) -> Self {
         // Creates Module -> Function -> Number of Instructions
@@ -145,27 +145,16 @@ impl<'b> Inject<'b> for ComponentIterator<'_, 'b> {
     /// }
     /// ```
     fn inject(&mut self, instr: Operator<'b>) {
-        if let (
-            Location::Component {
-                mod_idx,
-                func_idx,
-                instr_idx,
-                ..
-            },
-            ..,
-        ) = self.curr_loc()
-        {
-            match self.comp.modules[*mod_idx as usize]
-                .functions
-                .get_mut(func_idx)
-                .kind
-            {
-                FuncKind::Import(_) => panic!("Can't inject into an imported function!"),
+        let (mod_idx, func_idx, instr_idx) = self.comp_iterator.curr_loc_indices();
+
+        self.comp.mutate(
+            |comp| match comp.modules[mod_idx].functions.get_mut(func_idx).kind {
+                FuncKind::Import(_) => {
+                    panic!("Can't inject into an imported function!")
+                }
                 FuncKind::Local(ref mut l) => l.add_instr(instr, instr_idx),
-            }
-        } else {
-            panic!("Should have gotten component location!")
-        }
+            },
+        );
     }
 }
 impl<'b> InjectAt<'b> for ComponentIterator<'_, 'b> {
@@ -194,30 +183,41 @@ impl<'b> MacroOpcode<'b> for ComponentIterator<'_, 'b> {}
 impl<'b> Instrumenter<'b> for ComponentIterator<'_, 'b> {
     ///Can be called after finishing some instrumentation to reset the mode.
     fn finish_instr(&mut self) {
-        if let (
-            Location::Component {
-                mod_idx,
-                func_idx,
-                instr_idx,
-                ..
-            },
-            ..,
-        ) = self.comp_iterator.curr_loc()
-        {
-            match &mut self.comp.modules[*mod_idx as usize]
-                .functions
-                .get_mut(func_idx)
-                .kind
-            {
+        let (mod_idx, func_idx, instr_idx) = self.comp_iterator.curr_loc_indices();
+
+        self.comp.mutate(
+            |comp| match comp.modules[mod_idx].functions.get_mut(func_idx).kind {
                 FuncKind::Import(_) => panic!("Can't inject into an imported function!"),
-                FuncKind::Local(l) => {
+                FuncKind::Local(ref mut l) => {
                     l.instr_flag.finish_instr();
                     l.body.instructions.finish_instr(instr_idx);
                 }
-            }
-        } else {
-            panic!("Should have gotten Component Location and not Module Location!")
-        }
+            },
+        );
+        // if let (
+        //     Location::Component {
+        //         mod_idx,
+        //         func_idx,
+        //         instr_idx,
+        //         ..
+        //     },
+        //     ..,
+        // ) = self.comp_iterator.curr_loc()
+        // {
+        //     match &mut self.comp.modules[*mod_idx as usize]
+        //         .functions
+        //         .get_mut(func_idx)
+        //         .kind
+        //     {
+        //         FuncKind::Import(_) => panic!("Can't inject into an imported function!"),
+        //         FuncKind::Local(l) => {
+        //             l.instr_flag.finish_instr();
+        //             l.body.instructions.finish_instr(instr_idx);
+        //         }
+        //     }
+        // } else {
+        //     panic!("Should have gotten Component Location and not Module Location!")
+        // }
     }
 
     /// Returns the Instrumentation at the current Location
@@ -255,19 +255,41 @@ impl<'b> Instrumenter<'b> for ComponentIterator<'_, 'b> {
             ..
         } = loc
         {
-            match self.comp.modules[*mod_idx as usize]
-                .functions
-                .get_mut(func_idx)
-                .kind
-            {
-                FuncKind::Import(_) => panic!("Can't instrument into an imported function!"),
-                FuncKind::Local(ref mut l) => {
-                    l.body.instructions.set_current_mode(instr_idx, mode);
+            self.comp.mutate(|comp| {
+                match comp.modules[*mod_idx as usize]
+                    .functions
+                    .get_mut(func_idx)
+                    .kind
+                {
+                    FuncKind::Import(_) => panic!("Can't inject into an imported function!"),
+                    FuncKind::Local(ref mut l) => {
+                        l.body.instructions.set_current_mode(instr_idx, mode);
+                    }
                 }
-            }
+            });
         } else {
             panic!("Should have gotten component location!")
         }
+        // if let Location::Component {
+        //     mod_idx,
+        //     func_idx,
+        //     instr_idx,
+        //     ..
+        // } = loc
+        // {
+        //     match self.comp.modules[*mod_idx as usize]
+        //         .functions
+        //         .get_mut(func_idx)
+        //         .kind
+        //     {
+        //         FuncKind::Import(_) => panic!("Can't instrument into an imported function!"),
+        //         FuncKind::Local(ref mut l) => {
+        //             l.body.instructions.set_current_mode(instr_idx, mode);
+        //         }
+        //     }
+        // } else {
+        //     panic!("Should have gotten component location!")
+        // }
     }
 
     fn curr_func_instrument_mode(&self) -> &Option<FuncInstrMode> {
@@ -294,24 +316,32 @@ impl<'b> Instrumenter<'b> for ComponentIterator<'_, 'b> {
     }
 
     fn set_func_instrument_mode(&mut self, mode: FuncInstrMode) {
-        if let (
-            Location::Component {
-                mod_idx, func_idx, ..
-            },
-            ..,
-        ) = self.curr_loc()
-        {
-            match self.comp.modules[*mod_idx as usize]
-                .functions
-                .get_mut(func_idx)
-                .kind
-            {
-                FuncKind::Import(_) => panic!("Can't instrument into an imported function!"),
+        let (mod_idx, func_idx, _) = self.comp_iterator.curr_loc_indices();
+
+        self.comp.mutate(
+            |comp| match comp.modules[mod_idx].functions.get_mut(func_idx).kind {
+                FuncKind::Import(_) => panic!("Can't inject into an imported function!"),
                 FuncKind::Local(ref mut l) => l.instr_flag.current_mode = Some(mode),
-            }
-        } else {
-            panic!("Should have gotten component location!")
-        }
+            },
+        );
+        // if let (
+        //     Location::Component {
+        //         mod_idx, func_idx, ..
+        //     },
+        //     ..,
+        // ) = self.curr_loc()
+        // {
+        //     match self.comp.modules[*mod_idx as usize]
+        //         .functions
+        //         .get_mut(func_idx)
+        //         .kind
+        //     {
+        //         FuncKind::Import(_) => panic!("Can't instrument into an imported function!"),
+        //         FuncKind::Local(ref mut l) => l.instr_flag.current_mode = Some(mode),
+        //     }
+        // } else {
+        //     panic!("Should have gotten component location!")
+        // }
     }
 
     fn curr_instr_len(&self) -> usize {
@@ -348,14 +378,24 @@ impl<'b> Instrumenter<'b> for ComponentIterator<'_, 'b> {
             ..
         } = loc
         {
-            match self.comp.modules[*mod_idx as usize]
-                .functions
-                .get_mut(func_idx)
-                .kind
-            {
-                FuncKind::Import(_) => panic!("Can't instrument into an imported function!"),
-                FuncKind::Local(ref mut l) => l.clear_instr_at(instr_idx, mode),
-            }
+            self.comp.mutate(|comp| {
+                match comp.modules[*mod_idx as usize]
+                    .functions
+                    .get_mut(func_idx)
+                    .kind
+                {
+                    FuncKind::Import(_) => panic!("Can't inject into an imported function!"),
+                    FuncKind::Local(ref mut l) => l.clear_instr_at(instr_idx, mode),
+                }
+            });
+            // match self.comp.modules[*mod_idx as usize]
+            //     .functions
+            //     .get_mut(func_idx)
+            //     .kind
+            // {
+            //     FuncKind::Import(_) => panic!("Can't instrument into an imported function!"),
+            //     FuncKind::Local(ref mut l) => l.clear_instr_at(instr_idx, mode),
+            // }
         } else {
             panic!("Should have gotten component location!")
         }
@@ -369,16 +409,18 @@ impl<'b> Instrumenter<'b> for ComponentIterator<'_, 'b> {
             ..
         } = loc
         {
-            match self.comp.modules[*mod_idx as usize]
-                .functions
-                .get_mut(func_idx)
-                .kind
-            {
-                FuncKind::Import(_) => panic!("Can't instrument into an imported function!"),
-                FuncKind::Local(ref mut l) => {
-                    l.add_instr(instr, instr_idx);
+            self.comp.mutate(|comp| {
+                match comp.modules[*mod_idx as usize]
+                    .functions
+                    .get_mut(func_idx)
+                    .kind
+                {
+                    FuncKind::Import(_) => panic!("Can't instrument into an imported function!"),
+                    FuncKind::Local(ref mut l) => {
+                        l.add_instr(instr, instr_idx);
+                    }
                 }
-            }
+            });
         } else {
             panic!("Should have gotten Component Location and not Module Location!")
         }
@@ -392,18 +434,20 @@ impl<'b> Instrumenter<'b> for ComponentIterator<'_, 'b> {
             ..
         } = loc
         {
-            match self.comp.modules[*mod_idx as usize]
-                .functions
-                .get_mut(func_idx)
-                .kind
-            {
-                FuncKind::Import(_) => panic!("Can't instrument into an imported function!"),
-                FuncKind::Local(ref mut l) => {
-                    l.body
-                        .instructions
-                        .set_alternate(instr_idx, InjectedInstrs::default());
+            self.comp.mutate(|comp| {
+                match comp.modules[*mod_idx as usize]
+                    .functions
+                    .get_mut(func_idx)
+                    .kind
+                {
+                    FuncKind::Import(_) => panic!("Can't instrument into an imported function!"),
+                    FuncKind::Local(ref mut l) => {
+                        l.body
+                            .instructions
+                            .set_alternate(instr_idx, InjectedInstrs::default());
+                    }
                 }
-            }
+            });
         } else {
             panic!("Should have gotten Component Location and not Module Location!")
         }
@@ -419,19 +463,21 @@ impl<'b> Instrumenter<'b> for ComponentIterator<'_, 'b> {
             ..
         } = loc
         {
-            match self.comp.modules[*mod_idx as usize]
-                .functions
-                .get_mut(func_idx)
-                .kind
-            {
-                FuncKind::Import(_) => panic!("Can't instrument into an imported function!"),
-                FuncKind::Local(ref mut l) => {
-                    l.body
-                        .instructions
-                        .set_block_alt(instr_idx, InjectedInstrs::default());
-                    l.instr_flag.has_special_instr |= true;
+            self.comp.mutate(|comp| {
+                match comp.modules[*mod_idx as usize]
+                    .functions
+                    .get_mut(func_idx)
+                    .kind
+                {
+                    FuncKind::Import(_) => panic!("Can't instrument into an imported function!"),
+                    FuncKind::Local(ref mut l) => {
+                        l.body
+                            .instructions
+                            .set_block_alt(instr_idx, InjectedInstrs::default());
+                        l.instr_flag.has_special_instr |= true;
+                    }
                 }
-            }
+            });
         } else {
             panic!("Should have gotten Component Location and not Module Location!")
         }
@@ -447,14 +493,16 @@ impl<'b> Instrumenter<'b> for ComponentIterator<'_, 'b> {
             ..
         } = loc
         {
-            match &mut self.comp.modules[*mod_idx as usize]
-                .functions
-                .get_mut(func_idx)
-                .kind
-            {
-                FuncKind::Import(_) => panic!("Can't inject into an imported function!"),
-                FuncKind::Local(l) => l.append_instr_tag_at(data, instr_idx),
-            }
+            self.comp.mutate(|comp| {
+                match &mut comp.modules[*mod_idx as usize]
+                    .functions
+                    .get_mut(func_idx)
+                    .kind
+                {
+                    FuncKind::Import(_) => panic!("Can't inject into an imported function!"),
+                    FuncKind::Local(l) => l.append_instr_tag_at(data, instr_idx),
+                }
+            });
         } else {
             panic!("Should have gotten Component Location and not Module Location!")
         }
@@ -465,7 +513,9 @@ impl<'b> Instrumenter<'b> for ComponentIterator<'_, 'b> {
 impl<'b> IteratingInstrumenter<'b> for ComponentIterator<'_, 'b> {
     fn add_global(&mut self, global: Global) -> GlobalID {
         let curr_mod = *self.curr_module() as usize;
-        self.comp.modules[curr_mod].globals.add(global)
+
+        self.comp
+            .mutate(|comp| comp.modules[curr_mod].globals.add(global))
     }
 }
 
@@ -520,18 +570,25 @@ impl Iterator for ComponentIterator<'_, '_> {
 
 impl AddLocal for ComponentIterator<'_, '_> {
     fn add_local(&mut self, val_type: DataType) -> LocalID {
-        let curr_loc = self.curr_loc().0;
-        if let Location::Component {
-            mod_idx, func_idx, ..
-        } = curr_loc
-        {
-            {
-                self.comp.modules[*mod_idx as usize]
-                    .functions
-                    .add_local(func_idx, val_type)
-            }
-        } else {
-            panic!("Should have gotten Component Location and not Module Location!")
-        }
+        let (mod_idx, func_idx, _) = self.comp_iterator.curr_loc_indices();
+
+        self.comp.mutate(|comp| {
+            comp.modules[mod_idx]
+                .functions
+                .add_local(func_idx, val_type)
+        })
+        // let curr_loc = self.curr_loc().0;
+        // if let Location::Component {
+        //     mod_idx, func_idx, ..
+        // } = curr_loc
+        // {
+        //     {
+        //         self.comp.modules[*mod_idx as usize]
+        //             .functions
+        //             .add_local(func_idx, val_type)
+        //     }
+        // } else {
+        //     panic!("Should have gotten Component Location and not Module Location!")
+        // }
     }
 }

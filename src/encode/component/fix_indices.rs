@@ -15,11 +15,19 @@ trait FixIndicesImpl {
     fn fixme(&self, subitem_plan: &Option<SubItemPlan>, ctx: &mut EncodeCtx) -> Self;
 }
 pub(crate) trait FixIndices: sealed::Sealed {
-    fn fix<'a>(&self, subitem_plan: &Option<SubItemPlan>, ctx: &mut EncodeCtx) -> Self where Self: Sized;
+    fn fix<'a>(&self, subitem_plan: &Option<SubItemPlan>, ctx: &mut EncodeCtx) -> Self
+    where
+        Self: Sized;
 }
 
-impl<T> FixIndices for T where T: GetScopeKind + sealed::Sealed + FixIndicesImpl {
-    fn fix<'a>(&self, subitem_plan: &Option<SubItemPlan>, ctx: &mut EncodeCtx) -> Self where Self: Sized {
+impl<T> FixIndices for T
+where
+    T: GetScopeKind + sealed::Sealed + FixIndicesImpl,
+{
+    fn fix<'a>(&self, subitem_plan: &Option<SubItemPlan>, ctx: &mut EncodeCtx) -> Self
+    where
+        Self: Sized,
+    {
         ctx.maybe_enter_scope(self);
         let fixed = self.fixme(subitem_plan, ctx);
         ctx.maybe_exit_scope(self);

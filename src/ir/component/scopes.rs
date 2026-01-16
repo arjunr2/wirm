@@ -83,15 +83,23 @@
 //! In short: **index correctness is enforced structurally, not procedurally**.
 //!
 
+use crate::ir::component::idx_spaces::SpaceId;
+use crate::ir::component::ComponentHandle;
+use crate::ir::types::CustomSection;
+use crate::{Component, Module};
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::ptr::NonNull;
 use std::rc::Rc;
-use wasmparser::{ArrayType, CanonicalFunction, CanonicalOption, ComponentAlias, ComponentDefinedType, ComponentExport, ComponentFuncType, ComponentImport, ComponentInstance, ComponentInstantiationArg, ComponentStartFunction, ComponentType, ComponentTypeDeclaration, ComponentTypeRef, ComponentValType, CompositeInnerType, CompositeType, CoreType, Export, FieldType, FuncType, Import, Instance, InstanceTypeDeclaration, InstantiationArg, ModuleTypeDeclaration, PrimitiveValType, RecGroup, RefType, StorageType, StructType, TypeRef, ValType, VariantCase};
-use crate::{Component, Module};
-use crate::ir::component::ComponentHandle;
-use crate::ir::component::idx_spaces::SpaceId;
-use crate::ir::types::CustomSection;
+use wasmparser::{
+    ArrayType, CanonicalFunction, CanonicalOption, ComponentAlias, ComponentDefinedType,
+    ComponentExport, ComponentFuncType, ComponentImport, ComponentInstance,
+    ComponentInstantiationArg, ComponentStartFunction, ComponentType, ComponentTypeDeclaration,
+    ComponentTypeRef, ComponentValType, CompositeInnerType, CompositeType, CoreType, Export,
+    FieldType, FuncType, Import, Instance, InstanceTypeDeclaration, InstantiationArg,
+    ModuleTypeDeclaration, PrimitiveValType, RecGroup, RefType, StorageType, StructType, TypeRef,
+    ValType, VariantCase,
+};
 
 /// A shared registry that maps IR node identity to the index scope it owns.
 ///
@@ -135,21 +143,17 @@ pub(crate) struct IndexScopeRegistry {
     pub(crate) node_scopes: HashMap<NonNull<()>, ScopeEntry>,
 }
 impl IndexScopeRegistry {
-    pub fn register<T: GetScopeKind>(
-        &mut self,
-        node: &T,
-        space: SpaceId
-    ) {
+    pub fn register<T: GetScopeKind>(&mut self, node: &T, space: SpaceId) {
         let ptr = NonNull::from(node).cast::<()>();
         let kind = node.scope_kind();
         assert_ne!(kind, ScopeOwnerKind::Unregistered);
-        
+
         self.node_scopes.insert(ptr, ScopeEntry { space, kind });
     }
 
     pub fn scope_entry<T: GetScopeKind>(&self, node: &T) -> Option<ScopeEntry> {
         let ptr = NonNull::from(node).cast::<()>();
-        
+
         if let Some(entry) = self.node_scopes.get(&ptr) {
             if entry.kind == node.scope_kind() {
                 return Some(entry.clone());
@@ -159,11 +163,9 @@ impl IndexScopeRegistry {
     }
 }
 
-
 /// Every IR node can have a reference to this to allow for instrumentation
 /// to have access to the index scope mappings and perform manipulations!
 pub(crate) type RegistryHandle = Rc<RefCell<IndexScopeRegistry>>;
-
 
 #[derive(Debug, Clone, Copy)]
 pub struct ScopeEntry {
@@ -178,14 +180,14 @@ pub enum ScopeOwnerKind {
 
     /// A core `(core type (module ...))`
     CoreTypeModule,
-    
+
     /// A `(component type (component ...))`
     ComponentTypeComponent,
     /// A `(component type (instance ...))`
     ComponentTypeInstance,
 
     // Extend as needed
-    Unregistered
+    Unregistered,
 }
 
 // impl ScopeOwnerKind {
@@ -206,7 +208,9 @@ pub enum ScopeOwnerKind {
 // }
 
 pub trait GetScopeKind {
-    fn scope_kind(&self) -> ScopeOwnerKind { ScopeOwnerKind::Unregistered }
+    fn scope_kind(&self) -> ScopeOwnerKind {
+        ScopeOwnerKind::Unregistered
+    }
 }
 impl GetScopeKind for Component<'_> {
     fn scope_kind(&self) -> ScopeOwnerKind {
@@ -232,9 +236,9 @@ impl GetScopeKind for ComponentType<'_> {
         match self {
             ComponentType::Component(_) => ScopeOwnerKind::ComponentTypeComponent,
             ComponentType::Instance(_) => ScopeOwnerKind::ComponentTypeInstance,
-            ComponentType::Defined(_)
-            | ComponentType::Func(_)
-            | ComponentType::Resource { .. } => ScopeOwnerKind::Unregistered
+            ComponentType::Defined(_) | ComponentType::Func(_) | ComponentType::Resource { .. } => {
+                ScopeOwnerKind::Unregistered
+            }
         }
     }
 }
@@ -282,13 +286,10 @@ impl GetScopeKind for TypeRef {}
 macro_rules! assert_registered {
     ($registry:expr, $node:expr) => {{
         debug_assert!(
-            $registry.borrow()
-            .scope_entry($node)
-            .is_some(),
+            $registry.borrow().scope_entry($node).is_some(),
             // concat!(
-                "Debug assertion failed: node is not registered in ScopeRegistry: {:?}",
-                $node
-            // )
+            "Debug assertion failed: node is not registered in ScopeRegistry: {:?}",
+            $node // )
         );
     }};
 }
@@ -297,13 +298,14 @@ macro_rules! assert_registered_with_id {
     ($registry:expr, $node:expr, $scope_id:expr) => {{
         debug_assert_eq!(
             $scope_id,
-            $registry.borrow()
-            .scope_entry($node)
-            .expect(concat!(
-                "Debug assertion failed: node is not registered in ScopeRegistry: ",
-                stringify!($node)
-            )).space
+            $registry
+                .borrow()
+                .scope_entry($node)
+                .expect(concat!(
+                    "Debug assertion failed: node is not registered in ScopeRegistry: ",
+                    stringify!($node)
+                ))
+                .space
         );
     }};
 }
-

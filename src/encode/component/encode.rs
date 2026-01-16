@@ -89,9 +89,7 @@ pub(crate) fn encode_internal<'a>(
                 let subcomp: &Component = &**node;
                 // ctx.maybe_enter_scope(subcomp);
                 component.section(&NestedComponentSection(&encode_internal(
-                    subcomp,
-                    subplan,
-                    ctx
+                    subcomp, subplan, ctx,
                 )));
                 // ctx.maybe_exit_scope(subcomp);
             },
@@ -533,7 +531,9 @@ fn encode_core_ty_section(
     let mut type_section = CoreTypeSection::new();
     match core_ty {
         CoreType::Rec(group) => encode_rec_group_in_core_ty(group, &mut type_section, reencode),
-        CoreType::Module(decls) => encode_module_type_decls(plan, decls, type_section.ty(), reencode),
+        CoreType::Module(decls) => {
+            encode_module_type_decls(plan, decls, type_section.ty(), reencode)
+        }
     }
     component.section(&type_section);
 }
@@ -723,7 +723,9 @@ fn encode_core_ty_in_comp_ty(
                 encode_subtype(sub, comp_ty.core_type().core(), reencode);
             }
         }
-        CoreType::Module(decls) => encode_module_type_decls(subitem_plan, decls, comp_ty.core_type(), reencode),
+        CoreType::Module(decls) => {
+            encode_module_type_decls(subitem_plan, decls, comp_ty.core_type(), reencode)
+        }
     }
 }
 
@@ -804,7 +806,9 @@ fn encode_core_ty_in_inst_ty(
                 encode_subtype(sub, inst_ty.core_type().core(), reencode);
             }
         }
-        CoreType::Module(decls) => encode_module_type_decls(subitem_plan, decls, inst_ty.core_type(), reencode),
+        CoreType::Module(decls) => {
+            encode_module_type_decls(subitem_plan, decls, inst_ty.core_type(), reencode)
+        }
     }
 }
 

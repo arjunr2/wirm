@@ -1,14 +1,19 @@
 #![allow(clippy::mut_range_bound)] // see https://github.com/rust-lang/rust-clippy/issues/6072
 //! Intermediate Representation of a wasm component.
 
+use crate::assert_registered_with_id;
 use crate::encode::component::encode;
 use crate::error::Error;
 use crate::ir::component::alias::Aliases;
 use crate::ir::component::canons::Canons;
-use crate::ir::component::idx_spaces::{Depth, IndexSpaceOf, IndexStore, ReferencedIndices, Space, SpaceId, SpaceSubtype, StoreHandle};
+use crate::ir::component::idx_spaces::{
+    Depth, IndexSpaceOf, IndexStore, ReferencedIndices, Space, SpaceId, SpaceSubtype, StoreHandle,
+};
+use crate::ir::component::scopes::{IndexScopeRegistry, RegistryHandle};
 use crate::ir::component::section::{
     populate_space_for_comp_ty, populate_space_for_core_ty, ComponentSection,
 };
+use crate::ir::component::types::ComponentTypes;
 use crate::ir::helpers::{
     print_alias, print_component_export, print_component_import, print_component_type,
     print_core_type,
@@ -30,16 +35,13 @@ use wasmparser::{
     ComponentInstance, ComponentStartFunction, ComponentType, CoreType, Encoding, Instance,
     InstanceTypeDeclaration, Parser, Payload,
 };
-use crate::{assert_registered, assert_registered_with_id};
-use crate::ir::component::scopes::{IndexScopeRegistry, RegistryHandle};
-use crate::ir::component::types::ComponentTypes;
 
 mod alias;
 mod canons;
 pub mod idx_spaces;
+pub mod scopes;
 pub(crate) mod section;
 mod types;
-pub mod scopes;
 
 /// A stable handle identifying a parsed WebAssembly component.
 ///
@@ -64,6 +66,14 @@ impl<'a> ComponentHandle<'a> {
     pub fn encode(&self) -> Vec<u8> {
         assert_registered_with_id!(self.inner.scope_registry, &*self.inner, self.inner.space_id);
         self.inner.encode()
+    }
+    pub fn mutate<F, R>(&mut self, f: F) -> R
+    where
+        F: FnOnce(&mut Component<'a>) -> R,
+    {
+        let comp =
+            Rc::get_mut(&mut self.inner).expect("Cannot mutably access Component: it is shared");
+        f(comp)
     }
 }
 impl<'a> Deref for ComponentHandle<'a> {
@@ -470,7 +480,11 @@ impl<'a> Component<'a> {
                     core_types.reserve(l);
                     core_types.append(temp);
                     for ty in &core_types[old_len..] {
-                        let (section, sect_has_subscope) = populate_space_for_core_ty(ty, registry_handle.clone(), store_handle.clone());
+                        let (section, sect_has_subscope) = populate_space_for_core_ty(
+                            ty,
+                            registry_handle.clone(),
+                            store_handle.clone(),
+                        );
                         has_subscope |= sect_has_subscope;
                         new_sects.push(section)
                     }
@@ -481,7 +495,13 @@ impl<'a> Component<'a> {
                         old_len,
                         &new_sects,
                     );
-                    Self::add_to_sections(has_subscope, &mut sections, &new_sects, &mut num_sections, l as u32);
+                    Self::add_to_sections(
+                        has_subscope,
+                        &mut sections,
+                        &new_sects,
+                        &mut num_sections,
+                        l as u32,
+                    );
                 }
                 Payload::ComponentTypeSection(component_type_reader) => {
                     let temp: &mut Vec<ComponentType> = &mut component_type_reader
@@ -499,7 +519,11 @@ impl<'a> Component<'a> {
                     for ty in &component_types[old_len..] {
                         // MUST iterate over the component_types rather than `temp` so that
                         // the ownership of the items is consistent with scope registration.
-                        let (section, sect_has_subscope) = populate_space_for_comp_ty(ty, registry_handle.clone(), store_handle.clone());
+                        let (section, sect_has_subscope) = populate_space_for_comp_ty(
+                            ty,
+                            registry_handle.clone(),
+                            store_handle.clone(),
+                        );
                         new_sects.push(section);
                         has_subscope |= sect_has_subscope;
                     }
@@ -509,7 +533,13 @@ impl<'a> Component<'a> {
                         old_len,
                         &new_sects,
                     );
-                    Self::add_to_sections(has_subscope, &mut sections, &new_sects, &mut num_sections, l as u32);
+                    Self::add_to_sections(
+                        has_subscope,
+                        &mut sections,
+                        &new_sects,
+                        &mut num_sections,
+                        l as u32,
+                    );
                 }
                 Payload::ComponentInstanceSection(component_instances) => {
                     let temp: &mut Vec<ComponentInstance> =
@@ -633,7 +663,9 @@ impl<'a> Component<'a> {
                     );
                     components.push(cmp);
                     let pushed_component = components.last().unwrap();
-                    registry_handle.borrow_mut().register(pushed_component, sub_space_id);
+                    registry_handle
+                        .borrow_mut()
+                        .register(pushed_component, sub_space_id);
                     assert_registered_with_id!(registry_handle, pushed_component, sub_space_id);
 
                     Self::add_to_sections(true, &mut sections, &vec![sect], &mut num_sections, 1);
@@ -757,9 +789,21 @@ impl<'a> Component<'a> {
             value_names,
         });
 
-        comp_rc.scope_registry.borrow_mut().register(&*comp_rc, space_id);
+        comp_rc
+            .scope_registry
+            .borrow_mut()
+            .register(&*comp_rc, space_id);
         let handle = ComponentHandle::new(comp_rc);
-        assert_eq!(handle.inner.space_id, handle.inner.scope_registry.borrow().scope_entry(&*handle.inner).unwrap().space);
+        assert_eq!(
+            handle.inner.space_id,
+            handle
+                .inner
+                .scope_registry
+                .borrow()
+                .scope_entry(&*handle.inner)
+                .unwrap()
+                .space
+        );
 
         Ok(handle)
     }
@@ -799,12 +843,18 @@ impl<'a> Component<'a> {
                     SpaceSubtype::Export | SpaceSubtype::Components | SpaceSubtype::Import => {
                         unreachable!()
                     }
-                    SpaceSubtype::Alias => {
-                        self.alias.items.get(f_idx).unwrap().referenced_indices(Depth::default())
-                    }
-                    SpaceSubtype::Main => {
-                        self.canons.items.get(f_idx).unwrap().referenced_indices(Depth::default())
-                    }
+                    SpaceSubtype::Alias => self
+                        .alias
+                        .items
+                        .get(f_idx)
+                        .unwrap()
+                        .referenced_indices(Depth::default()),
+                    SpaceSubtype::Main => self
+                        .canons
+                        .items
+                        .get(f_idx)
+                        .unwrap()
+                        .referenced_indices(Depth::default()),
                 };
                 if let Some(func_refs) = func {
                     let (ty, t_idx) = store.index_from_assumed_id(&self.space_id, func_refs.ty());

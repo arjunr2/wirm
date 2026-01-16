@@ -1,12 +1,12 @@
 //! Enums the represent a section of a Module or a Component
 
+use crate::assert_registered_with_id;
 use crate::ir::component::idx_spaces::{IndexSpaceOf, SpaceId, StoreHandle};
+use crate::ir::component::scopes::RegistryHandle;
 use wasmparser::{
     ComponentType, ComponentTypeDeclaration, CoreType, InstanceTypeDeclaration,
     ModuleTypeDeclaration,
 };
-use crate::assert_registered_with_id;
-use crate::ir::component::scopes::RegistryHandle;
 
 #[derive(Debug, Clone, Eq, PartialEq)]
 /// Represents a Section in a Component
@@ -78,7 +78,7 @@ pub(crate) fn populate_space_for_comp_ty(
 
             (section, true)
         }
-        _ => (ComponentSection::ComponentType, false)
+        _ => (ComponentSection::ComponentType, false),
     }
 }
 
@@ -96,11 +96,15 @@ fn populate_space_for_comp_ty_comp_decl(
         .assign_assumed_id(space_id, &space, section, idx);
 
     match decl {
-        ComponentTypeDeclaration::CoreType(ty) => { populate_space_for_core_ty(ty, registry, handle); },
-        ComponentTypeDeclaration::Type(ty) => { populate_space_for_comp_ty(ty, registry, handle); },
+        ComponentTypeDeclaration::CoreType(ty) => {
+            populate_space_for_core_ty(ty, registry, handle);
+        }
+        ComponentTypeDeclaration::Type(ty) => {
+            populate_space_for_comp_ty(ty, registry, handle);
+        }
         ComponentTypeDeclaration::Alias(_)
         | ComponentTypeDeclaration::Export { .. }
-        | ComponentTypeDeclaration::Import(_) => {},
+        | ComponentTypeDeclaration::Import(_) => {}
     }
 }
 
@@ -118,14 +122,21 @@ fn populate_space_for_comp_ty_inst_decl(
         .assign_assumed_id(space_id, &space, section, idx);
 
     match decl {
-        InstanceTypeDeclaration::CoreType(ty) => { populate_space_for_core_ty(ty, registry, handle); },
-        InstanceTypeDeclaration::Type(ty) => { populate_space_for_comp_ty(ty, registry, handle); },
-        InstanceTypeDeclaration::Alias(_)
-        | InstanceTypeDeclaration::Export { .. } => {}
+        InstanceTypeDeclaration::CoreType(ty) => {
+            populate_space_for_core_ty(ty, registry, handle);
+        }
+        InstanceTypeDeclaration::Type(ty) => {
+            populate_space_for_comp_ty(ty, registry, handle);
+        }
+        InstanceTypeDeclaration::Alias(_) | InstanceTypeDeclaration::Export { .. } => {}
     }
 }
 
-pub(crate) fn populate_space_for_core_ty(ty: &CoreType, registry: RegistryHandle, handle: StoreHandle) -> (ComponentSection, bool) {
+pub(crate) fn populate_space_for_core_ty(
+    ty: &CoreType,
+    registry: RegistryHandle,
+    handle: StoreHandle,
+) -> (ComponentSection, bool) {
     // TODO: This needs to be recursive somehow... (should be tested by a.wast)
     //       Might also fix issue noted in collect_section?
     match ty {
@@ -142,7 +153,7 @@ pub(crate) fn populate_space_for_core_ty(ty: &CoreType, registry: RegistryHandle
 
             (section, true)
         }
-        _ => (ComponentSection::CoreType, false)
+        _ => (ComponentSection::CoreType, false),
     }
 }
 
