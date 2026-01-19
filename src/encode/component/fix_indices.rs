@@ -991,7 +991,6 @@ impl sealed::Sealed for InstanceTypeDeclaration<'_> {}
 #[rustfmt::skip]
 impl FixIndicesImpl for InstanceTypeDeclaration<'_> {
     fn fixme<'a>(&self, plan: &Option<SubItemPlan>, ctx: &mut EncodeCtx) -> Self {
-        // println!("\t---> InstanceTypeDeclaration: {:p}", self);
         match self {
             InstanceTypeDeclaration::CoreType(core_type) => InstanceTypeDeclaration::CoreType(core_type.fix(plan, ctx)),
             InstanceTypeDeclaration::Type(ty) => InstanceTypeDeclaration::Type(ty.fix(plan, ctx)),

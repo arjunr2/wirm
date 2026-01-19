@@ -9,9 +9,7 @@ use crate::ir::component::canons::Canons;
 use crate::ir::component::idx_spaces::{
     Depth, IndexSpaceOf, IndexStore, ReferencedIndices, Space, SpaceId, SpaceSubtype, StoreHandle,
 };
-use crate::ir::component::scopes::{
-    IndexScopeRegistry, RegistryHandle,
-};
+use crate::ir::component::scopes::{IndexScopeRegistry, RegistryHandle};
 use crate::ir::component::section::{
     get_sections_for_comp_ty, get_sections_for_core_ty, populate_space_for_comp_ty,
     populate_space_for_core_ty, ComponentSection,
@@ -60,6 +58,10 @@ mod types;
 /// It exists solely to preserve identity across phases.
 #[derive(Clone, Debug)]
 pub struct ComponentHandle<'a> {
+    // TODO: Maybe I can just override scope lookups for components using a saved
+    //       component ID on the IR node? Like, that's the only one with the diff
+    //       behavior? I _think_ that'd let me avoid this ComponentHandle wrapper
+    //       nonsense that's mucking up the public API.
     inner: Rc<Component<'a>>,
 }
 impl<'a> ComponentHandle<'a> {
@@ -115,8 +117,8 @@ impl<'a> ComponentHandle<'a> {
     where
         F: FnOnce(&mut Component<'a>) -> R,
     {
-        let comp = Rc::get_mut(&mut self.inner)
-            .expect("Cannot mutably access Component: it is shared");
+        let comp =
+            Rc::get_mut(&mut self.inner).expect("Cannot mutably access Component: it is shared");
         f(comp)
     }
 
@@ -161,8 +163,8 @@ impl<'a> ComponentHandle<'a> {
     where
         F: FnOnce(&mut Module) -> R,
     {
-        let comp = Rc::get_mut(&mut self.inner)
-            .expect("Cannot mutably access Component: it is shared");
+        let comp =
+            Rc::get_mut(&mut self.inner).expect("Cannot mutably access Component: it is shared");
         f(&mut comp.modules[idx])
     }
 
@@ -207,8 +209,8 @@ impl<'a> ComponentHandle<'a> {
     where
         F: FnOnce(&mut ComponentHandle) -> R,
     {
-        let comp = Rc::get_mut(&mut self.inner)
-            .expect("Cannot mutably access Component: it is shared");
+        let comp =
+            Rc::get_mut(&mut self.inner).expect("Cannot mutably access Component: it is shared");
         f(&mut comp.components[idx])
     }
 
@@ -267,8 +269,8 @@ impl<'a> ComponentHandle<'a> {
     where
         F: for<'b> FnOnce(&'b mut Instance<'a>),
     {
-        let comp = Rc::get_mut(&mut self.inner)
-            .expect("Cannot mutably access Component: it is shared");
+        let comp =
+            Rc::get_mut(&mut self.inner).expect("Cannot mutably access Component: it is shared");
 
         f(&mut comp.instances[i]);
     }
@@ -430,20 +432,16 @@ impl<'a> Component<'a> {
         &mut self,
         component_ty: ComponentType<'a>,
     ) -> (u32, ComponentTypeId) {
-        // Handle the index space of this node
-        if matches!(
-            component_ty,
-            ComponentType::Component(_) | ComponentType::Instance(_)
-        ) {
-            // TODO: If this is injected, I need to populate its index space by processing its contents!
-            //       will look similar to what I did in the original parsing logic of the bytes :)
-            Some(self.index_store.borrow_mut().new_scope());
-            todo!()
-        }
-
         let space = component_ty.index_space_of();
         let ids = self.component_types.add(component_ty);
         let id = self.add_section(space, ComponentSection::ComponentType, *ids.1 as usize);
+
+        // Handle the index space of this node
+        populate_space_for_comp_ty(
+            self.component_types.items.last().unwrap(),
+            self.scope_registry.clone(),
+            self.index_store.clone(),
+        );
 
         (id as u32, ids.1)
     }
@@ -826,12 +824,6 @@ impl<'a> Component<'a> {
                     parser,
                     unchecked_range,
                 } => {
-                    // Indicating the start of a new component
-
-                    // CREATES A NEW IDX SPACE SCOPE
-                    // TODO: This guy's index space is actually populated implicitly by the parse.
-                    //       I just need to make sure that the way this works is compatible with the
-                    //       new architecture.
                     let sub_space_id = store_handle.borrow_mut().new_scope();
                     let sect = ComponentSection::Component;
 
@@ -951,12 +943,10 @@ impl<'a> Component<'a> {
             assert_registered_with_id!(registry_handle, comp, sub_space_id);
         }
         for ty in &core_types {
-            let (section, sect_has_subscope) =
-                populate_space_for_core_ty(ty, registry_handle.clone(), store_handle.clone());
+            populate_space_for_core_ty(ty, registry_handle.clone(), store_handle.clone());
         }
         for ty in &component_types {
-            let (section, sect_has_subscope) =
-                populate_space_for_comp_ty(ty, registry_handle.clone(), store_handle.clone());
+            populate_space_for_comp_ty(ty, registry_handle.clone(), store_handle.clone());
         }
 
         let comp_rc = Rc::new(Component {

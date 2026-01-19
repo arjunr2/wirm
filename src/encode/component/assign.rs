@@ -238,8 +238,6 @@ pub(crate) fn assignments_for_comp_ty(
             // println!("\t@assign COMP_TYPE ADDR: {:p}", ty);
             assert_registered!(ctx.registry, ty);
 
-            // TODO: I also need to assign an ID for THIS component type!
-            //       (see the parse logic)
             let section = ComponentSection::ComponentType;
             for (idx, subplan) in subitem_plan.as_ref().unwrap().order().iter() {
                 let decl = &decls[*idx];
@@ -254,8 +252,6 @@ pub(crate) fn assignments_for_comp_ty(
             // println!("\t@assign COMP_TYPE ADDR: {:p}", ty);
             assert_registered!(ctx.registry, ty);
 
-            // TODO: I also need to assign an ID for THIS component type!
-            //       (see the parse logic)
             let section = ComponentSection::ComponentType;
             if let Some(subplan) = subitem_plan {
                 for (idx, subplan) in subplan.order().iter() {
@@ -332,8 +328,6 @@ pub(crate) fn assignments_for_core_ty(
 ) -> ComponentSection {
     match ty {
         CoreType::Module(decls) => {
-            // TODO: I also need to assign an ID for THIS core type!
-            //       (see the parse logic)
             ctx.maybe_enter_scope(ty);
             // println!("\t@assign COMP_TYPE ADDR: {:p}", ty);
             assert_registered!(ctx.registry, ty);

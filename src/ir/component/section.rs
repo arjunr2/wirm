@@ -51,9 +51,7 @@ pub(crate) fn populate_space_for_comp_ty(
     ty: &ComponentType,
     registry: RegistryHandle,
     store: StoreHandle,
-) -> (ComponentSection, bool) {
-    // TODO: This needs to be recursive somehow... (should be tested by a.wast)
-    //       Might also fix issue noted in collect_section?
+) {
     match ty {
         ComponentType::Component(decls) => {
             let space_id = store.borrow_mut().new_scope();
@@ -72,8 +70,6 @@ pub(crate) fn populate_space_for_comp_ty(
                     store.clone(),
                 );
             }
-
-            (section, true)
         }
         ComponentType::Instance(decls) => {
             let space_id = store.borrow_mut().new_scope();
@@ -93,10 +89,8 @@ pub(crate) fn populate_space_for_comp_ty(
                     store.clone(),
                 );
             }
-
-            (section, true)
         }
-        _ => (ComponentSection::ComponentType, false),
+        _ => {}
     }
 }
 
@@ -154,9 +148,7 @@ pub(crate) fn populate_space_for_core_ty(
     ty: &CoreType,
     registry: RegistryHandle,
     handle: StoreHandle,
-) -> (ComponentSection, bool) {
-    // TODO: This needs to be recursive somehow... (should be tested by a.wast)
-    //       Might also fix issue noted in collect_section?
+) {
     match ty {
         CoreType::Module(decls) => {
             let space_id = handle.borrow_mut().new_scope();
@@ -168,10 +160,8 @@ pub(crate) fn populate_space_for_core_ty(
             for (idx, decl) in decls.iter().enumerate() {
                 populate_space_for_core_module_decl(idx, &space_id, decl, &section, handle.clone());
             }
-
-            (section, true)
         }
-        _ => (ComponentSection::CoreType, false),
+        _ => {}
     }
 }
 

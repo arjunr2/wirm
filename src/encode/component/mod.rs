@@ -181,17 +181,6 @@ impl EncodeCtx {
         }
     }
 
-    pub fn new_sub_ctx(comp: &Component, outer: &EncodeCtx) -> Self {
-        let mut new_stack = outer.space_stack.clone();
-        new_stack.enter_space(comp.space_id);
-
-        Self {
-            space_stack: new_stack,
-            registry: comp.scope_registry.clone(),
-            store: comp.index_store.clone(),
-        }
-    }
-
     fn in_space(&self, space_id: Option<SpaceId>) -> bool {
         if let Some(space_id) = space_id {
             return self.space_stack.curr_space_id() == space_id;

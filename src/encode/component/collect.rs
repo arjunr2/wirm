@@ -38,7 +38,6 @@ impl Component<'_> {
     pub(crate) fn collect_root(&self, ctx: &mut EncodeCtx) -> ComponentPlan {
         // I'm already in the root scope of the component at this point.
         let mut collect_ctx = CollectCtx::new(self);
-        let mut comp_stack = CompStack::new(self);
         self.collect(0, &mut collect_ctx, ctx); // pass self as “container”
         collect_ctx.pop_plan().unwrap()
     }
@@ -271,59 +270,12 @@ impl<'a> CollectSubItem<'a> for ComponentType<'a> {
         // Either create a new ordering context or thread through from higher up
         match self {
             ComponentType::Component(decls) => {
-                ctx.maybe_enter_scope(self);
-                println!(
-                    "\t@collect COMP_TYPE::component ADDR: {:p}\n\t\t{self:?}",
-                    self
-                );
                 assert_registered!(ctx.registry, self);
-
-                let subitems = collect_subitem_vec(decls, collect_ctx, ctx);
-                ctx.maybe_exit_scope(self);
-                Some(subitems)
+                Some(collect_subitem_vec(decls, collect_ctx, ctx))
             }
             ComponentType::Instance(decls) => {
-                ctx.maybe_enter_scope(self);
-                println!(
-                    "\t@collect COMP_TYPE::instance ADDR: {:p}\n\t\t{self:?}",
-                    self
-                );
                 assert_registered!(ctx.registry, self);
-
-                let subitems = collect_subitem_vec(decls, collect_ctx, ctx);
-                // let mut subitems = SubItemPlan::default();
-                // for (decl_idx, decl) in decls.iter().enumerate() {
-                //
-                //     match decl {
-                //         InstanceTypeDeclaration::CoreType(ty) => ctx.maybe_enter_scope(ty),
-                //         InstanceTypeDeclaration::Type(ty) => ctx.maybe_enter_scope(ty),
-                //         InstanceTypeDeclaration::Alias(_)
-                //         | InstanceTypeDeclaration::Export { .. } => {}
-                //     }
-                //     collect_subitem(decl, decl_idx, decls, &SubSpace::default(), &mut subitems, ctx, TrackedSubItem::new_inst_type_decl);
-                //     match decl {
-                //         InstanceTypeDeclaration::CoreType(ty) => ctx.maybe_exit_scope(ty),
-                //         InstanceTypeDeclaration::Type(ty) => ctx.maybe_exit_scope(ty),
-                //         InstanceTypeDeclaration::Alias(_)
-                //         | InstanceTypeDeclaration::Export { .. } => {}
-                //     }
-                //
-                //     // let ptr = decl as *const _;
-                //     // let r = TrackedSubItem::InstTypeDecl(ptr);
-                //     // if ctx.seen.contains_subitem_key(&r) {
-                //     //     continue;
-                //     // }
-                //     // // assign a temporary index during collection
-                //     // ctx.seen.insert_subitem(r, decl_idx);
-                //     //
-                //     // // Collect dependencies first
-                //     // collect_subitem_deps(decl, space.clone(), ctx, decls);
-                //     //
-                //     // // push to ordered plan
-                //     // subitems.order.push((decl_idx, None));
-                // }
-                ctx.maybe_exit_scope(self);
-                Some(subitems)
+                Some(collect_subitem_vec(decls, collect_ctx, ctx))
             }
             ComponentType::Defined(_) | ComponentType::Func(_) | ComponentType::Resource { .. } => {
                 None
@@ -373,38 +325,8 @@ impl<'a> CollectSubItem<'a> for CoreType<'a> {
     ) -> Option<SubItemPlan> {
         match self {
             CoreType::Module(decls) => {
-                ctx.maybe_enter_scope(self);
                 assert_registered!(ctx.registry, self);
-                let mut subitems = SubItemPlan::default();
-                for (decl_idx, decl) in decls.iter().enumerate() {
-                    // TODO: To support (outer ...) maybe have this return a Vec<Ref> to collect
-                    //       at this point? Then the plan would have those component-level items first!
-                    collect_subitem(
-                        decl,
-                        decl_idx,
-                        decls,
-                        &mut subitems,
-                        collect_ctx,
-                        ctx,
-                        TrackedSubItem::new_core_type_module_decl,
-                    );
-
-                    // let ptr = decl as *const _;
-                    // let r = TrackedSubItem::InstTypeDecl(ptr);
-                    // if ctx.seen.contains_subitem_key(&r) {
-                    //     continue;
-                    // }
-                    // // assign a temporary index during collection
-                    // ctx.seen.insert_subitem(r, decl_idx);
-                    //
-                    // // Collect dependencies first
-                    // collect_subitem_deps(decl, space.clone(), ctx, decls);
-                    //
-                    // // push to ordered plan
-                    // subitems.order.push((decl_idx, None));
-                }
-                ctx.maybe_exit_scope(self);
-                Some(subitems)
+                Some(collect_subitem_vec(decls, collect_ctx, ctx))
             }
             CoreType::Rec(_) => None,
         }
@@ -498,14 +420,16 @@ impl<'a> Collect<'a> for ComponentStartFunction {
     }
 }
 
-fn collect_subitem_vec<'a, T: CollectSubItem<'a> + 'a>(
+fn collect_subitem_vec<'a, T: GetScopeKind + CollectSubItem<'a> + 'a>(
     all: &'a Box<[T]>,
     collect_ctx: &mut CollectCtx<'a>,
     ctx: &mut EncodeCtx,
 ) -> SubItemPlan {
     let mut subitems = SubItemPlan::default();
     for (idx, item) in all.iter().enumerate() {
+        ctx.maybe_enter_scope(item);
         subitems.push(idx, item.collect_subitem(idx, collect_ctx, ctx));
+        ctx.maybe_exit_scope(item);
     }
     subitems
 }
@@ -534,23 +458,10 @@ fn collect_deps<'a, T: ReferencedIndices + 'a>(
     if let Some(refs) = item.referenced_indices(Depth::default()) {
         for r in refs.as_list().iter() {
             println!("\tLooking up: {r:?}");
-            // let curr_space_id = ctx.space_stack.curr_space_id();
             let (vec, idx) = ctx.index_from_assumed_id(r);
-            // let (vec, idx)= {
-            //     let mut store = ctx.store.borrow_mut();
-            //     let indices = { store.scopes.get_mut(&curr_space_id).unwrap() };
-            //     indices.index_from_assumed_id(r)
-            // };
 
             let comp_id = collect_ctx.comp_at(r.depth);
             let referenced_comp = collect_ctx.comp_store.get(comp_id);
-
-            // immutable borrow ends here
-
-            // let referenced_comp = unsafe { &*comp_ptr };
-
-            // referenced_comp.component_types.items[idx]
-            //     .collect(idx, collect_ctx, ctx);
 
             let space = r.space;
             match vec {
@@ -593,59 +504,6 @@ fn collect_deps<'a, T: ReferencedIndices + 'a>(
             }
         }
     }
-}
-
-fn collect_subitem_deps<'a, T: Debug + ReferencedIndices + CollectSubItem<'a> + 'a>(
-    item: &'a T,
-    subitem_order: &mut SubItemPlan,
-    collect_ctx: &mut CollectCtx<'a>,
-    ctx: &mut EncodeCtx,
-    nodes: &'a [T],
-) {
-    println!("At node: {item:?}");
-    if let Some(refs) = item.referenced_indices(Depth::default()) {
-        for r in refs.as_list().iter() {
-            if r.depth.is_inner() {
-                continue;
-            }
-            println!("\tLooking up: {r:?}");
-            let (_, idx) = {
-                let mut store = ctx.store.borrow_mut();
-                let scope_id = ctx.space_stack.curr_space_id();
-                let indices = { store.scopes.get_mut(&scope_id).unwrap() };
-                indices.index_from_assumed_id(r)
-            };
-
-            // let subspace = subspace.subspaces.get(&idx).cloned();
-            let idx_order = nodes[idx].collect_subitem(idx, collect_ctx, ctx);
-            // TODO: Do I actually somehow need the below??
-            subitem_order.push(idx, idx_order);
-        }
-    }
-}
-
-fn collect_subitem<'a, N: Debug + ReferencedIndices + CollectSubItem<'a> + 'a>(
-    node: &'a N,
-    idx: usize,
-    nodes: &'a [N],
-    subitem_order: &mut SubItemPlan,
-    collect_ctx: &mut CollectCtx<'a>,
-    ctx: &mut EncodeCtx,
-    create_ptr: fn(*const N) -> TrackedSubItem<'a>,
-) {
-    let ptr = node as *const _;
-    let r = create_ptr(ptr);
-    if collect_ctx.seen.contains_subitem_key(&r) {
-        return;
-    }
-    // assign a temporary index during collection
-    collect_ctx.seen.insert_subitem(r, idx);
-
-    // Collect dependencies first
-    collect_subitem_deps(node, subitem_order, collect_ctx, ctx, nodes);
-
-    // push to ordered plan
-    subitem_order.push(idx, None);
 }
 
 /// `ComponentItem` stores raw pointers to IR nodes (e.g., `CanonicalFunction`, `Module`, `Component`)
@@ -868,23 +726,6 @@ pub(crate) struct ComponentPlan<'a> {
     pub(crate) items: Vec<ComponentItem<'a>>,
 }
 
-pub(crate) enum TrackedSubItem<'a> {
-    CompTypeDecl(*const ComponentTypeDeclaration<'a>),
-    InstTypeDecl(*const InstanceTypeDeclaration<'a>),
-    CoreTypeModuleDecl(*const ModuleTypeDeclaration<'a>),
-}
-impl<'a> TrackedSubItem<'a> {
-    fn new_comp_type_decl(node: *const ComponentTypeDeclaration<'a>) -> Self {
-        Self::CompTypeDecl(node)
-    }
-    fn new_inst_type_decl(node: *const InstanceTypeDeclaration<'a>) -> Self {
-        Self::InstTypeDecl(node)
-    }
-    fn new_core_type_module_decl(node: *const ModuleTypeDeclaration<'a>) -> Self {
-        Self::CoreTypeModuleDecl(node)
-    }
-}
-
 /// This is just used to unify the `collect` logic into a generic function.
 /// Should be the same items as `ComponentItem`, but without state.
 pub(crate) enum TrackedItem<'a> {
@@ -944,7 +785,6 @@ pub(crate) struct Seen<'a> {
     /// Points to a TEMPORARY ID -- this is just for bookkeeping, not the final ID
     /// The final ID is assigned during the "Assign" phase.
     components: HashMap<*const Component<'a>, usize>,
-    component_handles: HashMap<*const ComponentHandle<'a>, usize>,
     modules: HashMap<*const Module<'a>, usize>,
     comp_types: HashMap<*const ComponentType<'a>, usize>,
     comp_instances: HashMap<*const ComponentInstance<'a>, usize>,
@@ -959,10 +799,6 @@ pub(crate) struct Seen<'a> {
 
     start: HashMap<*const ComponentStartFunction, usize>,
     custom_sections: HashMap<*const CustomSection<'a>, usize>,
-
-    comp_type_decls: HashMap<*const ComponentTypeDeclaration<'a>, usize>,
-    inst_type_decls: HashMap<*const InstanceTypeDeclaration<'a>, usize>,
-    core_type_module_decls: HashMap<*const ModuleTypeDeclaration<'a>, usize>,
 }
 impl<'a> Seen<'a> {
     pub fn contains_key(&self, ty: &TrackedItem) -> bool {
@@ -995,31 +831,6 @@ impl<'a> Seen<'a> {
             TrackedItem::CustomSection(node) => self.custom_sections.insert(node, idx),
         }
     }
-    pub fn contains_subitem_key(&self, ty: &TrackedSubItem) -> bool {
-        match ty {
-            TrackedSubItem::CompTypeDecl(node) => self.comp_type_decls.contains_key(node),
-            TrackedSubItem::InstTypeDecl(node) => self.inst_type_decls.contains_key(node),
-            TrackedSubItem::CoreTypeModuleDecl(node) => {
-                self.core_type_module_decls.contains_key(node)
-            }
-        }
-    }
-    pub fn insert_subitem(&mut self, ty: TrackedSubItem<'a>, idx: usize) -> Option<usize> {
-        match ty {
-            TrackedSubItem::CompTypeDecl(node) => self.comp_type_decls.insert(node, idx),
-            TrackedSubItem::InstTypeDecl(node) => self.inst_type_decls.insert(node, idx),
-            TrackedSubItem::CoreTypeModuleDecl(node) => {
-                self.core_type_module_decls.insert(node, idx)
-            }
-        }
-    }
-}
-
-struct CompStack<'a, 'b>(Vec<&'a Component<'b>>);
-impl<'a, 'b> CompStack<'a, 'b> {
-    fn new(comp: &'b Component<'a>) -> Self {
-        Self(vec![comp])
-    }
 }
 
 pub struct CollectCtx<'a> {
@@ -1048,10 +859,6 @@ impl<'a> CollectCtx<'a> {
                     self.comp_stack
                 )
             })
-    }
-
-    fn curr_plan(&'_ self) -> &ComponentPlan {
-        self.plan_stack.last().unwrap()
     }
     fn curr_plan_mut(&mut self) -> &mut ComponentPlan<'a> {
         self.plan_stack.last_mut().unwrap()

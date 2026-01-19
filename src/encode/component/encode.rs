@@ -104,9 +104,7 @@ pub(crate) fn encode_internal<'a>(
             } => unsafe {
                 // CREATES A NEW IDX SPACE SCOPE (if Type::Component or Type::Instance)
                 let t: &ComponentType = &**node;
-                // ctx.maybe_enter_scope(t);
                 let fixed = t.fix(subitem_plan, ctx);
-                // ctx.maybe_exit_scope(t);
                 encode_comp_ty_section(&fixed, subitem_plan, &mut component, &mut reencode);
             },
             ComponentItem::CompInst { node, .. } => unsafe {
