@@ -39,8 +39,8 @@ impl IndexStore {
             scope.reset_ids();
         }
     }
-    pub fn index_from_assumed_id(&self, id: &SpaceId, r: &IndexedRef) -> (SpaceSubtype, usize) {
-        self.get(id).index_from_assumed_id(r)
+    pub fn index_from_assumed_id(&mut self, id: &SpaceId, r: &IndexedRef) -> (SpaceSubtype, usize) {
+        self.get_mut(id).index_from_assumed_id(r)
     }
     pub fn reset_ids(&mut self, id: &SpaceId) {
         self.get_mut(id).reset_ids()
@@ -74,18 +74,15 @@ impl IndexStore {
         self.get_mut(id)
             .assign_assumed_id_for(items, curr_idx, sections)
     }
-
-    pub(crate) fn get(&self, id: &SpaceId) -> &IndexScope {
-        self.scopes.get(id).unwrap()
-    }
-    fn get_mut(&mut self, id: &SpaceId) -> &mut IndexScope {
-        self.scopes.get_mut(id).unwrap()
-    }
     fn use_next_id(&mut self) -> SpaceId {
         let next = self.next_id;
         self.next_id += 1;
 
         next
+    }
+
+    fn get_mut(&mut self, id: &SpaceId) -> &mut IndexScope {
+        self.scopes.get_mut(id).unwrap()
     }
 }
 
@@ -255,9 +252,8 @@ impl IndexScope {
         panic!("[{:?}] No assumed ID for index: {}", space, vec_idx)
     }
 
-    pub fn index_from_assumed_id(&self, r: &IndexedRef) -> (SpaceSubtype, usize) {
-        // TODO -- this is incredibly inefficient...i just want to move on with my life...
-        if let Some(space) = self.get_space(&r.space) {
+    pub fn index_from_assumed_id(&mut self, r: &IndexedRef) -> (SpaceSubtype, usize) {
+        if let Some(space) = self.get_space_mut(&r.space) {
             if let Some((ty, idx)) = space.index_from_assumed_id(r.index as usize) {
                 return (ty, idx);
             } else {
@@ -414,6 +410,8 @@ pub(crate) struct IdxSpace {
     /// Tracks the index in the COMPONENT item vector to the ID we've assumed for it: `component_idx -> assumed_id`
     /// This ID will be used to reference that item in the IR.
     components_assumed_ids: HashMap<usize, usize>,
+
+    index_from_assumed_id_cache: HashMap<usize, (SpaceSubtype, usize)>,
 }
 impl IdxSpace {
     pub fn new(name: String) -> Self {
@@ -465,8 +463,13 @@ impl IdxSpace {
         vector.get(&vec_idx)
     }
 
-    pub fn index_from_assumed_id(&self, assumed_id: usize) -> Option<(SpaceSubtype, usize)> {
-        // TODO -- this is EXTREMELY inefficient!!
+    pub fn index_from_assumed_id(&mut self, assumed_id: usize) -> Option<(SpaceSubtype, usize)> {
+        if let Some(cached_data) = self.index_from_assumed_id_cache.get(&assumed_id) {
+            return Some(*cached_data);
+        }
+
+        // We haven't cached this yet, we must do the less efficient logic and do a full lookup,
+        // then we can cache what we find!
         let maps = vec![
             (SpaceSubtype::Main, &self.main_assumed_ids),
             (SpaceSubtype::Import, &self.imports_assumed_ids),
@@ -478,7 +481,12 @@ impl IdxSpace {
         for (subty, map) in maps.iter() {
             for (idx, assumed) in map.iter() {
                 if *assumed == assumed_id {
-                    return Some((*subty, *idx));
+                    let result = (*subty, *idx);
+                    // cache what we found
+                    self.index_from_assumed_id_cache
+                        .insert(assumed_id, result.clone());
+
+                    return Some(result);
                 }
             }
         }
@@ -630,9 +638,6 @@ impl<'a> IndexSpaceOf for ComponentAlias<'a> {
                 ExternalKind::FuncExact => Space::CoreFunc,
             },
 
-            // In the case of outer aliases, the u32 pair serves as a de Bruijn index, with first u32 being the number of enclosing components/modules to skip and the second u32 being an index into the target's sort's index space. In particular, the first u32 can be 0, in which case the outer alias refers to the current component. To maintain the acyclicity of module instantiation, outer aliases are only allowed to refer to preceding outer definitions.
-            // If <sort> refers to a <core:sort>, then the <u32> of inlinealias is a <core:instanceidx>; otherwise it's an <instanceidx>. For example, the following snippet uses two inline function aliases:
-            // https://github.com/WebAssembly/component-model/blob/main/design/mvp/Explainer.md#component-definitions
             // Aliasing an outer item
             ComponentAlias::Outer { kind, .. } => match kind {
                 ComponentOuterAliasKind::CoreModule => Space::CoreModule,
@@ -782,9 +787,6 @@ impl IndexSpaceOf for ComponentExternalKind {
     }
 }
 
-// In the case of outer aliases, the u32 pair serves as a de Bruijn index, with first u32 being the number of enclosing components/modules to skip and the second u32 being an index into the target's sort's index space. In particular, the first u32 can be 0, in which case the outer alias refers to the current component. To maintain the acyclicity of module instantiation, outer aliases are only allowed to refer to preceding outer definitions.
-// If <sort> refers to a <core:sort>, then the <u32> of inlinealias is a <core:instanceidx>; otherwise it's an <instanceidx>. For example, the following snippet uses two inline function aliases:
-// https://github.com/WebAssembly/component-model/blob/main/design/mvp/Explainer.md#component-definitions
 impl IndexSpaceOf for ComponentOuterAliasKind {
     fn index_space_of(&self) -> Space {
         match self {
@@ -1315,7 +1317,6 @@ impl ReferencedIndices for ModuleTypeDeclaration<'_> {
             ModuleTypeDeclaration::Type(group) => group.referenced_indices(depth),
             ModuleTypeDeclaration::Export { ty, .. } => ty.referenced_indices(depth),
             ModuleTypeDeclaration::Import(i) => i.ty.referenced_indices(depth),
-            // In the case of outer aliases, the u32 pair serves as a de Bruijn index, with first u32 being the number of enclosing components/modules to skip and the second u32 being an index into the target's sort's index space. In particular, the first u32 can be 0, in which case the outer alias refers to the current component. To maintain the acyclicity of module instantiation, outer aliases are only allowed to refer to preceding outer definitions.
             ModuleTypeDeclaration::OuterAlias { kind, count, index } => Some(Refs {
                 misc: Some(IndexedRef {
                     depth: depth.outer_at(*count),

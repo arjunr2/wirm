@@ -1021,10 +1021,10 @@ impl<'a> Component<'a> {
     }
 
     pub fn get_type_of_exported_lift_func(
-        &self,
+        &mut self,
         export_id: ComponentExportId,
     ) -> Option<&ComponentType<'a>> {
-        let store = self.index_store.borrow();
+        let mut store = self.index_store.borrow_mut();
         if let Some(export) = self.exports.get(*export_id as usize) {
             println!(
                 "[get_type_of_exported_func] @{} export: {:?}",
