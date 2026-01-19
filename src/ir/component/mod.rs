@@ -635,7 +635,7 @@ impl<'a> Component<'a> {
                         .collect::<Result<_, _>>()?;
                     let l = temp.len();
                     let new_sections = vec![ComponentSection::ComponentExport; l];
-                    store_handle.borrow_mut().assign_assumed_id_with_name_for(
+                    store_handle.borrow_mut().assign_assumed_id_for(
                         &space_id,
                         &temp,
                         exports.len(),
