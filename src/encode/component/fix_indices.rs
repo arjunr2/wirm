@@ -609,7 +609,7 @@ impl FixIndicesImpl for SubType {
     fn fixme<'a>(&self, plan: &Option<SubItemPlan>, ctx: &mut EncodeCtx) -> Self {
         Self {
             is_final: self.is_final,
-            supertype_idx: if let Some(_) = self.supertype_idx {
+            supertype_idx: if self.supertype_idx.is_some() {
                 let refs = self.referenced_indices(Depth::default());
                 let ty = refs.as_ref().unwrap().ty();
                 let new_id = ctx.lookup_actual_id_or_panic(&ty);
@@ -745,10 +745,28 @@ impl sealed::Sealed for RefType {}
 impl FixIndicesImpl for RefType {
     fn fixme<'a>(&self, _: &Option<SubItemPlan>, ctx: &mut EncodeCtx) -> Self {
         let refs = self.referenced_indices(Depth::default());
-        let ty = refs.as_ref().unwrap().ty();
-        let new_id = ctx.lookup_actual_id_or_panic(&ty);
+        if let Some(refs) = refs.as_ref() {
+            let new_heap = match self.heap_type() {
+                HeapType::Concrete(_) => {
+                    let new = ctx.lookup_actual_id_or_panic(refs.ty());
+                    HeapType::Concrete(UnpackedIndex::Module(new as u32))
+                }
 
-        Self::new(self.is_nullable(), HeapType::Exact(UnpackedIndex::Module(new_id as u32))).unwrap()
+                HeapType::Exact(_) => {
+                    let new = ctx.lookup_actual_id_or_panic(refs.ty());
+                    HeapType::Exact(UnpackedIndex::Module(new as u32))
+                }
+
+                HeapType::Abstract { .. } => {
+                    // Abstract heap types never contain indices
+                    return *self;
+                }
+            };
+
+            Self::new(self.is_nullable(), new_heap).unwrap()
+        } else {
+            *self
+        }
     }
 }
 
@@ -817,10 +835,10 @@ impl sealed::Sealed for RecGroup {}
 #[rustfmt::skip]
 impl FixIndicesImpl for RecGroup {
     fn fixme<'a>(&self, _: &Option<SubItemPlan>, _: &mut EncodeCtx) -> Self {
-        // This is kept as an opaque IR node (indices not fixed here)
+        // NOTE: This is kept as an opaque IR node (indices not fixed here)
         // This is because wasmparser does not allow library users to create
         // a new RecGroup.
-        // Indices will be fixed in self.do_encode()!
+        // Indices will be fixed in `into_wasm_encoder_recgroup`!
         self.clone()
     }
 }
@@ -1038,3 +1056,25 @@ impl FixIndicesImpl for TypeRef {
         }
     }
 }
+
+// impl sealed::Sealed for SubType {}
+// impl FixIndicesImpl for SubType {
+//     fn fixme(&self, subitem_plan: &Option<SubItemPlan>, ctx: &mut EncodeCtx) -> Self {
+//         // let refs = self.referenced_indices(Depth::default()).unwrap();
+//         // let refs = opt_refs.as_ref().unwrap();
+//         //
+//         // let new_subtype = SubType {
+//         //     is_final: subty.is_final,
+//         //     supertype_idx: if let Some(idx) = &refs.ty {
+//         //         todo!()
+//         //     } else {
+//         //         None
+//         //     },
+//         //     composite_type: CompositeType {},
+//         // }
+//         //
+//         // // TODO: Here is where I fix the indices!
+//         // // let new_ty = ty.fix(component, indices, reencode);
+//         todo!()
+//     }
+// }

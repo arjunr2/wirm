@@ -65,7 +65,7 @@ impl<'a> Collect<'a> for Component<'a> {
                 indices.visit_section(section, *num as usize)
             };
 
-            println!("{section:?} Collecting {num} nodes starting @{start_idx}");
+            // println!("{section:?} Collecting {num} nodes starting @{start_idx}");
             match section {
                 ComponentSection::Module => {
                     collect_vec(start_idx, *num as usize, &self.modules, collect_ctx, ctx);
@@ -336,15 +336,12 @@ impl<'a> CollectSubItem<'a> for CoreType<'a> {
 impl<'a> CollectSubItem<'a> for ModuleTypeDeclaration<'a> {
     fn collect_subitem(
         &'a self,
-        idx: usize,
-        collect_ctx: &mut CollectCtx<'a>,
-        ctx: &mut EncodeCtx,
+        _: usize,
+        _: &mut CollectCtx<'a>,
+        _: &mut EncodeCtx,
     ) -> Option<SubItemPlan> {
-        match self {
-            ModuleTypeDeclaration::Type(ty) => None, // TODO -- all of these need to actually be done!
-            ModuleTypeDeclaration::OuterAlias { .. } => None,
-            ModuleTypeDeclaration::Export { .. } | ModuleTypeDeclaration::Import(_) => None,
-        }
+        // I _think_ I don't need to do any collection here.
+        None
     }
 }
 
@@ -457,7 +454,7 @@ fn collect_deps<'a, T: ReferencedIndices + 'a>(
 ) {
     if let Some(refs) = item.referenced_indices(Depth::default()) {
         for r in refs.as_list().iter() {
-            println!("\tLooking up: {r:?}");
+            // println!("\tLooking up: {r:?}");
             let (vec, idx) = ctx.index_from_assumed_id(r);
 
             let comp_id = collect_ctx.comp_at(r.depth);

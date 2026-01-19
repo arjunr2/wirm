@@ -189,19 +189,6 @@ impl IndexScope {
     pub fn new(id: SpaceId) -> Self {
         Self {
             id,
-            comp_func: IdxSpace::new("component_functions".to_string()),
-            comp_val: IdxSpace::new("component_values".to_string()),
-            comp_type: IdxSpace::new("component_types".to_string()),
-            comp_inst: IdxSpace::new("component_instances".to_string()),
-            core_inst: IdxSpace::new("core_instances".to_string()),
-            module: IdxSpace::new("core_modules".to_string()),
-
-            core_type: IdxSpace::new("core_types".to_string()),
-            core_func: IdxSpace::new("core_functions".to_string()),
-            core_table: IdxSpace::new("core_tables".to_string()),
-            core_memory: IdxSpace::new("core_memories".to_string()),
-            core_global: IdxSpace::new("core_globals".to_string()),
-            core_tag: IdxSpace::new("core_tags".to_string()),
             ..Self::default()
         }
     }
@@ -379,8 +366,6 @@ impl IndexScope {
 
 #[derive(Clone, Debug, Default)]
 pub(crate) struct IdxSpace {
-    /// The name of this index space (primarily for debugging purposes)
-    name: String,
     /// This is the current ID that we've reached associated with this index space.
     current_id: usize,
 
@@ -414,13 +399,6 @@ pub(crate) struct IdxSpace {
     index_from_assumed_id_cache: HashMap<usize, (SpaceSubtype, usize)>,
 }
 impl IdxSpace {
-    pub fn new(name: String) -> Self {
-        Self {
-            name,
-            ..Default::default()
-        }
-    }
-
     pub fn reset_ids(&mut self) {
         self.current_id = 0;
     }
@@ -1363,16 +1341,24 @@ impl ReferencedIndices for ValType {
 
 impl ReferencedIndices for RefType {
     fn referenced_indices(&self, depth: Depth) -> Option<Refs> {
+        let index = if self.is_concrete_type_ref() {
+            self.type_index()
+                .unwrap()
+                .unpack()
+                .as_module_index()
+                .unwrap()
+        } else if self.is_exact_type_ref() {
+            todo!("Need to support this still, we don't have a test case that we can check implementation with yet!")
+        } else {
+            // This doesn't actually reference anything
+            return None;
+        };
+
         Some(Refs {
             ty: Some(IndexedRef {
                 depth,
                 space: Space::CoreType,
-                index: self
-                    .type_index()
-                    .unwrap()
-                    .unpack()
-                    .as_module_index()
-                    .unwrap(),
+                index,
             }),
             ..Default::default()
         })

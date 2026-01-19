@@ -98,7 +98,8 @@ use wasmparser::{
     ComponentStartFunction, ComponentType, ComponentTypeDeclaration, ComponentTypeRef,
     ComponentValType, CompositeInnerType, CompositeType, CoreType, Export, FieldType, FuncType,
     Import, Instance, InstanceTypeDeclaration, InstantiationArg, ModuleTypeDeclaration,
-    PrimitiveValType, RecGroup, RefType, StorageType, StructType, TypeRef, ValType, VariantCase,
+    PrimitiveValType, RecGroup, RefType, StorageType, StructType, SubType, TypeRef, ValType,
+    VariantCase,
 };
 
 /// A shared registry that maps IR node identity to the index scope it owns.
@@ -275,6 +276,7 @@ impl GetScopeKind for RecGroup {}
 impl GetScopeKind for ModuleTypeDeclaration<'_> {}
 impl GetScopeKind for Import<'_> {}
 impl GetScopeKind for TypeRef {}
+impl GetScopeKind for SubType {}
 
 /// Assert that a node is registered in the `ScopeRegistry` at this point.
 /// Panics if the node is not found.
