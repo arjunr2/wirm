@@ -10,7 +10,7 @@ use crate::ir::component::idx_spaces::{
     Depth, IndexSpaceOf, IndexStore, ReferencedIndices, Space, SpaceId, SpaceSubtype, StoreHandle,
 };
 use crate::ir::component::scopes::{
-    build_component_store, ComponentStore, IndexScopeRegistry, RegistryHandle,
+    IndexScopeRegistry, RegistryHandle,
 };
 use crate::ir::component::section::{
     get_sections_for_comp_ty, get_sections_for_core_ty, populate_space_for_comp_ty,
@@ -70,13 +70,207 @@ impl<'a> ComponentHandle<'a> {
         assert_registered_with_id!(self.inner.scope_registry, &*self.inner, self.inner.space_id);
         self.inner.encode()
     }
+
+    /// Mutably access the entire underlying [`Component`] in a controlled scope.
+    ///
+    /// This is the lowest-level mutation API on [`ComponentHandle`]. It grants
+    /// temporary, exclusive mutable access to the underlying component and applies
+    /// the provided closure to it.
+    ///
+    /// ## Why this exists
+    ///
+    /// The component is internally reference-counted to support stable identity
+    /// (used for scope registration and lookup). As a result, direct mutable access
+    /// is only possible when the component is uniquely owned.
+    ///
+    /// This method:
+    ///
+    /// * Enforces **exclusive ownership** at the time of mutation
+    /// * Prevents mutable references from escaping the call
+    /// * Centralizes the ownership check in one place
+    ///
+    /// Higher-level helpers such as [`mut_module_at`] and [`mut_component_at`] are
+    /// built on top of this pattern and should be preferred when possible.
+    ///
+    /// ## Panics
+    ///
+    /// Panics if the component is shared (i.e. there is more than one owner).
+    /// Instrumentation requires exclusive access.
+    ///
+    /// ## Example
+    ///
+    /// ```rust
+    /// // Rename the component
+    /// handle.mutate(|comp| {
+    ///     comp.component_name = Some("instrumented".into());
+    /// });
+    /// ```
+    ///
+    /// ## Notes
+    ///
+    /// * The mutable borrow of the component is limited to the duration of the closure.
+    /// * Do not store references to the component outside the closure.
+    /// * Prefer more specific mutation helpers when available.
     pub fn mutate<F, R>(&mut self, f: F) -> R
     where
         F: FnOnce(&mut Component<'a>) -> R,
     {
-        let comp =
-            Rc::get_mut(&mut self.inner).expect("Cannot mutably access Component: it is shared");
+        let comp = Rc::get_mut(&mut self.inner)
+            .expect("Cannot mutably access Component: it is shared");
         f(comp)
+    }
+
+    /// Mutably access a specific core module within this component.
+    ///
+    /// This method provides scoped mutable access to a single [`Module`] identified
+    /// by index, without exposing the rest of the component to mutation.
+    ///
+    /// ## Why this exists
+    ///
+    /// Many instrumentation passes operate at the module level. This helper:
+    ///
+    /// * Avoids borrowing the entire component mutably
+    /// * Prevents accidental cross-module mutation
+    /// * Keeps mutations localized and easier to reason about
+    ///
+    /// Like all mutation APIs on [`ComponentHandle`], access is only permitted when
+    /// the component is uniquely owned.
+    ///
+    /// ## Panics
+    ///
+    /// Panics if the component is shared or if `idx` is out of bounds.
+    ///
+    /// ## Example
+    ///
+    /// ```rust
+    /// // Add a `nop` instruction to start of the first module's first function.
+    /// handle.mut_module_at(0, |module| {
+    ///     module.functions.get_mut(0).unwrap_local().add_instr(
+    ///         Operator::Nop,
+    ///         0
+    ///     );
+    /// });
+    /// ```
+    ///
+    /// ## Notes
+    ///
+    /// * The module reference cannot escape the closure.
+    /// * If you need to mutate multiple modules, call this method multiple times.
+    /// * For structural changes to the component itself, use [`mutate`].
+    pub fn mut_module_at<F, R>(&mut self, idx: usize, f: F) -> R
+    where
+        F: FnOnce(&mut Module) -> R,
+    {
+        let comp = Rc::get_mut(&mut self.inner)
+            .expect("Cannot mutably access Component: it is shared");
+        f(&mut comp.modules[idx])
+    }
+
+    /// Mutably access a nested component within this component.
+    ///
+    /// This method provides scoped mutable access to an inner [`ComponentHandle`]
+    /// by index, enabling recursive instrumentation of nested components.
+    ///
+    /// ## Why this exists
+    ///
+    /// Components may contain other components, each with their own index spaces
+    /// and scopes. This helper:
+    ///
+    /// * Preserves component identity and scope registration
+    /// * Enables safe, recursive traversal and mutation
+    /// * Avoids exposing raw mutable access to internal structures
+    ///
+    /// Each nested component is still subject to the same ownership rules as the
+    /// outer component.
+    ///
+    /// ## Panics
+    ///
+    /// Panics if the component is shared or if `idx` is out of bounds.
+    ///
+    /// ## Example
+    ///
+    /// ```rust
+    /// // Instrument a nested component
+    /// handle.mut_component_at(0, |child| {
+    ///     child.mutate(|comp| {
+    ///         comp.component_name = Some("child".into());
+    ///     });
+    /// });
+    /// ```
+    ///
+    /// ## Notes
+    ///
+    /// * The nested component is accessed through its own [`ComponentHandle`].
+    /// * This preserves invariants around scope registration and index spaces.
+    /// * Mutations must remain within the closure.
+    pub fn mut_component_at<F, R>(&mut self, idx: usize, f: F) -> R
+    where
+        F: FnOnce(&mut ComponentHandle) -> R,
+    {
+        let comp = Rc::get_mut(&mut self.inner)
+            .expect("Cannot mutably access Component: it is shared");
+        f(&mut comp.components[idx])
+    }
+
+    /// Mutably access a single instance within this component and apply a scoped mutation.
+    ///
+    /// This method provides controlled mutable access to an [`Instance`] without exposing
+    /// long-lived mutable borrows of the underlying [`Component`]. The mutation is performed
+    /// by invoking the provided closure on the selected instance.
+    ///
+    /// ## Why this API exists
+    ///
+    /// Instances inside a component may contain references with lifetimes tied to the
+    /// component itself (for example, borrowed strings parsed from the original binary).
+    /// Allowing callers to obtain `&mut Instance` directly would permit those references
+    /// to escape, which is unsound and rejected by the Rust compiler.
+    ///
+    /// To prevent this, the closure is required to be valid for **any** borrow lifetime.
+    /// This guarantees that:
+    ///
+    /// * The mutable reference to the instance **cannot escape** the closure
+    /// * The instance **cannot be stored or returned**
+    /// * All mutations are strictly **local and scoped**
+    ///
+    /// This pattern is intentionally used to support safe IR instrumentation while
+    /// preserving internal invariants.
+    ///
+    /// ## Panics
+    ///
+    /// Panics if the underlying component is shared (i.e. if there are multiple owners).
+    /// Instrumentation requires exclusive access to the component.
+    ///
+    /// ## Example
+    ///
+    /// ```rust
+    /// // Append an instantiation argument to a specific instance
+    /// wasm.mut_instance_at(0, |inst| {
+    ///     if let Instance::Instantiate { args, .. } = inst {
+    ///         args.push(InstantiationArg {
+    ///             name: "my_lib",
+    ///             kind: InstantiationArgKind::Instance,
+    ///             index: 3,
+    ///         });
+    ///     }
+    /// });
+    /// ```
+    ///
+    /// ## Notes for users
+    ///
+    /// * You cannot return the instance or store references to it outside the closure.
+    /// * This is by design and enforced at compile time.
+    /// * If you need to perform multiple mutations, do so within the same closure.
+    ///
+    /// This API is part of the library’s commitment to **safe, structured instrumentation**
+    /// of component IR without relying on runtime borrow checking or unsafe code.
+    pub fn mut_instance_at<F>(&mut self, i: usize, f: F)
+    where
+        F: for<'b> FnOnce(&'b mut Instance<'a>),
+    {
+        let comp = Rc::get_mut(&mut self.inner)
+            .expect("Cannot mutably access Component: it is shared");
+
+        f(&mut comp.instances[i]);
     }
 }
 impl<'a> Deref for ComponentHandle<'a> {
@@ -125,6 +319,8 @@ pub struct Component<'a> {
     /// Sections of the Component. Represented as (#num of occurrences of a section, type of section)
     pub sections: Vec<(u32, ComponentSection)>,
     num_sections: usize,
+
+    // pub interned_strs: Vec<Box<str>>,
 
     // Names
     pub(crate) component_name: Option<String>,
@@ -781,6 +977,7 @@ impl<'a> Component<'a> {
             sections,
             start_section,
             num_sections,
+            // interned_strs: vec![],
             component_name,
             core_func_names,
             global_names,

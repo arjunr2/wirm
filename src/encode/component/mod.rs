@@ -1,14 +1,13 @@
 use crate::encode::component::assign::assign_indices;
 use crate::encode::component::encode::encode_internal;
 use crate::ir::component::idx_spaces::{Depth, IndexedRef, SpaceId, SpaceSubtype, StoreHandle};
-use crate::ir::component::scopes::{build_component_store, GetScopeKind, RegistryHandle};
+use crate::ir::component::scopes::{GetScopeKind, RegistryHandle};
 use crate::Component;
 
 mod assign;
 mod collect;
 pub(crate) mod encode;
 mod fix_indices;
-// mod encode_bk;
 
 /// Encode this IR into a WebAssembly binary.
 /// Encoding a component gets split into 3 phases (the first two are for planning, the final
