@@ -35,7 +35,7 @@ trait CollectSubItem<'a> {
 
 impl Component<'_> {
     /// This is the entrypoint for collecting a component!
-    pub(crate) fn collect_root(&self, ctx: &mut EncodeCtx) -> ComponentPlan {
+    pub(crate) fn collect_root(&self, ctx: &mut EncodeCtx) -> ComponentPlan<'_> {
         // I'm already in the root scope of the component at this point.
         let mut collect_ctx = CollectCtx::new(self);
         self.collect(0, &mut collect_ctx, ctx); // pass self as “container”

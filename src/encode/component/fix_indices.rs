@@ -756,10 +756,9 @@ impl sealed::Sealed for CoreType<'_> {}
 #[rustfmt::skip]
 impl FixIndicesImpl for CoreType<'_> {
     fn fixme<'a>(&self, plan: &Option<SubItemPlan>, ctx: &mut EncodeCtx) -> Self {
-        // println!("\t---> CoreType: {:p}", self);
         match &self {
-            CoreType::Rec(recgroup) => {
-                CoreType::Rec(recgroup.fix(plan, ctx))
+            CoreType::Rec(group) => {
+                CoreType::Rec(group.fix(plan, ctx))
             }
             CoreType::Module(module) => {
                 let mut new_modules = vec![];
@@ -775,10 +774,8 @@ impl FixIndicesImpl for CoreType<'_> {
 }
 
 impl sealed::Sealed for ModuleTypeDeclaration<'_> {}
-// #[rustfmt::skip]
 impl FixIndicesImpl for ModuleTypeDeclaration<'_> {
     fn fixme<'a>(&self, plan: &Option<SubItemPlan>, ctx: &mut EncodeCtx) -> Self {
-        // println!("\t---> ModuleTypeDeclaration: {:p}", self);
         match self {
             ModuleTypeDeclaration::Type(group) => ModuleTypeDeclaration::Type(group.fix(plan, ctx)),
             ModuleTypeDeclaration::Export { name, ty } => ModuleTypeDeclaration::Export {
@@ -880,7 +877,17 @@ impl FixIndicesImpl for ComponentAlias<'_> {
                 }
             }
             // In the case of outer aliases, the u32 pair serves as a de Bruijn index, with first u32 being the number of enclosing components/modules to skip and the second u32 being an index into the target's sort's index space. In particular, the first u32 can be 0, in which case the outer alias refers to the current component. To maintain the acyclicity of module instantiation, outer aliases are only allowed to refer to preceding outer definitions.
-            ComponentAlias::Outer { .. } => self.clone(), // TODO: Fix this after scoped index spaces!
+            ComponentAlias::Outer { kind, count, .. } => {
+                let refs = self.referenced_indices(Depth::default());
+                let misc = refs.as_ref().unwrap().misc();
+                let new_id = ctx.lookup_actual_id_or_panic(&misc);
+
+                Self::Outer {
+                    kind: *kind,
+                    count: *count,
+                    index: new_id as u32,
+                }
+            }
         }
     }
 }

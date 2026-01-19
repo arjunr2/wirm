@@ -181,13 +181,6 @@ impl EncodeCtx {
         }
     }
 
-    fn in_space(&self, space_id: Option<SpaceId>) -> bool {
-        if let Some(space_id) = space_id {
-            return self.space_stack.curr_space_id() == space_id;
-        }
-        true
-    }
-
     fn maybe_enter_scope<T: GetScopeKind>(&mut self, node: &T) {
         if let Some(scope_entry) = self.registry.borrow().scope_entry(node) {
             println!(">>> ENTER scope{}", scope_entry.space);
