@@ -455,7 +455,10 @@ fn collect_deps<'a, T: ReferencedIndices + 'a>(
     if let Some(refs) = item.referenced_indices(Depth::default()) {
         for r in refs.as_list().iter() {
             // println!("\tLooking up: {r:?}");
-            let (vec, idx) = ctx.index_from_assumed_id(r);
+            let (vec, idx, subidx) = ctx.index_from_assumed_id(r);
+            if r.space != Space::CoreType {
+                assert!(subidx.is_none(), "only core types (with rec groups) should ever have subvec indices!");
+            }
 
             let comp_id = collect_ctx.comp_at(r.depth);
             let referenced_comp = collect_ctx.comp_store.get(comp_id);

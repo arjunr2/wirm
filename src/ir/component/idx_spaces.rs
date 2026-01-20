@@ -39,7 +39,7 @@ impl IndexStore {
             scope.reset_ids();
         }
     }
-    pub fn index_from_assumed_id(&mut self, id: &SpaceId, r: &IndexedRef) -> (SpaceSubtype, usize) {
+    pub fn index_from_assumed_id(&mut self, id: &SpaceId, r: &IndexedRef) -> (SpaceSubtype, usize, Option<usize>) {
         self.get_mut(id).index_from_assumed_id(r)
     }
     pub fn reset_ids(&mut self, id: &SpaceId) {
@@ -53,6 +53,16 @@ impl IndexStore {
         vec_idx: usize,
     ) {
         self.get_mut(id).assign_actual_id(space, section, vec_idx)
+    }
+    pub fn assign_actual_id_with_subvec(
+        &mut self,
+        id: &SpaceId,
+        space: &Space,
+        section: &ComponentSection,
+        vec_idx: usize,
+        subvec_idx: usize,
+    ) {
+        self.get_mut(id).assign_actual_id_with_subvec(space, section, vec_idx, subvec_idx)
     }
     pub fn assign_assumed_id(
         &mut self,
@@ -233,16 +243,31 @@ impl IndexScope {
     ) -> usize {
         if let Some(space) = self.get_space(space) {
             if let Some(assumed_id) = space.lookup_assumed_id(section, vec_idx) {
-                return *assumed_id;
+                return assumed_id;
             }
         }
-        panic!("[{:?}] No assumed ID for index: {}", space, vec_idx)
+        panic!("[{space:?}] No assumed ID for index: {vec_idx}")
     }
 
-    pub fn index_from_assumed_id(&mut self, r: &IndexedRef) -> (SpaceSubtype, usize) {
+    pub fn lookup_assumed_id_with_subvec(
+        &self,
+        space: &Space,
+        section: &ComponentSection,
+        vec_idx: usize,
+        subvec_idx: usize,
+    ) -> usize {
+        if let Some(space) = self.get_space(space) {
+            if let Some(assumed_id) = space.lookup_assumed_id_with_subvec(section, vec_idx, subvec_idx) {
+                return assumed_id;
+            }
+        }
+        panic!("[{space:?}] No assumed ID for index: {vec_idx}, subvec index: {subvec_idx}")
+    }
+
+    pub fn index_from_assumed_id(&mut self, r: &IndexedRef) -> (SpaceSubtype, usize, Option<usize>) {
         if let Some(space) = self.get_space_mut(&r.space) {
-            if let Some((ty, idx)) = space.index_from_assumed_id(r.index as usize) {
-                return (ty, idx);
+            if let Some((ty, idx, subvec_idx)) = space.index_from_assumed_id(r.index as usize) {
+                return (ty, idx, subvec_idx);
             } else {
                 println!("couldn't find idx");
             }
@@ -257,6 +282,13 @@ impl IndexScope {
 
     pub fn assign_actual_id(&mut self, space: &Space, section: &ComponentSection, vec_idx: usize) {
         let assumed_id = self.lookup_assumed_id(space, section, vec_idx);
+        if let Some(space) = self.get_space_mut(space) {
+            space.assign_actual_id(assumed_id);
+        }
+    }
+
+    pub fn assign_actual_id_with_subvec(&mut self, space: &Space, section: &ComponentSection, vec_idx: usize, subvec_idx: usize,) {
+        let assumed_id = self.lookup_assumed_id_with_subvec(space, section, vec_idx, subvec_idx);
         if let Some(space) = self.get_space_mut(space) {
             space.assign_actual_id(assumed_id);
         }
@@ -364,6 +396,53 @@ impl IndexScope {
     }
 }
 
+/// How we represent the assumed IDs at some index location in the IR
+#[derive(Clone, Debug)]
+enum AssumedIdForIdx {
+    /// This can be mapped to a SINGLE assumed ID
+    Single(usize),
+    /// OR multiple IDs for an index in the IR (rec groups take up a single
+    /// index in the core_types vector, but can have multiple core type IDs. One
+    /// for each rec group subtype!)
+    Multiple(Vec<usize>)
+}
+impl AssumedIdForIdx {
+    /// Returns whether this is a match for the passed assumed_id AND
+    /// the optional index in the IR's subvec
+    fn matches(&self, assumed_id: usize) -> (bool, Option<usize>) {
+        match self {
+            AssumedIdForIdx::Single(my_id) => return (*my_id == assumed_id, None),
+            AssumedIdForIdx::Multiple(sub_ids) => for (idx, id) in sub_ids.iter().enumerate() {
+                if *id == assumed_id {
+                    return (true, Some(idx))
+                }
+            }
+        }
+        (false, None)
+    }
+    fn append(&mut self, assumed_id: usize) {
+        match self {
+            Self::Single(my_id) => *self = AssumedIdForIdx::Multiple(vec![*my_id, assumed_id]),
+            Self::Multiple(sub_ids) => sub_ids.push(assumed_id)
+        }
+    }
+    fn unwrap_single(&self) -> usize {
+        match self {
+            AssumedIdForIdx::Single(my_id) => *my_id,
+            _ => unreachable!()
+        }
+    }
+    fn unwrap_for_idx(&self, subvec_idx: usize) -> usize {
+        match self {
+            AssumedIdForIdx::Single(my_id) => {
+                assert_eq!(subvec_idx, 0);
+                *my_id
+            },
+            AssumedIdForIdx::Multiple(subvec) => subvec[subvec_idx],
+        }
+    }
+}
+
 #[derive(Clone, Debug, Default)]
 pub(crate) struct IdxSpace {
     /// This is the current ID that we've reached associated with this index space.
@@ -378,25 +457,25 @@ pub(crate) struct IdxSpace {
 
     /// Tracks the index in the MAIN item vector to the ID we've assumed for it: `main_idx -> assumed_id`
     /// This ID will be used to reference that item in the IR.
-    main_assumed_ids: HashMap<usize, usize>,
+    main_assumed_ids: HashMap<usize, AssumedIdForIdx>,
 
     // The below maps are to track assumed IDs for item vectors that index into this index space.
     /// Tracks the index in the ALIAS item vector to the ID we've assumed for it: `alias_idx -> assumed_id`
     /// This ID will be used to reference that item in the IR.
-    alias_assumed_ids: HashMap<usize, usize>,
+    alias_assumed_ids: HashMap<usize, AssumedIdForIdx>,
     /// Tracks the index in the IMPORT item vector to the ID we've assumed for it: `imports_idx -> assumed_id`
     /// This ID will be used to reference that item in the IR.
-    imports_assumed_ids: HashMap<usize, usize>,
+    imports_assumed_ids: HashMap<usize, AssumedIdForIdx>,
     /// Tracks the index in the EXPORT item vector to the ID we've assumed for it: `exports_idx -> assumed_id`
     /// This ID will be used to reference that item in the IR.
-    exports_assumed_ids: HashMap<usize, usize>,
+    exports_assumed_ids: HashMap<usize, AssumedIdForIdx>,
 
     /// (Only relevant for component_types)
     /// Tracks the index in the COMPONENT item vector to the ID we've assumed for it: `component_idx -> assumed_id`
     /// This ID will be used to reference that item in the IR.
-    components_assumed_ids: HashMap<usize, usize>,
+    components_assumed_ids: HashMap<usize, AssumedIdForIdx>,
 
-    index_from_assumed_id_cache: HashMap<usize, (SpaceSubtype, usize)>,
+    index_from_assumed_id_cache: HashMap<usize, (SpaceSubtype, usize, Option<usize>)>,
 }
 impl IdxSpace {
     pub fn reset_ids(&mut self) {
@@ -421,7 +500,7 @@ impl IdxSpace {
         curr
     }
 
-    pub fn lookup_assumed_id(&self, section: &ComponentSection, vec_idx: usize) -> Option<&usize> {
+    pub fn lookup_assumed_id(&self, section: &ComponentSection, vec_idx: usize) -> Option<usize> {
         let (_group, vector) = match section {
             ComponentSection::ComponentImport => ("imports", &self.imports_assumed_ids),
             ComponentSection::ComponentExport => ("exports", &self.exports_assumed_ids),
@@ -438,10 +517,38 @@ impl IdxSpace {
             | ComponentSection::ComponentStartSection => ("main", &self.main_assumed_ids),
         };
 
-        vector.get(&vec_idx)
+        vector.get(&vec_idx).map(|res| {
+            res.unwrap_single()
+        })
     }
 
-    pub fn index_from_assumed_id(&mut self, assumed_id: usize) -> Option<(SpaceSubtype, usize)> {
+    pub fn lookup_assumed_id_with_subvec(&self, section: &ComponentSection, vec_idx: usize, subvec_idx: usize) -> Option<usize> {
+        let (_group, vector) = match section {
+            ComponentSection::ComponentImport => ("imports", &self.imports_assumed_ids),
+            ComponentSection::ComponentExport => ("exports", &self.exports_assumed_ids),
+            ComponentSection::Alias => ("aliases", &self.alias_assumed_ids),
+            ComponentSection::Component => ("components", &self.components_assumed_ids),
+
+            ComponentSection::Module
+            | ComponentSection::CoreType
+            | ComponentSection::ComponentType
+            | ComponentSection::CoreInstance
+            | ComponentSection::ComponentInstance
+            | ComponentSection::Canon
+            | ComponentSection::CustomSection
+            | ComponentSection::ComponentStartSection => ("main", &self.main_assumed_ids),
+        };
+
+        vector.get(&vec_idx).map(|res| {
+            res.unwrap_for_idx(subvec_idx)
+        })
+    }
+
+    /// Returns:
+    /// - .0,SpaceSubtype: the space vector to look up this index in
+    /// - .1,usize: the index of the vector in the IR to find the item
+    /// - .2,Option<usize>: the index within the node to find the item (as in pointing to a certain subtype in a recgroup)
+    pub fn index_from_assumed_id(&mut self, assumed_id: usize) -> Option<(SpaceSubtype, usize, Option<usize>)> {
         if let Some(cached_data) = self.index_from_assumed_id_cache.get(&assumed_id) {
             return Some(*cached_data);
         }
@@ -458,8 +565,9 @@ impl IdxSpace {
 
         for (subty, map) in maps.iter() {
             for (idx, assumed) in map.iter() {
-                if *assumed == assumed_id {
-                    let result = (*subty, *idx);
+                let (matches, opt_subidx) = assumed.matches(assumed_id);
+                if matches {
+                    let result = (*subty, *idx, opt_subidx);
                     // cache what we found
                     self.index_from_assumed_id_cache
                         .insert(assumed_id, result.clone());
@@ -489,7 +597,9 @@ impl IdxSpace {
             | ComponentSection::CustomSection
             | ComponentSection::ComponentStartSection => &mut self.main_assumed_ids,
         };
-        to_update.insert(vec_idx, assumed_id);
+        to_update.entry(vec_idx).and_modify(|entry | {
+            entry.append(assumed_id);
+        }).or_insert(AssumedIdForIdx::Single(assumed_id));
 
         assumed_id
     }
@@ -645,45 +755,45 @@ impl IndexSpaceOf for CanonicalFunction {
 
             // Thread spawn / new indirect → function type
             CanonicalFunction::ThreadSpawnRef { .. }
-            | CanonicalFunction::ThreadSpawnIndirect { .. }
-            | CanonicalFunction::ThreadNewIndirect { .. } => Space::CompFunc,
+            | CanonicalFunction::ThreadSpawnIndirect { .. } => Space::CompFunc,
+            CanonicalFunction::ThreadNewIndirect { .. } => Space::CoreFunc,
 
             // Task-related functions operate on values
             CanonicalFunction::TaskReturn { .. }
             | CanonicalFunction::TaskCancel { .. }
             | CanonicalFunction::SubtaskDrop
-            | CanonicalFunction::SubtaskCancel { .. } => Space::CompFunc,
+            | CanonicalFunction::SubtaskCancel { .. } => Space::CoreFunc,
 
             // Context access
-            CanonicalFunction::ContextGet(_) | CanonicalFunction::ContextSet(_) => Space::CompFunc,
+            CanonicalFunction::ContextGet(_) | CanonicalFunction::ContextSet(_) => Space::CoreFunc,
 
             // Stream / Future functions operate on types
-            CanonicalFunction::StreamNew { .. }
-            | CanonicalFunction::StreamRead { .. }
-            | CanonicalFunction::StreamWrite { .. }
-            | CanonicalFunction::StreamCancelRead { .. }
+            CanonicalFunction::StreamCancelRead { .. }
             | CanonicalFunction::StreamCancelWrite { .. }
-            | CanonicalFunction::StreamDropReadable { .. }
-            | CanonicalFunction::StreamDropWritable { .. }
+            | CanonicalFunction::FutureCancelRead { .. }
+            | CanonicalFunction::FutureCancelWrite { .. }
             | CanonicalFunction::FutureNew { .. }
             | CanonicalFunction::FutureRead { .. }
             | CanonicalFunction::FutureWrite { .. }
-            | CanonicalFunction::FutureCancelRead { .. }
-            | CanonicalFunction::FutureCancelWrite { .. }
             | CanonicalFunction::FutureDropReadable { .. }
-            | CanonicalFunction::FutureDropWritable { .. } => Space::CompFunc,
+            | CanonicalFunction::FutureDropWritable { .. }
+            | CanonicalFunction::StreamNew { .. }
+            | CanonicalFunction::StreamRead { .. }
+            | CanonicalFunction::StreamWrite { .. }
+            | CanonicalFunction::StreamDropReadable { .. }
+            | CanonicalFunction::StreamDropWritable { .. } => Space::CoreFunc,
 
             // Error context → operate on values
             CanonicalFunction::ErrorContextNew { .. }
             | CanonicalFunction::ErrorContextDebugMessage { .. }
-            | CanonicalFunction::ErrorContextDrop => Space::CompFunc,
+            | CanonicalFunction::ErrorContextDrop => Space::CoreFunc,
 
             // Waitable set → memory
             CanonicalFunction::WaitableSetWait { .. }
-            | CanonicalFunction::WaitableSetPoll { .. } => Space::CompFunc,
-            CanonicalFunction::WaitableSetNew
+            | CanonicalFunction::WaitableSetPoll { .. }
+            | CanonicalFunction::WaitableSetNew
             | CanonicalFunction::WaitableSetDrop
-            | CanonicalFunction::WaitableJoin => Space::CompFunc,
+            | CanonicalFunction::WaitableJoin => Space::CoreFunc,
 
             // Thread functions
             CanonicalFunction::ThreadIndex
@@ -692,10 +802,10 @@ impl IndexSpaceOf for CanonicalFunction {
             | CanonicalFunction::ThreadResumeLater
             | CanonicalFunction::ThreadYieldTo { .. }
             | CanonicalFunction::ThreadYield { .. }
-            | CanonicalFunction::ThreadAvailableParallelism => Space::CompFunc,
+            | CanonicalFunction::ThreadAvailableParallelism => Space::CoreFunc,
 
             CanonicalFunction::BackpressureInc | CanonicalFunction::BackpressureDec => {
-                Space::CompFunc
+                Space::CoreFunc
             }
         }
     }
@@ -717,6 +827,14 @@ impl IndexSpaceOf for CoreType<'_> {
     fn index_space_of(&self) -> Space {
         Space::CoreType
     }
+}
+
+impl IndexSpaceOf for RecGroup {
+    fn index_space_of(&self) -> Space { Space::CoreType }
+}
+
+impl IndexSpaceOf for SubType {
+    fn index_space_of(&self) -> Space { Space::CoreType }
 }
 
 impl IndexSpaceOf for ComponentType<'_> {
@@ -1436,7 +1554,7 @@ impl ReferencedIndices for CanonicalFunction {
             } => Some(Refs {
                 ty: Some(IndexedRef {
                     depth,
-                    space: Space::CompType,
+                    space: Space::CoreType,
                     index: *func_ty_index,
                 }),
                 table: Some(IndexedRef {
@@ -1462,7 +1580,7 @@ impl ReferencedIndices for CanonicalFunction {
                 }
                 Some(Refs {
                     ty: if let Some(result) = result {
-                        result.referenced_indices(depth).unwrap().ty
+                        result.referenced_indices(depth)?.ty
                     } else {
                         None
                     },
@@ -1518,7 +1636,7 @@ impl ReferencedIndices for CanonicalFunction {
             }
             CanonicalFunction::WaitableSetWait { memory, .. }
             | CanonicalFunction::WaitableSetPoll { memory, .. } => Some(Refs {
-                ty: Some(IndexedRef {
+                mem: Some(IndexedRef {
                     depth,
                     space: Space::CoreMemory,
                     index: *memory,

@@ -7,14 +7,14 @@
   )
   "unexpected token")
 
-;;;; backpressure.inc
-;;(component
-;;  (core module $m
-;;    (import "" "backpressure.inc" (func $backpressure.inc))
-;;  )
-;;  (core func $backpressure.inc (canon backpressure.inc))
-;;  (core instance $i (instantiate $m (with "" (instance (export "backpressure.inc" (func $backpressure.inc))))))
-;;)
+;; backpressure.inc
+(component
+  (core module $m
+    (import "" "backpressure.inc" (func $backpressure.inc))
+  )
+  (core func $backpressure.inc (canon backpressure.inc))
+  (core instance $i (instantiate $m (with "" (instance (export "backpressure.inc" (func $backpressure.inc))))))
+)
 
 ;; backpressure.inc; incorrect type
 (assert_invalid
@@ -28,14 +28,14 @@
   "type mismatch for export `backpressure.inc` of module instantiation argument ``"
 )
 
-;;;; backpressure.dec
-;;(component
-;;  (core module $m
-;;    (import "" "backpressure.dec" (func $backpressure.dec))
-;;  )
-;;  (core func $backpressure.dec (canon backpressure.dec))
-;;  (core instance $i (instantiate $m (with "" (instance (export "backpressure.dec" (func $backpressure.dec))))))
-;;)
+;; backpressure.dec
+(component
+  (core module $m
+    (import "" "backpressure.dec" (func $backpressure.dec))
+  )
+  (core func $backpressure.dec (canon backpressure.dec))
+  (core instance $i (instantiate $m (with "" (instance (export "backpressure.dec" (func $backpressure.dec))))))
+)
 
 ;; backpressure.dec; decorrect type
 (assert_invalid
@@ -49,14 +49,14 @@
   "type mismatch for export `backpressure.dec` of module instantiation argument ``"
 )
 
-;;;; task.return
-;;(component
-;;  (core module $m
-;;    (import "" "task.return" (func $task-return (param i32)))
-;;  )
-;;  (core func $task-return (canon task.return (result u32)))
-;;  (core instance $i (instantiate $m (with "" (instance (export "task.return" (func $task-return))))))
-;;)
+;; task.return
+(component
+  (core module $m
+    (import "" "task.return" (func $task-return (param i32)))
+  )
+  (core func $task-return (canon task.return (result u32)))
+  (core instance $i (instantiate $m (with "" (instance (export "task.return" (func $task-return))))))
+)
 
 (assert_invalid
   (component (core func $task-return (canon task.return (result u32) async)))
@@ -86,32 +86,32 @@
   )
   "cannot specify `realloc` option on `task.return`")
 
-;;(component
-;;  (core module $m
-;;    (memory (export "m") 1)
-;;  )
-;;  (core instance $i (instantiate $m))
-;;  (core func (canon task.return (result u32) string-encoding=utf8))
-;;  (core func (canon task.return (result u32) string-encoding=utf16))
-;;  (core func (canon task.return (result u32) string-encoding=latin1+utf16))
-;;  (core func (canon task.return (result u32) (memory $i "m")))
-;;)
+(component
+  (core module $m
+    (memory (export "m") 1)
+  )
+  (core instance $i (instantiate $m))
+  (core func (canon task.return (result u32) string-encoding=utf8))
+  (core func (canon task.return (result u32) string-encoding=utf16))
+  (core func (canon task.return (result u32) string-encoding=latin1+utf16))
+  (core func (canon task.return (result u32) (memory $i "m")))
+)
 
-;;;; task.cancel
-;;(component
-;;  (core module $m
-;;    (import "" "task.cancel" (func $task-cancel))
-;;  )
-;;  (core func $task-cancel (canon task.cancel))
-;;  (core instance $i (instantiate $m (with "" (instance (export "task.cancel" (func $task-cancel))))))
-;;)
+;; task.cancel
+(component
+  (core module $m
+    (import "" "task.cancel" (func $task-cancel))
+  )
+  (core func $task-cancel (canon task.cancel))
+  (core instance $i (instantiate $m (with "" (instance (export "task.cancel" (func $task-cancel))))))
+)
 
-;;;; waitable-set.new
-;;(component
-;;  (core module $m (import "" "waitable-set.new" (func (result i32))))
-;;  (core func $waitable-set-new (canon waitable-set.new))
-;;  (core instance $i (instantiate $m (with "" (instance (export "waitable-set.new" (func $waitable-set-new))))))
-;;)
+;; waitable-set.new
+(component
+  (core module $m (import "" "waitable-set.new" (func (result i32))))
+  (core func $waitable-set-new (canon waitable-set.new))
+  (core instance $i (instantiate $m (with "" (instance (export "waitable-set.new" (func $waitable-set-new))))))
+)
 
 ;; waitable-set.new; incorrect type
 (assert_invalid
@@ -123,16 +123,16 @@
   "type mismatch for export `waitable-set.new` of module instantiation argument ``"
 )
 
-;;;; waitable-set.wait
-;;(component
-;;  (core module $libc (memory (export "memory") 1))
-;;  (core instance $libc (instantiate $libc))
-;;  (core module $m
-;;    (import "" "waitable-set.wait" (func $waitable-set-wait (param i32 i32) (result i32)))
-;;  )
-;;  (core func $waitable-set-wait (canon waitable-set.wait (memory $libc "memory")))
-;;  (core instance $i (instantiate $m (with "" (instance (export "waitable-set.wait" (func $waitable-set-wait))))))
-;;)
+;; waitable-set.wait
+(component
+  (core module $libc (memory (export "memory") 1))
+  (core instance $libc (instantiate $libc))
+  (core module $m
+    (import "" "waitable-set.wait" (func $waitable-set-wait (param i32 i32) (result i32)))
+  )
+  (core func $waitable-set-wait (canon waitable-set.wait (memory $libc "memory")))
+  (core instance $i (instantiate $m (with "" (instance (export "waitable-set.wait" (func $waitable-set-wait))))))
+)
 
 ;; waitable-set.wait; incorrect type
 (assert_invalid
@@ -160,16 +160,16 @@
   )
   "requires the component model async stackful feature")
 
-;;;; waitable-set.poll
-;;(component
-;;  (core module $libc (memory (export "memory") 1))
-;;  (core instance $libc (instantiate $libc))
-;;  (core module $m
-;;    (import "" "waitable-set.poll" (func $waitable-set-poll (param i32 i32) (result i32)))
-;;  )
-;;  (core func $waitable-set-poll (canon waitable-set.poll (memory $libc "memory")))
-;;  (core instance $i (instantiate $m (with "" (instance (export "waitable-set.poll" (func $waitable-set-poll))))))
-;;)
+;; waitable-set.poll
+(component
+  (core module $libc (memory (export "memory") 1))
+  (core instance $libc (instantiate $libc))
+  (core module $m
+    (import "" "waitable-set.poll" (func $waitable-set-poll (param i32 i32) (result i32)))
+  )
+  (core func $waitable-set-poll (canon waitable-set.poll (memory $libc "memory")))
+  (core instance $i (instantiate $m (with "" (instance (export "waitable-set.poll" (func $waitable-set-poll))))))
+)
 (assert_invalid
   (component
     (core module $libc (memory (export "memory") 1))
@@ -196,12 +196,12 @@
   "type mismatch for export `waitable-set.poll` of module instantiation argument ``"
 )
 
-;;;; waitable-set.drop
-;;(component
-;;  (core module $m (import "" "waitable-set.drop" (func (param i32))))
-;;  (core func $waitable-set-drop (canon waitable-set.drop))
-;;  (core instance $i (instantiate $m (with "" (instance (export "waitable-set.drop" (func $waitable-set-drop))))))
-;;)
+;; waitable-set.drop
+(component
+  (core module $m (import "" "waitable-set.drop" (func (param i32))))
+  (core func $waitable-set-drop (canon waitable-set.drop))
+  (core instance $i (instantiate $m (with "" (instance (export "waitable-set.drop" (func $waitable-set-drop))))))
+)
 
 ;; waitable-set.drop; incorrect type
 (assert_invalid
@@ -213,12 +213,12 @@
   "type mismatch for export `waitable-set.drop` of module instantiation argument ``"
 )
 
-;;;; waitable.join
-;;(component
-;;  (core module $m (import "" "waitable.join" (func (param i32 i32))))
-;;  (core func $waitable.join (canon waitable.join))
-;;  (core instance $i (instantiate $m (with "" (instance (export "waitable.join" (func $waitable.join))))))
-;;)
+;; waitable.join
+(component
+  (core module $m (import "" "waitable.join" (func (param i32 i32))))
+  (core func $waitable.join (canon waitable.join))
+  (core instance $i (instantiate $m (with "" (instance (export "waitable.join" (func $waitable.join))))))
+)
 
 ;; waitable.join; incorrect type
 (assert_invalid
@@ -230,14 +230,14 @@
   "type mismatch for export `waitable.join` of module instantiation argument ``"
 )
 
-;;;; subtask.drop
-;;(component
-;;  (core module $m
-;;    (import "" "subtask.drop" (func $subtask-drop (param i32)))
-;;  )
-;;  (core func $subtask-drop (canon subtask.drop))
-;;  (core instance $i (instantiate $m (with "" (instance (export "subtask.drop" (func $subtask-drop))))))
-;;)
+;; subtask.drop
+(component
+  (core module $m
+    (import "" "subtask.drop" (func $subtask-drop (param i32)))
+  )
+  (core func $subtask-drop (canon subtask.drop))
+  (core instance $i (instantiate $m (with "" (instance (export "subtask.drop" (func $subtask-drop))))))
+)
 
 ;; subtask.drop; incorrect type
 (assert_invalid
@@ -251,14 +251,14 @@
   "type mismatch for export `subtask.drop` of module instantiation argument ``"
 )
 
-;;;; subtask.cancel
-;;(component
-;;  (core module $m
-;;    (import "" "subtask.cancel" (func $subtask-cancel (param i32) (result i32)))
-;;  )
-;;  (core func $subtask-cancel (canon subtask.cancel))
-;;  (core instance $i (instantiate $m (with "" (instance (export "subtask.cancel" (func $subtask-cancel))))))
-;;)
+;; subtask.cancel
+(component
+  (core module $m
+    (import "" "subtask.cancel" (func $subtask-cancel (param i32) (result i32)))
+  )
+  (core func $subtask-cancel (canon subtask.cancel))
+  (core instance $i (instantiate $m (with "" (instance (export "subtask.cancel" (func $subtask-cancel))))))
+)
 
 ;; subtask.cancel; incorrect type
 (assert_invalid
@@ -272,31 +272,31 @@
   "type mismatch for export `subtask.cancel` of module instantiation argument ``"
 )
 
-;;;; context.{get,set}
-;;(component
-;;  (core func $get0 (canon context.get i32 0))
-;;  (core func $set0 (canon context.set i32 0))
-;;
-;;  (core module $m
-;;    (import "" "get0" (func (result i32)))
-;;    (import "" "set0" (func (param i32)))
-;;  )
-;;  (core instance (instantiate $m
-;;    (with "" (instance
-;;      (export "get0" (func $get0))
-;;      (export "set0" (func $set0))
-;;    ))
-;;  ))
-;;)
+;; context.{get,set}
+(component
+  (core func $get0 (canon context.get i32 0))
+  (core func $set0 (canon context.set i32 0))
 
-;;;; thread.yield
-;;(component
-;;  (core module $m
-;;    (import "" "thread.yield" (func $thread.yield (result i32)))
-;;  )
-;;  (core func $thread.yield (canon thread.yield))
-;;  (core instance $i (instantiate $m (with "" (instance (export "thread.yield" (func $thread.yield))))))
-;;)
+  (core module $m
+    (import "" "get0" (func (result i32)))
+    (import "" "set0" (func (param i32)))
+  )
+  (core instance (instantiate $m
+    (with "" (instance
+      (export "get0" (func $get0))
+      (export "set0" (func $set0))
+    ))
+  ))
+)
+
+;; thread.yield
+(component
+  (core module $m
+    (import "" "thread.yield" (func $thread.yield (result i32)))
+  )
+  (core func $thread.yield (canon thread.yield))
+  (core instance $i (instantiate $m (with "" (instance (export "thread.yield" (func $thread.yield))))))
+)
 
 (assert_invalid
   (component

@@ -189,14 +189,17 @@ pub(crate) fn assign_indices(
                 subitem_plan,
             } => unsafe {
                 let ptr: &CoreType = &**node;
-                assignments_for_core_ty(ptr, subitem_plan, ctx);
+                assignments_for_core_ty(ptr, *idx, subitem_plan, ctx);
 
-                ctx.store.borrow_mut().assign_actual_id(
-                    &ctx.space_stack.curr_space_id(),
-                    &ptr.index_space_of(),
-                    &ComponentSection::CoreType,
-                    *idx,
-                );
+                if matches!(ptr, CoreType::Module(_)) {
+                    // only want to do this flat space assignment for a core type Module
+                    ctx.store.borrow_mut().assign_actual_id(
+                        &ctx.space_stack.curr_space_id(),
+                        &ptr.index_space_of(),
+                        &ComponentSection::CoreType,
+                        *idx,
+                    );
+                }
             },
             ComponentItem::Inst { node, idx } => unsafe {
                 let ptr: &Instance = &**node;
@@ -284,7 +287,7 @@ fn assignments_for_comp_ty_comp_decl(
 
     match decl {
         ComponentTypeDeclaration::CoreType(ty) => {
-            assignments_for_core_ty(ty, subitem_plan, ctx);
+            assignments_for_core_ty(ty, decl_idx, subitem_plan, ctx);
         }
         ComponentTypeDeclaration::Type(ty) => {
             assignments_for_comp_ty(ty, subitem_plan, ctx);
@@ -312,7 +315,7 @@ fn assignments_for_comp_ty_inst_decl(
 
     match decl {
         InstanceTypeDeclaration::CoreType(ty) => {
-            assignments_for_core_ty(ty, subitem_plan, ctx);
+            assignments_for_core_ty(ty, decl_idx, subitem_plan, ctx);
         }
         InstanceTypeDeclaration::Type(ty) => {
             assignments_for_comp_ty(ty, subitem_plan, ctx);
@@ -323,16 +326,17 @@ fn assignments_for_comp_ty_inst_decl(
 
 pub(crate) fn assignments_for_core_ty(
     ty: &CoreType,
+    ty_idx: usize,
     subitem_plan: &Option<SubItemPlan>,
     ctx: &mut EncodeCtx,
 ) -> ComponentSection {
+    let section = ComponentSection::CoreType;
     match ty {
         CoreType::Module(decls) => {
             ctx.maybe_enter_scope(ty);
             // println!("\t@assign COMP_TYPE ADDR: {:p}", ty);
             assert_registered!(ctx.registry, ty);
 
-            let section = ComponentSection::CoreType;
             for (idx, subplan) in subitem_plan.as_ref().unwrap().order().iter() {
                 assert!(subplan.is_none());
                 let decl = &decls[*idx];
@@ -342,7 +346,19 @@ pub(crate) fn assignments_for_core_ty(
             ctx.maybe_exit_scope(ty);
             section
         }
-        _ => ComponentSection::CoreType,
+        CoreType::Rec(recgroup) => {
+            for (subty_idx, subty) in recgroup.types().enumerate() {
+                ctx.store.borrow_mut().assign_actual_id_with_subvec(
+                    &ctx.space_stack.curr_space_id(),
+                    &subty.index_space_of(),
+                    &section,
+                    ty_idx,
+                    subty_idx
+                );
+            }
+            
+            ComponentSection::CoreType
+        },
     }
 }
 

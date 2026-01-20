@@ -206,7 +206,7 @@ impl EncodeCtx {
             .lookup_actual_id_or_panic(&r)
     }
 
-    fn index_from_assumed_id(&mut self, r: &IndexedRef) -> (SpaceSubtype, usize) {
+    fn index_from_assumed_id(&mut self, r: &IndexedRef) -> (SpaceSubtype, usize, Option<usize>) {
         let scope_id = self.space_stack.space_at_depth(&r.depth);
         self.store
             .borrow_mut()

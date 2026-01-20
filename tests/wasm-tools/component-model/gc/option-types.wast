@@ -26,19 +26,19 @@
   (core func (canon lower (func $i "f") gc (core-type $ty)))
 )
 
-;;;; With a custom rec group.
-;;(component
-;;  (type $opt (option u32))
-;;
-;;  (core rec
-;;    (type $opt (struct))
-;;    (type $ty (func (param (ref $opt)))))
-;;
-;;  (import "i" (instance $i
-;;                (export "ty" (type $opt' (eq $opt)))
-;;                (export "f" (func (param "x" $opt')))))
-;;  (core func (canon lower (func $i "f") gc (core-type $ty)))
-;;)
+;; With a custom rec group.
+(component
+  (type $opt (option u32))
+
+  (core rec
+    (type $opt (struct))
+    (type $ty (func (param (ref $opt)))))
+
+  (import "i" (instance $i
+                (export "ty" (type $opt' (eq $opt)))
+                (export "f" (func (param "x" $opt')))))
+  (core func (canon lower (func $i "f") gc (core-type $ty)))
+)
 
 ;; With a custom subtype.
 (component

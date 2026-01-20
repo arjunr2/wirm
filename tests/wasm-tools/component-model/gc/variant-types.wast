@@ -30,21 +30,21 @@
   (core func (canon lower (func $i "f") gc (core-type $ty)))
 )
 
-;;;; With a custom rec group.
-;;(component
-;;  (type $variant (variant (case "a" bool)
-;;                          (case "b" bool)
-;;                          (case "c" u8)))
-;;
-;;  (core rec
-;;    (type $variant (struct))
-;;    (type $ty (func (param (ref null $variant)))))
-;;
-;;  (import "i" (instance $i
-;;                (export "ty" (type $variant' (eq $variant)))
-;;                (export "f" (func (param "x" $variant')))))
-;;  (core func (canon lower (func $i "f") gc (core-type $ty)))
-;;)
+;; With a custom rec group.
+(component
+  (type $variant (variant (case "a" bool)
+                          (case "b" bool)
+                          (case "c" u8)))
+
+  (core rec
+    (type $variant (struct))
+    (type $ty (func (param (ref null $variant)))))
+
+  (import "i" (instance $i
+                (export "ty" (type $variant' (eq $variant)))
+                (export "f" (func (param "x" $variant')))))
+  (core func (canon lower (func $i "f") gc (core-type $ty)))
+)
 
 ;; With a custom subtype.
 (component
