@@ -679,7 +679,7 @@ impl<'a> Component<'a> {
                     let mut new_sects = vec![];
                     let mut has_subscope = false;
                     for (idx, ty) in core_types[old_len..].iter().enumerate() {
-                        let (new_sect, sect_has_subscope) = get_sections_for_core_ty_and_assign_top_level_ids(ty, idx, &space_id, store_handle.clone());
+                        let (new_sect, sect_has_subscope) = get_sections_for_core_ty_and_assign_top_level_ids(ty, old_len + idx, &space_id, store_handle.clone());
                         has_subscope |= sect_has_subscope;
                         new_sects.push(new_sect);
                     }
