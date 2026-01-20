@@ -694,9 +694,9 @@ impl IndexSpaceOf for CanonicalFunction {
             | CanonicalFunction::ThreadYield { .. }
             | CanonicalFunction::ThreadAvailableParallelism => Space::CompFunc,
 
-            CanonicalFunction::BackpressureSet
-            | CanonicalFunction::BackpressureInc
-            | CanonicalFunction::BackpressureDec => Space::CompFunc,
+            CanonicalFunction::BackpressureInc | CanonicalFunction::BackpressureDec => {
+                Space::CompFunc
+            }
         }
     }
 }
@@ -1121,6 +1121,10 @@ impl ReferencedIndices for ComponentDefinedType<'_> {
                     None
                 }
             }
+
+            ComponentDefinedType::Map(key_ty, val_ty) => {
+                todo!()
+            }
         }
     }
 }
@@ -1528,7 +1532,6 @@ impl ReferencedIndices for CanonicalFunction {
             | CanonicalFunction::ThreadYieldTo { .. } => None,
             CanonicalFunction::ContextGet(i) | CanonicalFunction::ContextSet(i) => None,
             CanonicalFunction::ThreadAvailableParallelism
-            | CanonicalFunction::BackpressureSet
             | CanonicalFunction::BackpressureInc
             | CanonicalFunction::BackpressureDec
             | CanonicalFunction::TaskCancel

@@ -1,6 +1,6 @@
 ;; RUN: wast --assert default --snapshot tests/snapshots %
 
-(component
+(component definition
   (func (import "a"))
   (component)
   (instance (instantiate 0 (with "NotKebab-Case" (func 0))))
@@ -24,9 +24,9 @@
 
 (assert_invalid
   (component
-    (type (flags "a-1-c"))
+    (type (flags "0-a-1-c"))
   )
-  "flag name `a-1-c` is not in kebab case"
+  "flag name `0-a-1-c` is not in kebab case"
 )
 
 (assert_invalid
@@ -110,7 +110,7 @@
   (instance (import "a1:b1/c"))
 )
 
-(component
+(component definition
   (import "a" (type $a (sub resource)))
   (import "[constructor]a" (func (result (own $a))))
 )
@@ -128,3 +128,7 @@
     (import "[static]a.a" (func))
   )
   "import name `[static]a.a` conflicts with previous name `a`")
+
+(component
+  (type (flags "a-1-c"))
+)

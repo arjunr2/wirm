@@ -323,8 +323,11 @@ fn encode_canon_section(
         CanonicalFunction::ThreadAvailableParallelism => {
             canon_sec.thread_available_parallelism();
         }
-        CanonicalFunction::BackpressureSet => {
-            canon_sec.backpressure_set();
+        CanonicalFunction::BackpressureDec => {
+            canon_sec.backpressure_dec();
+        }
+        CanonicalFunction::BackpressureInc => {
+            canon_sec.backpressure_inc();
         }
         CanonicalFunction::TaskReturn { result, options } => {
             canon_sec.task_return(
@@ -429,12 +432,6 @@ fn encode_canon_section(
         }
         CanonicalFunction::FutureDropWritable { ty } => {
             canon_sec.future_drop_writable(*ty);
-        }
-        CanonicalFunction::BackpressureInc => {
-            canon_sec.backpressure_inc();
-        }
-        CanonicalFunction::BackpressureDec => {
-            canon_sec.backpressure_dec();
         }
         CanonicalFunction::ThreadYield { cancellable } => {
             canon_sec.thread_yield(*cancellable);
@@ -634,6 +631,10 @@ fn encode_comp_defined_ty(
         ComponentDefinedType::FixedSizeList(ty, i) => {
             enc.fixed_size_list(reencode.component_val_type(*ty), *i)
         }
+        ComponentDefinedType::Map(key_ty, val_ty) => enc.map(
+            reencode.component_val_type(*key_ty),
+            reencode.component_val_type(*val_ty),
+        ),
     }
 }
 

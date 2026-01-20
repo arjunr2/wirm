@@ -58,41 +58,41 @@
     (export "b" (func $b "b"))
   )
 
-  (component $C
-    (type $Wasi (instance))
-    (import "wasi" (instance $wasi (type $Wasi)))
-    (import "b1-x" (component $B
-      (import "wasi" (instance $wasi (type $Wasi)))
-      (export "b" (func))
-    ))
-    (instance $b (instantiate $B (with "wasi" (instance $wasi))))
-    (export "c" (func $b "b"))
-  )
-  (component $C_wrap
-    (type $Wasi (instance))
-    (import "wasi" (instance $wasi (type $Wasi)))
+  (component $C 
+    (type $Wasi (instance)) 
+    (import "wasi" (instance $wasi (type $Wasi))) 
+    (import "b1-x" (component $B 
+      (import "wasi" (instance $wasi (type $Wasi))) 
+      (export "b" (func)) 
+    )) 
+    (instance $b (instantiate $B (with "wasi" (instance $wasi)))) 
+    (export "c" (func $b "b")) 
+  ) 
+  (component $C_wrap 
+    (type $Wasi (instance)) 
+    (import "wasi" (instance $wasi (type $Wasi))) 
     (instance $c (instantiate $C
-      (with "wasi" (instance $wasi))
-      (with "b1-x" (component $B_wrap))
-    ))
-    (export "c" (func $c "c"))
-  )
+      (with "wasi" (instance $wasi)) 
+      (with "b1-x" (component $B_wrap)) 
+    )) 
+    (export "c" (func $c "c")) 
+  ) 
 
-  (component $D
-    (type $Wasi (instance))
-    (import "wasi" (instance $wasi (type $Wasi)))
-    (import "c1-x" (component $C
-      (import "wasi" (instance $wasi (type $Wasi)))
-      (export "c" (func))
-    ))
-    (instance $c (instantiate $C (with "wasi" (instance $wasi))))
-    (export "d" (func $c "c"))
-  )
+  (component $D 
+    (type $Wasi (instance)) 
+    (import "wasi" (instance $wasi (type $Wasi))) 
+    (import "c1-x" (component $C 
+      (import "wasi" (instance $wasi (type $Wasi))) 
+      (export "c" (func)) 
+    )) 
+    (instance $c (instantiate $C (with "wasi" (instance $wasi)))) 
+    (export "d" (func $c "c")) 
+  ) 
 
-  (instance $d (instantiate $D
-    (with "wasi" (instance $wasi))
-    (with "c1-x" (component $C_wrap))
-  ))
+  (instance $d (instantiate $D 
+    (with "wasi" (instance $wasi)) 
+    (with "c1-x" (component $C_wrap)) 
+  )) 
 
-  (export "d" (func $d "d"))
+  (export "d" (func $d "d")) 
 )

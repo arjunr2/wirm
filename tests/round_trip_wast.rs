@@ -27,7 +27,8 @@ fn roundtrip(filename: String, component: bool) {
     }
 }
 
-fn test_wast(path: String, component: bool) {
+fn test_wast(path: &Path, component: bool) {
+    let path = path.to_str().unwrap().replace("\\", "/");
     for entry in fs::read_dir(path).unwrap() {
         let file = entry.unwrap();
         match file.path().extension() {
@@ -106,20 +107,39 @@ fn test_wast(path: String, component: bool) {
     }
 }
 
+const WASM_TOOLS_TEST_COMP_INPUTS: &str = "./tests/wasm-tools/component-model";
+
 #[test]
 fn test_wast_components() {
-    let path = Path::new("./tests/wasm-tools/component-model/");
-    // Generate the same output on windows and unix
-    let path = path.to_str().unwrap().replace("\\", "/");
+    let path_str = format!("{WASM_TOOLS_TEST_COMP_INPUTS}");
+    test_wast(Path::new(&path_str), true);
+}
 
-    test_wast(path, true);
+#[test]
+fn test_wast_components_async() {
+    let path_str = format!("{WASM_TOOLS_TEST_COMP_INPUTS}/async");
+    test_wast(Path::new(&path_str), true);
+}
+
+#[test]
+fn test_wast_components_error_context() {
+    let path_str = format!("{WASM_TOOLS_TEST_COMP_INPUTS}/error-context");
+    test_wast(Path::new(&path_str), true);
+}
+
+#[test]
+fn test_wast_components_gc() {
+    let path_str = format!("{WASM_TOOLS_TEST_COMP_INPUTS}/gc");
+    test_wast(Path::new(&path_str), true);
+}
+
+#[test]
+fn test_wast_components_shared_everything_threads() {
+    let path_str = format!("{WASM_TOOLS_TEST_COMP_INPUTS}/shared-everything-threads");
+    test_wast(Path::new(&path_str), true);
 }
 
 #[test]
 fn test_wast_gc() {
-    let path = Path::new("./tests/wasm-tools/gc/");
-    // Generate the same output on windows and unix
-    let path = path.to_str().unwrap().replace("\\", "/");
-
-    test_wast(path, false);
+    test_wast(Path::new("./tests/wasm-tools/gc/"), false);
 }

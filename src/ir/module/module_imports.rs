@@ -4,7 +4,7 @@ use std::borrow::Cow;
 
 use crate::ir::id::{FunctionID, ImportsID};
 use crate::ir::types::{InjectTag, Tag, TagUtils};
-use wasmparser::TypeRef;
+use wasmparser::{Imports, TypeRef};
 
 // TODO: Need to handle the relationship between Functions and Imports
 /// Represents an import in a WebAssembly module.
@@ -30,6 +30,13 @@ impl TagUtils for Import<'_> {
         &self.tag
     }
 }
+
+impl<'a> From<Imports<'a>> for Import<'a> {
+    fn from(value: Imports<'a>) -> Self {
+        todo!()
+    }
+}
+
 impl<'a> From<wasmparser::Import<'a>> for Import<'a> {
     fn from(import: wasmparser::Import<'a>) -> Self {
         Import {

@@ -402,7 +402,8 @@ impl FixIndicesImpl for CanonicalFunction {
                 }
             }
             CanonicalFunction::ThreadAvailableParallelism
-            | CanonicalFunction::BackpressureSet
+            | CanonicalFunction::BackpressureInc
+            | CanonicalFunction::BackpressureDec
             | CanonicalFunction::WaitableSetNew
             | CanonicalFunction::WaitableSetDrop
             | CanonicalFunction::WaitableJoin
@@ -411,8 +412,6 @@ impl FixIndicesImpl for CanonicalFunction {
             | CanonicalFunction::SubtaskCancel { .. }
             | CanonicalFunction::ContextGet(_)
             | CanonicalFunction::ContextSet(_)
-            | CanonicalFunction::BackpressureInc
-            | CanonicalFunction::BackpressureDec
             | CanonicalFunction::ThreadYield { .. }
             | CanonicalFunction::ThreadIndex
             | CanonicalFunction::ThreadSwitchTo { .. }
@@ -552,6 +551,8 @@ impl FixIndicesImpl for ComponentDefinedType<'_> {
             } else {
                 None
             }),
+
+            ComponentDefinedType::Map(key_ty, val_ty) => todo!(),
         }
     }
 }

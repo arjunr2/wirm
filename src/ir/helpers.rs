@@ -88,6 +88,7 @@ pub fn print_component_defined_type(ty: &ComponentDefinedType) {
         ComponentDefinedType::Future(_) => eprintln!("Future"),
         ComponentDefinedType::Stream(_) => eprintln!("Stream"),
         ComponentDefinedType::FixedSizeList(_, _) => eprintln!("FixedSizeList"),
+        ComponentDefinedType::Map(_, _) => eprintln!("Map"),
     }
 }
 
