@@ -39,7 +39,11 @@ impl IndexStore {
             scope.reset_ids();
         }
     }
-    pub fn index_from_assumed_id(&mut self, id: &SpaceId, r: &IndexedRef) -> (SpaceSubtype, usize, Option<usize>) {
+    pub fn index_from_assumed_id(
+        &mut self,
+        id: &SpaceId,
+        r: &IndexedRef,
+    ) -> (SpaceSubtype, usize, Option<usize>) {
         self.get_mut(id).index_from_assumed_id(r)
     }
     pub fn reset_ids(&mut self, id: &SpaceId) {
@@ -62,7 +66,8 @@ impl IndexStore {
         vec_idx: usize,
         subvec_idx: usize,
     ) {
-        self.get_mut(id).assign_actual_id_with_subvec(space, section, vec_idx, subvec_idx)
+        self.get_mut(id)
+            .assign_actual_id_with_subvec(space, section, vec_idx, subvec_idx)
     }
     pub fn assign_assumed_id(
         &mut self,
@@ -257,14 +262,19 @@ impl IndexScope {
         subvec_idx: usize,
     ) -> usize {
         if let Some(space) = self.get_space(space) {
-            if let Some(assumed_id) = space.lookup_assumed_id_with_subvec(section, vec_idx, subvec_idx) {
+            if let Some(assumed_id) =
+                space.lookup_assumed_id_with_subvec(section, vec_idx, subvec_idx)
+            {
                 return assumed_id;
             }
         }
         panic!("[{space:?}] No assumed ID for index: {vec_idx}, subvec index: {subvec_idx}")
     }
 
-    pub fn index_from_assumed_id(&mut self, r: &IndexedRef) -> (SpaceSubtype, usize, Option<usize>) {
+    pub fn index_from_assumed_id(
+        &mut self,
+        r: &IndexedRef,
+    ) -> (SpaceSubtype, usize, Option<usize>) {
         if let Some(space) = self.get_space_mut(&r.space) {
             if let Some((ty, idx, subvec_idx)) = space.index_from_assumed_id(r.index as usize) {
                 return (ty, idx, subvec_idx);
@@ -287,7 +297,13 @@ impl IndexScope {
         }
     }
 
-    pub fn assign_actual_id_with_subvec(&mut self, space: &Space, section: &ComponentSection, vec_idx: usize, subvec_idx: usize,) {
+    pub fn assign_actual_id_with_subvec(
+        &mut self,
+        space: &Space,
+        section: &ComponentSection,
+        vec_idx: usize,
+        subvec_idx: usize,
+    ) {
         let assumed_id = self.lookup_assumed_id_with_subvec(space, section, vec_idx, subvec_idx);
         if let Some(space) = self.get_space_mut(space) {
             space.assign_actual_id(assumed_id);
@@ -404,7 +420,7 @@ enum AssumedIdForIdx {
     /// OR multiple IDs for an index in the IR (rec groups take up a single
     /// index in the core_types vector, but can have multiple core type IDs. One
     /// for each rec group subtype!)
-    Multiple(Vec<usize>)
+    Multiple(Vec<usize>),
 }
 impl AssumedIdForIdx {
     /// Returns whether this is a match for the passed assumed_id AND
@@ -412,9 +428,11 @@ impl AssumedIdForIdx {
     fn matches(&self, assumed_id: usize) -> (bool, Option<usize>) {
         match self {
             AssumedIdForIdx::Single(my_id) => return (*my_id == assumed_id, None),
-            AssumedIdForIdx::Multiple(sub_ids) => for (idx, id) in sub_ids.iter().enumerate() {
-                if *id == assumed_id {
-                    return (true, Some(idx))
+            AssumedIdForIdx::Multiple(sub_ids) => {
+                for (idx, id) in sub_ids.iter().enumerate() {
+                    if *id == assumed_id {
+                        return (true, Some(idx));
+                    }
                 }
             }
         }
@@ -423,13 +441,13 @@ impl AssumedIdForIdx {
     fn append(&mut self, assumed_id: usize) {
         match self {
             Self::Single(my_id) => *self = AssumedIdForIdx::Multiple(vec![*my_id, assumed_id]),
-            Self::Multiple(sub_ids) => sub_ids.push(assumed_id)
+            Self::Multiple(sub_ids) => sub_ids.push(assumed_id),
         }
     }
     fn unwrap_single(&self) -> usize {
         match self {
             AssumedIdForIdx::Single(my_id) => *my_id,
-            _ => unreachable!()
+            _ => unreachable!(),
         }
     }
     fn unwrap_for_idx(&self, subvec_idx: usize) -> usize {
@@ -437,7 +455,7 @@ impl AssumedIdForIdx {
             AssumedIdForIdx::Single(my_id) => {
                 assert_eq!(subvec_idx, 0);
                 *my_id
-            },
+            }
             AssumedIdForIdx::Multiple(subvec) => subvec[subvec_idx],
         }
     }
@@ -517,12 +535,15 @@ impl IdxSpace {
             | ComponentSection::ComponentStartSection => ("main", &self.main_assumed_ids),
         };
 
-        vector.get(&vec_idx).map(|res| {
-            res.unwrap_single()
-        })
+        vector.get(&vec_idx).map(|res| res.unwrap_single())
     }
 
-    pub fn lookup_assumed_id_with_subvec(&self, section: &ComponentSection, vec_idx: usize, subvec_idx: usize) -> Option<usize> {
+    pub fn lookup_assumed_id_with_subvec(
+        &self,
+        section: &ComponentSection,
+        vec_idx: usize,
+        subvec_idx: usize,
+    ) -> Option<usize> {
         let (_group, vector) = match section {
             ComponentSection::ComponentImport => ("imports", &self.imports_assumed_ids),
             ComponentSection::ComponentExport => ("exports", &self.exports_assumed_ids),
@@ -539,16 +560,19 @@ impl IdxSpace {
             | ComponentSection::ComponentStartSection => ("main", &self.main_assumed_ids),
         };
 
-        vector.get(&vec_idx).map(|res| {
-            res.unwrap_for_idx(subvec_idx)
-        })
+        vector
+            .get(&vec_idx)
+            .map(|res| res.unwrap_for_idx(subvec_idx))
     }
 
     /// Returns:
     /// - .0,SpaceSubtype: the space vector to look up this index in
     /// - .1,usize: the index of the vector in the IR to find the item
     /// - .2,Option<usize>: the index within the node to find the item (as in pointing to a certain subtype in a recgroup)
-    pub fn index_from_assumed_id(&mut self, assumed_id: usize) -> Option<(SpaceSubtype, usize, Option<usize>)> {
+    pub fn index_from_assumed_id(
+        &mut self,
+        assumed_id: usize,
+    ) -> Option<(SpaceSubtype, usize, Option<usize>)> {
         if let Some(cached_data) = self.index_from_assumed_id_cache.get(&assumed_id) {
             return Some(*cached_data);
         }
@@ -597,9 +621,12 @@ impl IdxSpace {
             | ComponentSection::CustomSection
             | ComponentSection::ComponentStartSection => &mut self.main_assumed_ids,
         };
-        to_update.entry(vec_idx).and_modify(|entry | {
-            entry.append(assumed_id);
-        }).or_insert(AssumedIdForIdx::Single(assumed_id));
+        to_update
+            .entry(vec_idx)
+            .and_modify(|entry| {
+                entry.append(assumed_id);
+            })
+            .or_insert(AssumedIdForIdx::Single(assumed_id));
 
         assumed_id
     }
@@ -830,11 +857,15 @@ impl IndexSpaceOf for CoreType<'_> {
 }
 
 impl IndexSpaceOf for RecGroup {
-    fn index_space_of(&self) -> Space { Space::CoreType }
+    fn index_space_of(&self) -> Space {
+        Space::CoreType
+    }
 }
 
 impl IndexSpaceOf for SubType {
-    fn index_space_of(&self) -> Space { Space::CoreType }
+    fn index_space_of(&self) -> Space {
+        Space::CoreType
+    }
 }
 
 impl IndexSpaceOf for ComponentType<'_> {

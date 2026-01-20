@@ -10,7 +10,10 @@ use crate::ir::component::idx_spaces::{
     Depth, IndexSpaceOf, IndexStore, ReferencedIndices, Space, SpaceId, SpaceSubtype, StoreHandle,
 };
 use crate::ir::component::scopes::{IndexScopeRegistry, RegistryHandle};
-use crate::ir::component::section::{get_sections_for_comp_ty, get_sections_for_core_ty_and_assign_top_level_ids, populate_space_for_comp_ty, populate_space_for_core_ty, ComponentSection};
+use crate::ir::component::section::{
+    get_sections_for_comp_ty, get_sections_for_core_ty_and_assign_top_level_ids,
+    populate_space_for_comp_ty, populate_space_for_core_ty, ComponentSection,
+};
 use crate::ir::component::types::ComponentTypes;
 use crate::ir::helpers::{
     print_alias, print_component_export, print_component_import, print_component_type,
@@ -98,7 +101,7 @@ impl<'a> ComponentHandle<'a> {
     ///
     /// ## Example
     ///
-    /// ```rust
+    /// ```rust,ignore
     /// // Rename the component
     /// handle.mutate(|comp| {
     ///     comp.component_name = Some("instrumented".into());
@@ -141,7 +144,7 @@ impl<'a> ComponentHandle<'a> {
     ///
     /// ## Example
     ///
-    /// ```rust
+    /// ```rust,ignore
     /// // Add a `nop` instruction to start of the first module's first function.
     /// handle.mut_module_at(0, |module| {
     ///     module.functions.get_mut(0).unwrap_local().add_instr(
@@ -188,7 +191,7 @@ impl<'a> ComponentHandle<'a> {
     ///
     /// ## Example
     ///
-    /// ```rust
+    /// ```rust,ignore
     /// // Instrument a nested component
     /// handle.mut_component_at(0, |child| {
     ///     child.mutate(|comp| {
@@ -241,7 +244,7 @@ impl<'a> ComponentHandle<'a> {
     ///
     /// ## Example
     ///
-    /// ```rust
+    /// ```rust,ignore
     /// // Append an instantiation argument to a specific instance
     /// wasm.mut_instance_at(0, |inst| {
     ///     if let Instance::Instantiate { args, .. } = inst {
@@ -679,7 +682,13 @@ impl<'a> Component<'a> {
                     let mut new_sects = vec![];
                     let mut has_subscope = false;
                     for (idx, ty) in core_types[old_len..].iter().enumerate() {
-                        let (new_sect, sect_has_subscope) = get_sections_for_core_ty_and_assign_top_level_ids(ty, old_len + idx, &space_id, store_handle.clone());
+                        let (new_sect, sect_has_subscope) =
+                            get_sections_for_core_ty_and_assign_top_level_ids(
+                                ty,
+                                old_len + idx,
+                                &space_id,
+                                store_handle.clone(),
+                            );
                         has_subscope |= sect_has_subscope;
                         new_sects.push(new_sect);
                     }
@@ -1052,7 +1061,8 @@ impl<'a> Component<'a> {
                         .referenced_indices(Depth::default()),
                 };
                 if let Some(func_refs) = func {
-                    let (ty, t_idx, subidx) = store.index_from_assumed_id(&self.space_id, func_refs.ty());
+                    let (ty, t_idx, subidx) =
+                        store.index_from_assumed_id(&self.space_id, func_refs.ty());
                     assert!(subidx.is_none(), "a lift function shouldn't reference anything with a subvec space (like a recgroup)");
                     if !matches!(ty, SpaceSubtype::Main) {
                         panic!("Should've been an main space!")

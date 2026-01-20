@@ -3,7 +3,10 @@
 use crate::assert_registered_with_id;
 use crate::ir::component::idx_spaces::{IndexSpaceOf, SpaceId, StoreHandle};
 use crate::ir::component::scopes::RegistryHandle;
-use wasmparser::{ComponentType, ComponentTypeDeclaration, CoreType, InstanceTypeDeclaration, ModuleTypeDeclaration, RecGroup};
+use wasmparser::{
+    ComponentType, ComponentTypeDeclaration, CoreType, InstanceTypeDeclaration,
+    ModuleTypeDeclaration, RecGroup,
+};
 
 #[derive(Debug, Clone, Eq, PartialEq)]
 /// Represents a Section in a Component
@@ -32,7 +35,12 @@ pub(crate) fn get_sections_for_comp_ty(ty: &ComponentType) -> (ComponentSection,
     }
 }
 
-pub(crate) fn get_sections_for_core_ty_and_assign_top_level_ids(ty: &CoreType, curr_idx: usize, space_id: &SpaceId, store: StoreHandle) -> (ComponentSection, bool) {
+pub(crate) fn get_sections_for_core_ty_and_assign_top_level_ids(
+    ty: &CoreType,
+    curr_idx: usize,
+    space_id: &SpaceId,
+    store: StoreHandle,
+) -> (ComponentSection, bool) {
     let section = ComponentSection::CoreType;
     match ty {
         CoreType::Module(_) => {
@@ -40,19 +48,24 @@ pub(crate) fn get_sections_for_core_ty_and_assign_top_level_ids(ty: &CoreType, c
                 space_id,
                 &ty.index_space_of(),
                 &section,
-                curr_idx
+                curr_idx,
             );
 
             (section, true)
-        },
+        }
         CoreType::Rec(recgroup) => {
             assign_top_level_ids_recgroup(recgroup, curr_idx, space_id, store);
             (section, false)
-        },
+        }
     }
 }
 
-pub(crate) fn assign_top_level_ids_recgroup(recgroup: &RecGroup, curr_idx: usize, space_id: &SpaceId, store: StoreHandle) {
+pub(crate) fn assign_top_level_ids_recgroup(
+    recgroup: &RecGroup,
+    curr_idx: usize,
+    space_id: &SpaceId,
+    store: StoreHandle,
+) {
     let section = ComponentSection::CoreType;
     let tys = recgroup.types();
     let len = tys.len();
@@ -61,7 +74,7 @@ pub(crate) fn assign_top_level_ids_recgroup(recgroup: &RecGroup, curr_idx: usize
             space_id,
             &recgroup.index_space_of(),
             &section,
-            curr_idx
+            curr_idx,
         );
     }
 }

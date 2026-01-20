@@ -353,12 +353,12 @@ pub(crate) fn assignments_for_core_ty(
                     &subty.index_space_of(),
                     &section,
                     ty_idx,
-                    subty_idx
+                    subty_idx,
                 );
             }
-            
+
             ComponentSection::CoreType
-        },
+        }
     }
 }
 
