@@ -39,6 +39,13 @@ impl IndexStore {
             scope.reset_ids();
         }
     }
+    pub fn index_from_assumed_id_no_cache(
+        &self,
+        id: &SpaceId,
+        r: &IndexedRef,
+    ) -> (SpaceSubtype, usize, Option<usize>) {
+        self.get(id).index_from_assumed_id_no_cache(r)
+    }
     pub fn index_from_assumed_id(
         &mut self,
         id: &SpaceId,
@@ -98,6 +105,9 @@ impl IndexStore {
 
     fn get_mut(&mut self, id: &SpaceId) -> &mut IndexScope {
         self.scopes.get_mut(id).unwrap()
+    }
+    fn get(&self, id: &SpaceId) -> &IndexScope {
+        self.scopes.get(id).unwrap()
     }
 }
 
@@ -277,6 +287,25 @@ impl IndexScope {
     ) -> (SpaceSubtype, usize, Option<usize>) {
         if let Some(space) = self.get_space_mut(&r.space) {
             if let Some((ty, idx, subvec_idx)) = space.index_from_assumed_id(r.index as usize) {
+                return (ty, idx, subvec_idx);
+            } else {
+                println!("couldn't find idx");
+            }
+        } else {
+            println!("couldn't find space");
+        }
+        panic!(
+            "[{:?}@scope{}] No index for assumed ID: {}",
+            r.space, self.id, r.index
+        )
+    }
+
+    pub fn index_from_assumed_id_no_cache(
+        &self,
+        r: &IndexedRef,
+    ) -> (SpaceSubtype, usize, Option<usize>) {
+        if let Some(space) = self.get_space(&r.space) {
+            if let Some((ty, idx, subvec_idx)) = space.index_from_assumed_id_no_cache(r.index as usize) {
                 return (ty, idx, subvec_idx);
             } else {
                 println!("couldn't find idx");
@@ -571,7 +600,7 @@ impl IdxSpace {
     /// - .2,Option<usize>: the index within the node to find the item (as in pointing to a certain subtype in a recgroup)
     pub fn index_from_assumed_id(
         &mut self,
-        assumed_id: usize,
+        assumed_id: usize
     ) -> Option<(SpaceSubtype, usize, Option<usize>)> {
         if let Some(cached_data) = self.index_from_assumed_id_cache.get(&assumed_id) {
             return Some(*cached_data);
@@ -596,6 +625,38 @@ impl IdxSpace {
                     self.index_from_assumed_id_cache
                         .insert(assumed_id, result.clone());
 
+                    return Some(result);
+                }
+            }
+        }
+        None
+    }/// Returns:
+    /// - .0,SpaceSubtype: the space vector to look up this index in
+    /// - .1,usize: the index of the vector in the IR to find the item
+    /// - .2,Option<usize>: the index within the node to find the item (as in pointing to a certain subtype in a recgroup)
+    pub fn index_from_assumed_id_no_cache(
+        &self,
+        assumed_id: usize
+    ) -> Option<(SpaceSubtype, usize, Option<usize>)> {
+        if let Some(cached_data) = self.index_from_assumed_id_cache.get(&assumed_id) {
+            return Some(*cached_data);
+        }
+
+        // We haven't cached this yet, we must do the less efficient logic and do a full lookup,
+        // then we can cache what we find!
+        let maps = vec![
+            (SpaceSubtype::Main, &self.main_assumed_ids),
+            (SpaceSubtype::Import, &self.imports_assumed_ids),
+            (SpaceSubtype::Export, &self.exports_assumed_ids),
+            (SpaceSubtype::Alias, &self.alias_assumed_ids),
+            (SpaceSubtype::Components, &self.components_assumed_ids),
+        ];
+
+        for (subty, map) in maps.iter() {
+            for (idx, assumed) in map.iter() {
+                let (matches, opt_subidx) = assumed.matches(assumed_id);
+                if matches {
+                    let result = (*subty, *idx, opt_subidx);
                     return Some(result);
                 }
             }

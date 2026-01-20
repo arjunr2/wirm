@@ -68,6 +68,14 @@ impl<'a> ComponentHandle<'a> {
     pub fn new(inner: Rc<Component<'a>>) -> Self {
         Self { inner }
     }
+
+    /// Emit the Component into a wasm binary file.
+    pub fn emit_wasm(&mut self, file_name: &str) -> Result<(), std::io::Error> {
+        let wasm = self.encode();
+        std::fs::write(file_name, wasm)?;
+        Ok(())
+    }
+
     pub fn encode(&self) -> Vec<u8> {
         assert_registered_with_id!(self.inner.scope_registry, &*self.inner, self.inner.space_id);
         self.inner.encode()
@@ -115,7 +123,7 @@ impl<'a> ComponentHandle<'a> {
     /// * Prefer more specific mutation helpers when available.
     pub fn mutate<F, R>(&mut self, f: F) -> R
     where
-        F: FnOnce(&mut Component<'a>) -> R,
+        F: for<'b> FnOnce(&'b mut Component<'a>) -> R,
     {
         let comp =
             Rc::get_mut(&mut self.inner).expect("Cannot mutably access Component: it is shared");
@@ -361,7 +369,6 @@ impl<'a> Component<'a> {
             self.sections.push((1, sect));
         }
 
-        println!("assumed: {:?}", assumed_id);
         assumed_id.unwrap_or_else(|| idx)
     }
 
@@ -392,38 +399,17 @@ impl<'a> Component<'a> {
     }
 
     pub fn add_alias_func(&mut self, alias: ComponentAlias<'a>) -> (AliasFuncId, AliasId) {
-        print!(
-            "[add_alias_func] '{}', from instance {}, curr-len: {}, ",
-            if let ComponentAlias::InstanceExport { name, .. }
-            | ComponentAlias::CoreInstanceExport { name, .. } = &alias
-            {
-                name
-            } else {
-                "no-name"
-            },
-            if let ComponentAlias::InstanceExport { instance_index, .. }
-            | ComponentAlias::CoreInstanceExport { instance_index, .. } = &alias
-            {
-                format!("{instance_index}")
-            } else {
-                "NA".to_string()
-            },
-            self.canons.items.len()
-        );
         let space = alias.index_space_of();
         let (_item_id, alias_id) = self.alias.add(alias);
         let id = self.add_section(space, ComponentSection::Alias, *alias_id as usize);
-        println!("   --> @{}", id);
 
         (AliasFuncId(id as u32), alias_id)
     }
 
     pub fn add_canon_func(&mut self, canon: CanonicalFunction) -> CanonicalFuncId {
-        print!("[add_canon_func] {:?}", canon);
         let space = canon.index_space_of();
         let idx = self.canons.add(canon).1;
         let id = self.add_section(space, ComponentSection::Canon, *idx as usize);
-        println!("   --> @{}", id);
 
         CanonicalFuncId(id as u32)
     }
@@ -475,7 +461,6 @@ impl<'a> Component<'a> {
             idx,
         );
         self.instances.push(instance);
-        println!("[add_core_instance] id: {id}");
 
         CoreInstanceId(id as u32)
     }
@@ -1028,20 +1013,16 @@ impl<'a> Component<'a> {
     }
 
     pub fn get_type_of_exported_lift_func(
-        &mut self,
+        &self,
         export_id: ComponentExportId,
     ) -> Option<&ComponentType<'a>> {
         let mut store = self.index_store.borrow_mut();
         if let Some(export) = self.exports.get(*export_id as usize) {
-            println!(
-                "[get_type_of_exported_func] @{} export: {:?}",
-                *export_id, export
-            );
             if let Some(refs) = export.referenced_indices(Depth::default()) {
                 let list = refs.as_list();
                 assert_eq!(1, list.len());
 
-                let (vec, f_idx, subidx) = store.index_from_assumed_id(&self.space_id, &list[0]);
+                let (vec, f_idx, subidx) = store.index_from_assumed_id_no_cache(&self.space_id, &list[0]);
                 assert!(subidx.is_none(), "a lift function shouldn't reference anything with a subvec space (like a recgroup)");
                 let func = match vec {
                     SpaceSubtype::Export | SpaceSubtype::Components | SpaceSubtype::Import => {
@@ -1127,13 +1108,6 @@ impl<'a> Component<'a> {
             }
             eprintln!();
         }
-    }
-
-    /// Emit the Component into a wasm binary file.
-    pub fn emit_wasm(&mut self, file_name: &str) -> Result<(), std::io::Error> {
-        let wasm = self.encode();
-        std::fs::write(file_name, wasm)?;
-        Ok(())
     }
 
     /// Get Local Function ID by name

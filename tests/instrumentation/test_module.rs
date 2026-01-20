@@ -8,7 +8,6 @@ use wirm::ir::module::module_functions::{ImportedFunction, LocalFunction};
 use wirm::ir::types::{Body, InitExpr, Value};
 use wirm::{DataType, InitInstr, Module, Opcode};
 
-mod common;
 use crate::common::check_instrumentation_encoding;
 
 #[test]

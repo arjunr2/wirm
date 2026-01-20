@@ -13,7 +13,6 @@ use wirm::module_builder::AddLocal;
 use wirm::opcode::{Inject, Instrumenter};
 use wirm::{Component, Location, Module, Opcode};
 
-mod common;
 use crate::common::check_instrumentation_encoding;
 
 #[test]
