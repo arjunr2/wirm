@@ -1,8 +1,12 @@
-use wasmparser::{CanonicalFunction, ComponentAlias, ComponentExport, ComponentExternalKind, ComponentImport, ComponentImportName, ComponentType, ComponentTypeRef, Export, ExternalKind, Instance, InstanceTypeDeclaration, InstantiationArg, InstantiationArgKind};
-use wirm::Component;
+use crate::instrumentation::test_module::{try_path, validate_wasm};
+use wasmparser::{
+    CanonicalFunction, ComponentAlias, ComponentExport, ComponentExternalKind, ComponentImport,
+    ComponentImportName, ComponentType, ComponentTypeRef, Export, ExternalKind, Instance,
+    InstanceTypeDeclaration, InstantiationArg, InstantiationArgKind,
+};
 use wirm::ir::component::ComponentHandle;
 use wirm::ir::id::ComponentExportId;
-use crate::instrumentation::test_module::{try_path, validate_wasm};
+use wirm::Component;
 
 pub const WHAMM_CORE_LIB_NAME: &str = "whamm_core";
 const TEST_DEBUG_DIR: &str = "output/tests/debug_me/instrumentation/";
@@ -16,11 +20,7 @@ fn whamm_side_effects() {
     let lib_path = "tests/test_inputs/whamm/whamm_core.wasm";
     let lib_buff = wat::parse_file(lib_path).expect("couldn't convert the input wat to Wasm");
 
-    configure_component_libraries(
-        0,
-        &mut component,
-        lib_buff.as_slice()
-    );
+    configure_component_libraries(0, &mut component, lib_buff.as_slice());
 
     try_path(&output_wasm_path);
     if let Err(e) = component.emit_wasm(&output_wasm_path) {
@@ -35,7 +35,7 @@ fn whamm_side_effects() {
 pub fn configure_component_libraries<'a>(
     target_module_id: u32,
     component: &mut ComponentHandle<'a>,
-    core_lib: &'a [u8]
+    core_lib: &'a [u8],
 ) {
     // find "wasi_snapshot_preview1" instance
     let mut wasi_instance = None;
@@ -90,9 +90,7 @@ pub fn configure_component_libraries<'a>(
                 curr_ty_id += 1;
             }
         }
-        let (inst_ty_id, ..) = wasm.mutate(|comp| {
-            comp.add_type_instance(decls)
-        });
+        let (inst_ty_id, ..) = wasm.mutate(|comp| comp.add_type_instance(decls));
 
         // Import the library from an external provider
         let inst_id = wasm.mutate(|comp| {

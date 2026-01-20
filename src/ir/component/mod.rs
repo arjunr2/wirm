@@ -1022,7 +1022,8 @@ impl<'a> Component<'a> {
                 let list = refs.as_list();
                 assert_eq!(1, list.len());
 
-                let (vec, f_idx, subidx) = store.index_from_assumed_id_no_cache(&self.space_id, &list[0]);
+                let (vec, f_idx, subidx) =
+                    store.index_from_assumed_id_no_cache(&self.space_id, &list[0]);
                 assert!(subidx.is_none(), "a lift function shouldn't reference anything with a subvec space (like a recgroup)");
                 let func = match vec {
                     SpaceSubtype::Export | SpaceSubtype::Components | SpaceSubtype::Import => {
