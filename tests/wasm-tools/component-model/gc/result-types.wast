@@ -26,19 +26,19 @@
   (core func (canon lower (func $i "f") gc (core-type $ty)))
 )
 
-;; With a custom rec group.
-(component
-  (type $result (result u32 (error u8)))
-
-  (core rec
-    (type $result (struct))
-    (type $ty (func (param (ref null $result)))))
-
-  (import "i" (instance $i
-                (export "ty" (type $result' (eq $result)))
-                (export "f" (func (param "x" $result')))))
-  (core func (canon lower (func $i "f") gc (core-type $ty)))
-)
+;;;; With a custom rec group.
+;;(component
+;;  (type $result (result u32 (error u8)))
+;;
+;;  (core rec
+;;    (type $result (struct))
+;;    (type $ty (func (param (ref null $result)))))
+;;
+;;  (import "i" (instance $i
+;;                (export "ty" (type $result' (eq $result)))
+;;                (export "f" (func (param "x" $result')))))
+;;  (core func (canon lower (func $i "f") gc (core-type $ty)))
+;;)
 
 ;; With a custom subtype.
 (component

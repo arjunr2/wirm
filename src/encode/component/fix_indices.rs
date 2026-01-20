@@ -551,8 +551,10 @@ impl FixIndicesImpl for ComponentDefinedType<'_> {
             } else {
                 None
             }),
-
-            ComponentDefinedType::Map(key_ty, val_ty) => todo!(),
+            ComponentDefinedType::Map(key_ty, val_ty) => ComponentDefinedType::Map(
+                key_ty.fix(plan, ctx),
+                val_ty.fix(plan, ctx)
+            ),
         }
     }
 }

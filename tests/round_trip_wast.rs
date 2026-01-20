@@ -140,6 +140,12 @@ fn test_wast_components_shared_everything_threads() {
 }
 
 #[test]
+fn test_wast_components_values() {
+    let path_str = format!("{WASM_TOOLS_TEST_COMP_INPUTS}/values");
+    test_wast(Path::new(&path_str), true);
+}
+
+#[test]
 fn test_wast_gc() {
     test_wast(Path::new("./tests/wasm-tools/gc/"), false);
 }

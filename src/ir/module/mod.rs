@@ -11,7 +11,7 @@ use crate::ir::module::module_functions::{
 use crate::ir::module::module_globals::{
     Global, GlobalKind, ImportedGlobal, LocalGlobal, ModuleGlobals,
 };
-use crate::ir::module::module_imports::{Import, ModuleImports};
+use crate::ir::module::module_imports::{expand_imports, Import, ModuleImports};
 use crate::ir::module::module_memories::{ImportedMemory, LocalMemory, MemKind, Memories, Memory};
 use crate::ir::module::module_tables::{Element, ModuleTables, Table};
 use crate::ir::module::module_types::{ModuleTypes, RecGroup, Types};
@@ -245,13 +245,8 @@ impl<'a> Module<'a> {
             let payload = payload?;
             match payload {
                 Payload::ImportSection(import_section_reader) => {
-                    let mut temp = vec![];
-                    // count number of imported functions
-                    for import in import_section_reader.into_iter() {
-                        let imp = Import::from(import?);
-                        temp.push(imp);
-                    }
-                    imports = ModuleImports::new(temp);
+                    let import_vec = expand_imports(import_section_reader.into_iter())?;
+                    imports = ModuleImports::new(import_vec);
                 }
                 Payload::TypeSection(type_section_reader) => {
                     for ty in type_section_reader.into_iter() {
