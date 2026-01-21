@@ -63,7 +63,7 @@ use wasmparser::{
 /// - Easier to read and understand
 /// - Easier to debug
 /// - Easier to evolve as the WebAssembly component model changes
-/// _ More aligned with how wasm_encoder itself is structured
+/// - More aligned with how wasm_encoder itself is structured
 ///
 /// Where reuse matters, it is achieved by factoring out small, focused helper functions, not by
 /// introducing additional layers of abstraction.
@@ -91,13 +91,10 @@ pub(crate) fn encode_internal<'a>(
             },
             ComponentItem::Module { node, .. } => unsafe {
                 let t: &Module = &**node;
-                encode_module_section(&t, &mut component);
+                encode_module_section(t, &mut component);
             },
             ComponentItem::CompType {
-                node,
-                // subspace,
-                subitem_plan,
-                ..
+                node, subitem_plan, ..
             } => unsafe {
                 let t: &ComponentType = &**node;
                 let fixed = t.fix(subitem_plan, ctx);
@@ -129,10 +126,7 @@ pub(crate) fn encode_internal<'a>(
                 encode_comp_export_section(&fixed, &mut component, &mut reencode);
             },
             ComponentItem::CoreType {
-                node,
-                // subspace,
-                subitem_plan,
-                ..
+                node, subitem_plan, ..
             } => unsafe {
                 let t: &CoreType = &**node;
                 let fixed = t.fix(subitem_plan, ctx);
@@ -610,8 +604,8 @@ fn encode_comp_defined_ty(
             tup.iter()
                 .map(|val_type| reencode.component_val_type(*val_type)),
         ),
-        ComponentDefinedType::Flags(flags) => enc.flags(flags.clone().into_vec().into_iter()),
-        ComponentDefinedType::Enum(en) => enc.enum_type(en.clone().into_vec().into_iter()),
+        ComponentDefinedType::Flags(flags) => enc.flags(flags.clone().into_vec()),
+        ComponentDefinedType::Enum(en) => enc.enum_type(en.clone().into_vec()),
         ComponentDefinedType::Option(opt) => enc.option(reencode.component_val_type(*opt)),
         ComponentDefinedType::Result { ok, err } => enc.result(
             ok.map(|val_type| reencode.component_val_type(val_type)),
@@ -897,7 +891,7 @@ fn into_wasm_encoder_alias<'a>(
                 reencode,
                 "export kind",
             ),
-            name: *name,
+            name,
         },
         ComponentAlias::Outer { kind, count, index } => Alias::Outer {
             kind: reencode.component_outer_alias_kind(*kind),

@@ -1,4 +1,4 @@
-#![allow(clippy::mut_range_bound)] // see https://github.com/rust-lang/rust-clippy/issues/6072
+#![allow(clippy::too_many_arguments)]
 //! Intermediate Representation of a wasm component.
 
 use crate::encode::component::encode;
@@ -22,7 +22,6 @@ use crate::ir::id::{
     AliasFuncId, AliasId, CanonicalFuncId, ComponentExportId, ComponentId, ComponentTypeFuncId,
     ComponentTypeId, ComponentTypeInstanceId, CoreInstanceId, FunctionID, GlobalID, ModuleID,
 };
-use crate::ir::module::module_functions::FuncKind;
 use crate::ir::module::module_globals::Global;
 use crate::ir::module::Module;
 use crate::ir::types::CustomSections;
@@ -46,8 +45,6 @@ mod types;
 #[derive(Debug)]
 /// Intermediate Representation of a wasm component.
 pub struct Component<'a> {
-    // TODO: Lock down capabilities of instrumentation here, APPEND-ONLY vectors
-    //       Don't even use Vec<Node> --> use Vec<Box<Node>>!!
     pub id: ComponentId,
     /// Nested Components
     // These have scopes, but the scopes are looked up by ComponentId
@@ -128,7 +125,7 @@ impl<'a> Component<'a> {
             self.sections.push((1, sect));
         }
 
-        assumed_id.unwrap_or_else(|| idx)
+        assumed_id.unwrap_or(idx)
     }
 
     /// Add a Module to this Component.
@@ -148,6 +145,7 @@ impl<'a> Component<'a> {
             .add(global)
     }
 
+    /// Add an Import to this Component.
     pub fn add_import(&mut self, import: ComponentImport<'a>) -> u32 {
         let idx = self.imports.len();
         let id = self.add_section(
@@ -160,6 +158,7 @@ impl<'a> Component<'a> {
         id as u32
     }
 
+    /// Add an Aliased function to this Component.
     pub fn add_alias_func(&mut self, alias: ComponentAlias<'a>) -> (AliasFuncId, AliasId) {
         let space = alias.index_space_of();
         let (_item_id, alias_id) = self.alias.add(alias);
@@ -168,6 +167,7 @@ impl<'a> Component<'a> {
         (AliasFuncId(id as u32), alias_id)
     }
 
+    /// Add a Canonical Function to this Component.
     pub fn add_canon_func(&mut self, canon: CanonicalFunction) -> CanonicalFuncId {
         let space = canon.index_space_of();
         let idx = self.canons.add(canon).1;
@@ -176,6 +176,7 @@ impl<'a> Component<'a> {
         CanonicalFuncId(id as u32)
     }
 
+    /// Add a Component Type to this Component.
     pub(crate) fn add_component_type(
         &mut self,
         component_ty: ComponentType<'a>,
@@ -194,6 +195,7 @@ impl<'a> Component<'a> {
         (id as u32, ids.1)
     }
 
+    /// Add a Component Type that is an Instance to this component.
     pub fn add_type_instance(
         &mut self,
         decls: Vec<InstanceTypeDeclaration<'a>>,
@@ -205,6 +207,7 @@ impl<'a> Component<'a> {
         (ComponentTypeInstanceId(ty_inst_id), ty_id)
     }
 
+    /// Add a Component Type that is a Function to this component.
     pub fn add_type_func(
         &mut self,
         ty: ComponentFuncType<'a>,
@@ -215,6 +218,7 @@ impl<'a> Component<'a> {
         (ComponentTypeFuncId(ty_inst_id), ty_id)
     }
 
+    /// Add a new core instance to this component.
     pub fn add_core_instance(&mut self, instance: Instance<'a>) -> CoreInstanceId {
         let idx = self.instances.len();
         let id = self.add_section(
@@ -230,7 +234,7 @@ impl<'a> Component<'a> {
     fn add_to_sections(
         has_subscope: bool,
         sections: &mut Vec<(u32, ComponentSection)>,
-        new_sections: &Vec<ComponentSection>,
+        new_sections: &[ComponentSection],
         num_sections: &mut usize,
         sections_added: u32,
     ) {
@@ -238,11 +242,12 @@ impl<'a> Component<'a> {
         // inner index spaces associated with them.
         let can_collapse = !has_subscope;
 
-        if can_collapse {
-            if *num_sections > 0 && sections[*num_sections - 1].1 == *new_sections.last().unwrap() {
-                sections[*num_sections - 1].0 += sections_added;
-                return;
-            }
+        if can_collapse
+            && *num_sections > 0
+            && sections[*num_sections - 1].1 == *new_sections.last().unwrap()
+        {
+            sections[*num_sections - 1].0 += sections_added;
+            return;
         }
         // Cannot collapse these, add one at a time!
         for sect in new_sections.iter() {
@@ -466,7 +471,7 @@ impl<'a> Component<'a> {
 
                     store_handle.borrow_mut().assign_assumed_id_for_boxed(
                         &space_id,
-                        &component_types.slice_from(old_len).to_vec(),
+                        component_types.slice_from(old_len),
                         old_len,
                         &new_sects,
                     );
@@ -561,7 +566,7 @@ impl<'a> Component<'a> {
                     Self::add_to_sections(
                         false,
                         &mut sections,
-                        &vec![ComponentSection::Module],
+                        &[ComponentSection::Module],
                         &mut num_sections,
                         1,
                     );
@@ -595,14 +600,14 @@ impl<'a> Component<'a> {
                     );
                     components.push(cmp);
 
-                    Self::add_to_sections(true, &mut sections, &vec![sect], &mut num_sections, 1);
+                    Self::add_to_sections(true, &mut sections, &[sect], &mut num_sections, 1);
                 }
                 Payload::ComponentStartSection { start, range: _ } => {
                     start_section.push(start);
                     Self::add_to_sections(
                         false,
                         &mut sections,
-                        &vec![ComponentSection::ComponentStartSection],
+                        &[ComponentSection::ComponentStartSection],
                         &mut num_sections,
                         1,
                     );
@@ -665,7 +670,7 @@ impl<'a> Component<'a> {
                             Self::add_to_sections(
                                 false,
                                 &mut sections,
-                                &vec![ComponentSection::CustomSection],
+                                &[ComponentSection::CustomSection],
                                 &mut num_sections,
                                 1,
                             );
@@ -739,26 +744,66 @@ impl<'a> Component<'a> {
         Ok(comp)
     }
 
-    /// Encode a `Component` to bytes.
+    /// Encode this component into a WebAssembly binary.
+    ///
+    /// This method performs encoding in three high-level phases:
+    ///
+    /// 1. **Collect** – Walks the component IR and records all items that will be
+    ///    encoded, along with any index references that need to be rewritten.
+    /// 2. **Assign** – Resolves all index references after instrumentation so that
+    ///    every reference points to its final concrete index.
+    /// 3. **Encode** – Emits the final WebAssembly binary using the resolved indices.
+    ///
+    /// # Nested Components
+    ///
+    /// Components may be arbitrarily nested. During traversal, the encoder maintains
+    /// a stack of component IDs that tracks which component is currently being
+    /// visited. A registry maps component IDs to their corresponding components,
+    /// allowing the encoder to correctly resolve cross-component references.
+    ///
+    /// # Scoped Definitions
+    ///
+    /// Many IR nodes introduce scopes (such as types, instances, or component-local
+    /// definitions). To support correct index resolution in the presence of deep
+    /// nesting and instrumentation, the encoder tracks scopes explicitly:
+    ///
+    /// - A scope stack is maintained during traversal.
+    /// - Each scoped IR node is registered by identity in a scope registry.
+    /// - Index lookups can recover the correct scope for any IR node in O(1) time.
+    ///
+    /// This design allows instrumentation to safely insert, reorder, or modify
+    /// nodes without breaking encoding invariants.
+    ///
+    /// # Panics
+    ///
+    /// Panics if encoding encounters an internal inconsistency, such as:
+    ///
+    /// - An index reference that cannot be resolved to a registered scope
+    /// - A malformed or structurally invalid component
+    /// - Violations of encoding invariants introduced by instrumentation
+    ///
+    /// These panics indicate a bug in the encoder or in transformations applied
+    /// to the component prior to encoding, rather than a recoverable runtime error.
     ///
     /// # Example
     ///
     /// ```no_run
     /// use wirm::Component;
     ///
-    /// let file = "path_to_file";
+    /// let file = "path/to/file.wasm";
     /// let buff = wat::parse_file(file).expect("couldn't convert the input wat to Wasm");
     /// let mut comp = Component::parse(&buff, false, false).unwrap();
     /// let result = comp.encode();
     /// ```
     pub fn encode(&self) -> Vec<u8> {
-        encode(&self)
+        encode(self)
     }
 
+    /// Lookup the type for an exported `lift` canonical function.
     pub fn get_type_of_exported_lift_func(
         &self,
         export_id: ComponentExportId,
-    ) -> Option<&Box<ComponentType<'a>>> {
+    ) -> Option<&ComponentType<'a>> {
         let mut store = self.index_store.borrow_mut();
         if let Some(export) = self.exports.maybe_get(*export_id as usize) {
             if let Some(refs) = export.referenced_indices(Depth::default()) {
@@ -792,7 +837,7 @@ impl<'a> Component<'a> {
                     }
 
                     let res = self.component_types.items.maybe_get(t_idx);
-                    res
+                    res.map(|v| &**v)
                 } else {
                     None
                 }
@@ -855,21 +900,9 @@ impl<'a> Component<'a> {
     /// Get Local Function ID by name
     // Note: returned absolute id here
     pub fn get_fid_by_name(&self, name: &str, module_idx: ModuleID) -> Option<FunctionID> {
-        for (idx, func) in self
-            .modules
+        self.modules
             .get(*module_idx as usize)
             .functions
-            .iter()
-            .enumerate()
-        {
-            if let FuncKind::Local(l) = &func.kind {
-                if let Some(n) = &l.body.name {
-                    if n == name {
-                        return Some(FunctionID(idx as u32));
-                    }
-                }
-            }
-        }
-        None
+            .get_local_fid_by_name(name)
     }
 }

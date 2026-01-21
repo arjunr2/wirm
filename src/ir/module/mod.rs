@@ -327,7 +327,7 @@ impl<'a> Module<'a> {
                         fn unpack(packed: Option<PackedIndex>) -> Option<u32> {
                             if let Some(i) = packed {
                                 let idx = i.unpack().as_module_index();
-                                if !idx.is_some() {
+                                if idx.is_none() {
                                     panic!("I just made an assumption on how to unpack this. If I'm wrong, create a GH issue.")
                                 }
                                 idx
@@ -1131,8 +1131,8 @@ impl<'a> Module<'a> {
                     composite_type: wasm_encoder::CompositeType {
                         inner: wasm_encoder::CompositeInnerType::Func(fty),
                         shared: *shared,
-                        descriptor: descriptor.clone(),
-                        describes: describes.clone(),
+                        descriptor: *descriptor,
+                        describes: *describes,
                     },
                 }
             }
@@ -1159,8 +1159,8 @@ impl<'a> Module<'a> {
                         },
                     )),
                     shared: *shared,
-                    descriptor: descriptor.clone(),
-                    describes: describes.clone(),
+                    descriptor: *descriptor,
+                    describes: *describes,
                 },
             },
             Types::StructType {
@@ -1191,8 +1191,8 @@ impl<'a> Module<'a> {
                             fields: Box::from(encoded_fields),
                         }),
                         shared: *shared,
-                        descriptor: descriptor.clone(),
-                        describes: describes.clone(),
+                        descriptor: *descriptor,
+                        describes: *describes,
                     },
                 }
             }

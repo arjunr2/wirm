@@ -164,7 +164,7 @@ impl IndexScopeRegistry {
 
         if let Some(entry) = self.node_scopes.get(&ptr) {
             if entry.kind == node.scope_kind() {
-                return Some(entry.clone());
+                return Some(*entry);
             }
         }
         None

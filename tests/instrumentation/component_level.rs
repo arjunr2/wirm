@@ -81,8 +81,8 @@ pub fn configure_component_libraries<'a>(
             }
             let comp_ty = lib_wasm.get_type_of_exported_lift_func(ComponentExportId(i as u32));
             if let Some(ty) = comp_ty.as_ref() {
-                if matches!(ty.as_ref(), ComponentType::Func(_)) {
-                    decls.push(InstanceTypeDeclaration::Type(ty.as_ref().clone()));
+                if matches!(ty, ComponentType::Func(_)) {
+                    decls.push(InstanceTypeDeclaration::Type((*ty).clone()));
                     decls.push(InstanceTypeDeclaration::Export {
                         name: export.name,
                         ty: ComponentTypeRef::Func(curr_ty_id),

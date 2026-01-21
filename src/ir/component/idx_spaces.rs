@@ -89,7 +89,7 @@ impl IndexStore {
     pub fn assign_assumed_id_for<I: Debug + IndexSpaceOf>(
         &mut self,
         id: &SpaceId,
-        items: &Vec<I>,
+        items: &[I],
         curr_idx: usize,
         sections: &Vec<ComponentSection>,
     ) {
@@ -99,7 +99,7 @@ impl IndexStore {
     pub fn assign_assumed_id_for_boxed<I: Debug + IndexSpaceOf>(
         &mut self,
         id: &SpaceId,
-        items: &Vec<Box<I>>,
+        items: &[Box<I>],
         curr_idx: usize,
         sections: &Vec<ComponentSection>,
     ) {
@@ -236,7 +236,7 @@ impl IndexScope {
     /// component-function index space!
     pub fn assign_assumed_id_for<I: Debug + IndexSpaceOf>(
         &mut self,
-        items: &Vec<I>,
+        items: &[I],
         curr_idx: usize,
         sections: &Vec<ComponentSection>, // one per item
     ) {
@@ -247,7 +247,7 @@ impl IndexScope {
     }
     pub fn assign_assumed_id_for_boxed<I: Debug + IndexSpaceOf>(
         &mut self,
-        items: &Vec<Box<I>>,
+        items: &[Box<I>],
         curr_idx: usize,
         sections: &Vec<ComponentSection>, // one per item
     ) {
@@ -264,11 +264,8 @@ impl IndexScope {
         section: &ComponentSection,
         curr_idx: usize,
     ) -> Option<usize> {
-        if let Some(space) = self.get_space_mut(space) {
-            Some(space.assign_assumed_id(section, curr_idx))
-        } else {
-            None
-        }
+        self.get_space_mut(space)
+            .map(|space| space.assign_assumed_id(section, curr_idx))
     }
 
     pub fn lookup_assumed_id(
@@ -384,10 +381,7 @@ impl IndexScope {
     /// to the returned index space's `parent` (a field on the space).
     pub fn visit_section(&mut self, section: &ComponentSection, num: usize) -> usize {
         let tracker = match section {
-            ComponentSection::Component => {
-                // CREATES A NEW IDX SPACE SCOPE
-                &mut self.last_processed_component
-            }
+            ComponentSection::Component => &mut self.last_processed_component,
             ComponentSection::Module => &mut self.last_processed_module,
             ComponentSection::Alias => &mut self.last_processed_alias,
             ComponentSection::CoreType => &mut self.last_processed_core_ty,
@@ -631,7 +625,7 @@ impl IdxSpace {
 
         // We haven't cached this yet, we must do the less efficient logic and do a full lookup,
         // then we can cache what we find!
-        let maps = vec![
+        let maps = [
             (SpaceSubtype::Main, &self.main_assumed_ids),
             (SpaceSubtype::Import, &self.imports_assumed_ids),
             (SpaceSubtype::Export, &self.exports_assumed_ids),
@@ -645,8 +639,7 @@ impl IdxSpace {
                 if matches {
                     let result = (*subty, *idx, opt_subidx);
                     // cache what we found
-                    self.index_from_assumed_id_cache
-                        .insert(assumed_id, result.clone());
+                    self.index_from_assumed_id_cache.insert(assumed_id, result);
 
                     return Some(result);
                 }
@@ -668,7 +661,7 @@ impl IdxSpace {
 
         // We haven't cached this yet, we must do the less efficient logic and do a full lookup,
         // then we can cache what we find!
-        let maps = vec![
+        let maps = [
             (SpaceSubtype::Main, &self.main_assumed_ids),
             (SpaceSubtype::Import, &self.imports_assumed_ids),
             (SpaceSubtype::Export, &self.exports_assumed_ids),
@@ -872,7 +865,7 @@ impl IndexSpaceOf for CanonicalFunction {
 
             // Task-related functions operate on values
             CanonicalFunction::TaskReturn { .. }
-            | CanonicalFunction::TaskCancel { .. }
+            | CanonicalFunction::TaskCancel
             | CanonicalFunction::SubtaskDrop
             | CanonicalFunction::SubtaskCancel { .. } => Space::CoreFunc,
 
@@ -1419,19 +1412,14 @@ impl ReferencedIndices for RecGroup {
 
 impl ReferencedIndices for SubType {
     fn referenced_indices(&self, depth: Depth) -> Option<Refs> {
-        let mut others = vec![];
-        others.push(self.composite_type.referenced_indices(depth));
+        let others = vec![self.composite_type.referenced_indices(depth)];
 
         Some(Refs {
-            ty: if let Some(packed) = self.supertype_idx {
-                Some(IndexedRef {
-                    depth,
-                    space: Space::CoreType,
-                    index: packed.unpack().as_module_index().unwrap(),
-                })
-            } else {
-                None
-            },
+            ty: self.supertype_idx.map(|packed| IndexedRef {
+                depth,
+                space: Space::CoreType,
+                index: packed.unpack().as_module_index().unwrap(),
+            }),
             others,
             ..Default::default()
         })
@@ -1440,27 +1428,18 @@ impl ReferencedIndices for SubType {
 
 impl ReferencedIndices for CompositeType {
     fn referenced_indices(&self, depth: Depth) -> Option<Refs> {
-        let mut others = vec![];
+        let others = vec![self.inner.referenced_indices(depth)];
 
-        others.push(self.inner.referenced_indices(depth));
-        let desc_id = if let Some(descriptor) = self.descriptor_idx {
-            Some(IndexedRef {
-                depth,
-                space: Space::CompType,
-                index: descriptor.unpack().as_module_index().unwrap(),
-            })
-        } else {
-            None
-        };
-        let describes_id = if let Some(describes) = self.describes_idx {
-            Some(IndexedRef {
-                depth,
-                space: Space::CompType,
-                index: describes.unpack().as_module_index().unwrap(),
-            })
-        } else {
-            None
-        };
+        let desc_id = self.descriptor_idx.map(|descriptor| IndexedRef {
+            depth,
+            space: Space::CompType,
+            index: descriptor.unpack().as_module_index().unwrap(),
+        });
+        let describes_id = self.describes_idx.map(|describes| IndexedRef {
+            depth,
+            space: Space::CompType,
+            index: describes.unpack().as_module_index().unwrap(),
+        });
 
         Some(Refs {
             ty: desc_id,
@@ -1550,14 +1529,12 @@ impl ReferencedIndices for VariantCase<'_> {
         let ty = self
             .ty
             .and_then(|ty| ty.referenced_indices(depth))
-            .map(|refs| refs.ty().clone());
+            .map(|refs| *refs.ty());
 
-        let misc = self.refines.and_then(|index| {
-            Some(IndexedRef {
-                depth,
-                space: Space::CompType,
-                index,
-            })
+        let misc = self.refines.map(|index| IndexedRef {
+            depth,
+            space: Space::CompType,
+            index,
         });
 
         Some(Refs {

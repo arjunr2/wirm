@@ -1,3 +1,4 @@
+#![allow(clippy::too_many_arguments)]
 //!  Intermediate representation of Module Types
 
 use crate::ir::id::TypeID;

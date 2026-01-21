@@ -68,7 +68,7 @@ pub(crate) fn assign_top_level_ids_recgroup(
 ) {
     let section = ComponentSection::CoreType;
     let tys = recgroup.types();
-    for (_, _) in tys.enumerate() {
+    for _ in tys {
         store.borrow_mut().assign_assumed_id(
             space_id,
             &recgroup.index_space_of(),
@@ -184,19 +184,16 @@ pub(crate) fn populate_space_for_core_ty(
     registry: RegistryHandle,
     handle: StoreHandle,
 ) {
-    match ty {
-        CoreType::Module(decls) => {
-            let space_id = handle.borrow_mut().new_scope();
-            let section = ComponentSection::CoreType;
-            registry.borrow_mut().register(ty, space_id);
-            assert_registered_with_id!(registry, ty, space_id);
-            // println!("\t@parse CORE_TYPE ADDR: {:p}", ty);
+    if let CoreType::Module(decls) = ty {
+        let space_id = handle.borrow_mut().new_scope();
+        let section = ComponentSection::CoreType;
+        registry.borrow_mut().register(ty, space_id);
+        assert_registered_with_id!(registry, ty, space_id);
+        // println!("\t@parse CORE_TYPE ADDR: {:p}", ty);
 
-            for (idx, decl) in decls.iter().enumerate() {
-                populate_space_for_core_module_decl(idx, &space_id, decl, &section, handle.clone());
-            }
+        for (idx, decl) in decls.iter().enumerate() {
+            populate_space_for_core_module_decl(idx, &space_id, decl, &section, handle.clone());
         }
-        _ => {}
     }
 }
 

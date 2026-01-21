@@ -10,107 +10,138 @@ mod collect;
 pub(crate) mod encode;
 mod fix_indices;
 
-/// Encode this IR into a WebAssembly binary.
-/// Encoding a component gets split into 3 phases (the first two are for planning, the final
-/// phase is to actually perform the encoding)
-/// 1. Collect phase
-///  - Walk dependencies
-///  - Deduplicate using Seen
-///  - Produce topologically sorted plan
-/// 2. Index assignment phase
-///  - Assign sequential indices after collection
-///  - Separate from bytes
-/// 3. Encoding phase
-///  - Emit bytes using indices
-///  - No recursion needed, all references are guaranteed to be valid
+/// Encode this component into its binary WebAssembly representation.
 ///
-/// ## Index resolution behavior
+/// # Overview
 ///
-/// During encoding, this function performs **basic index collection and
-/// reindexing** within a single, well-defined index space. This includes
-/// adjusting indices to account for:
+/// Encoding proceeds in **three distinct phases**:
 ///
-/// - Newly inserted items
-/// - Removed or reordered items
-/// - Flat, non-nested index spaces
+/// 1. **Collect**
+/// 2. **Assign**
+/// 3. **Encode**
 ///
-/// However, the encoder **does not attempt to resolve or rewrite indices whose
-/// meaning depends on nested index-space scopes**, such as those introduced by
-/// the WebAssembly component model.
+/// These phases exist to decouple *traversal*, *index computation*, and
+/// *binary emission*, which is required because instrumentation may insert,
+/// reorder, or otherwise affect items that participate in index spaces.
 ///
-/// In particular, indices whose correctness depends on entering or exiting
-/// nested scopes are assumed to already be valid in the context where they
-/// appear.
+/// At a high level:
 ///
-/// ### Examples
+/// - **Collect** walks the IR and records *what* needs to be encoded and
+///   *where* indices are referenced.
+/// - **Assign** resolves all logical references to their final concrete
+///   indices after instrumentation.
+/// - **Encode** emits the final binary using the resolved indices.
 ///
-/// #### Supported: flat reindexing within a single scope
+/// ---
 ///
-/// If instrumentation inserts a new component function before an existing one:
+/// # Phase 1: Collect
 ///
-/// ```wat
-/// ;; Original
-/// (component
-///   (func $f0)
-///   (func $f1)
-/// )
+/// The collect phase performs a structured traversal of the component IR.
+/// During this traversal:
 ///
-/// ;; After instrumentation
-/// (component
-///   (func $new)
-///   (func $f0)
-///   (func $f1)
-/// )
-/// ```
+/// - All items that participate in encoding are recorded into an internal
+///   "plan" that determines section order and contents.
+/// - Any IR node that *references indices* (e.g. types, instances, modules,
+///   exports) is recorded along with enough context to later rewrite those
+///   references.
 ///
-/// The encoder will automatically reindex references to `$f0` and `$f1` to
-/// account for the inserted function.
+/// No indices are rewritten during this phase.
 ///
-/// #### Not supported: scope-dependent index resolution
+/// ## Component ID Stack
 ///
-/// ```wat
-/// (component
-///   (component $inner
-///     (func $f)
-///   )
-///   (instance $i (instantiate $inner))
-///   (export "f" (func $i "f"))
-/// )
-/// ```
+/// Components may be arbitrarily nested. To correctly associate items with
+/// their owning component, the encoder maintains a **stack of component IDs**
+/// during traversal.
 ///
-/// In this example, the meaning of the exported function index depends on:
+/// - When entering a component, its `ComponentId` is pushed onto the stack.
+/// - When exiting, it is popped.
+/// - The top of the stack always represents the *current component context*.
 ///
-/// - Which component is instantiated
-/// - Which instance scope is active
+/// A **component registry** maps `ComponentId` → `&Component`, allowing the
+/// encoder to recover the owning component at any point without relying on
+/// pointer identity for components themselves.
 ///
-/// The encoder does **not** attempt to determine or rewrite such indices.
-/// The IR is assumed to already reference the correct function in the correct
-/// scope.
+/// ---
 ///
-/// #### Not supported: nested core/module scopes
+/// # Phase 2: Assign
 ///
-/// ```wat
-/// (component
-///   (component
-///     (core module
-///       (func $f)
-///     )
-///   )
-///   (canon lift (core func $f))
-/// )
-/// ```
+/// The assign phase resolves all *logical* references recorded during collect
+/// into *concrete* indices suitable for encoding.
 ///
-/// If `$f` is defined inside a nested core module scope, the encoder assumes
-/// that any reference to it already uses the correct index for that scope.
+/// This includes:
 ///
-/// ### Summary
+/// - Mapping original indices to their post-instrumentation positions
+/// - Resolving cross-item references (e.g. type references inside signatures)
+/// - Ensuring index spaces are internally consistent
 ///
-/// - Flat, single-scope reindexing is handled automatically.
-/// - Nested or scope-dependent index resolution is not.
-/// - Earlier phases are responsible for ensuring scope-correct indices.
+/// ## Scope Stack
 ///
-/// This design keeps encoding deterministic and avoids implicit cross-scope
-/// rewriting that would be difficult to reason about or validate.
+/// Many IR nodes are scoped (for example, nested types, instances, or
+/// component-local definitions). During traversal, the encoder maintains a
+/// **stack of scopes** representing the current lexical and component nesting.
+///
+/// - Entering a scoped node pushes a new scope.
+/// - Exiting the node pops the scope.
+/// - At any point, the scope stack represents the active lookup context.
+///
+/// ## Scope Registry
+///
+/// Because scoped nodes may be deeply nested and arbitrarily structured,
+/// scopes are not looked up via traversal position alone.
+///
+/// Instead, the encoder uses a **scope registry**, which maps the *identity*
+/// of an IR node to its associated scope.
+///
+/// - Scoped IR nodes are stored behind stable pointers (e.g. `Box<T>`).
+/// - These pointers are registered exactly once when the IR is built.
+/// - During assign, any IR node can query the registry to recover its scope
+///   in O(1) time.
+///
+/// This allows index resolution to be:
+///
+/// - Independent of traversal order
+/// - Robust to instrumentation
+/// - Safe against reordering or insertion of unrelated nodes
+///
+/// ---
+///
+/// # Phase 3: Encode
+///
+/// Once all indices have been assigned, the encode phase performs a final
+/// traversal and emits the binary representation.
+///
+/// At this point:
+///
+/// - No structural mutations occur
+/// - All index values are final
+/// - Encoding is a pure, deterministic process
+///
+/// The encoder follows the previously constructed plan to emit sections
+/// in the correct order and format.
+///
+/// ---
+///
+/// # Design Notes
+///
+/// This three-phase architecture ensures that:
+///
+/// - Instrumentation can freely insert or modify IR before encoding
+/// - Index correctness is guaranteed before any bytes are emitted
+/// - Encoding logic remains simple and local
+///
+/// The use of component IDs, scope stacks, and a scope registry allows the
+/// encoder to handle arbitrarily nested components and scoped definitions
+/// without relying on fragile positional assumptions.
+///
+/// # Panics
+///
+/// This method may panic if:
+///
+/// - The component registry is inconsistent
+/// - A scoped IR node is missing from the scope registry
+/// - Index resolution encounters an unresolved reference
+///
+/// These conditions indicate an internal bug or invalid IR construction.
 pub fn encode(comp: &Component) -> Vec<u8> {
     // Phase 1: Collect
     let mut ctx = EncodeCtx::new(comp);
@@ -125,7 +156,7 @@ pub fn encode(comp: &Component) -> Vec<u8> {
 
     // Phase 3: Encode (pass in the root-level component's plan, assigned indices, and original->new index map)
     assert_eq!(1, ctx.space_stack.stack.len());
-    let bytes = encode_internal(&comp, &plan, &mut ctx);
+    let bytes = encode_internal(comp, &plan, &mut ctx);
     bytes.finish()
 }
 
@@ -213,7 +244,7 @@ impl EncodeCtx {
             .scopes
             .get(&scope_id)
             .unwrap()
-            .lookup_actual_id_or_panic(&r)
+            .lookup_actual_id_or_panic(r)
     }
 
     fn index_from_assumed_id(&mut self, r: &IndexedRef) -> (SpaceSubtype, usize, Option<usize>) {
@@ -223,6 +254,6 @@ impl EncodeCtx {
             .scopes
             .get_mut(&scope_id)
             .unwrap()
-            .index_from_assumed_id(&r)
+            .index_from_assumed_id(r)
     }
 }

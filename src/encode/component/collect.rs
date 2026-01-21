@@ -1,9 +1,6 @@
-// I want this file to be a bunch of oneliners (easier to read)!
-#[rustfmt::skip]
-
-use crate::ir::component::idx_spaces::{ReferencedIndices, Space, SpaceSubtype};
 use crate::encode::component::EncodeCtx;
 use crate::ir::component::idx_spaces::Depth;
+use crate::ir::component::idx_spaces::{ReferencedIndices, Space, SpaceSubtype};
 use crate::ir::component::scopes::{build_component_store, ComponentStore, GetScopeKind};
 use crate::ir::component::section::ComponentSection;
 use crate::ir::id::ComponentId;
@@ -70,21 +67,21 @@ impl<'a> Collect<'a> for Component<'a> {
                     collect_vec(
                         start_idx,
                         *num as usize,
-                        &self.modules.as_vec(),
+                        self.modules.as_vec(),
                         collect_ctx,
                         ctx,
                     );
                 }
-                ComponentSection::CoreType { .. } => {
+                ComponentSection::CoreType => {
                     collect_vec(
                         start_idx,
                         *num as usize,
-                        &self.core_types.as_vec(),
+                        self.core_types.as_vec(),
                         collect_ctx,
                         ctx,
                     );
                 }
-                ComponentSection::ComponentType { .. } => {
+                ComponentSection::ComponentType => {
                     collect_boxed_vec(
                         start_idx,
                         *num as usize,
@@ -97,7 +94,7 @@ impl<'a> Collect<'a> for Component<'a> {
                     collect_vec(
                         start_idx,
                         *num as usize,
-                        &self.imports.as_vec(),
+                        self.imports.as_vec(),
                         collect_ctx,
                         ctx,
                     );
@@ -106,7 +103,7 @@ impl<'a> Collect<'a> for Component<'a> {
                     collect_vec(
                         start_idx,
                         *num as usize,
-                        &self.exports.as_vec(),
+                        self.exports.as_vec(),
                         collect_ctx,
                         ctx,
                     );
@@ -115,7 +112,7 @@ impl<'a> Collect<'a> for Component<'a> {
                     collect_vec(
                         start_idx,
                         *num as usize,
-                        &self.component_instance.as_vec(),
+                        self.component_instance.as_vec(),
                         collect_ctx,
                         ctx,
                     );
@@ -124,7 +121,7 @@ impl<'a> Collect<'a> for Component<'a> {
                     collect_vec(
                         start_idx,
                         *num as usize,
-                        &self.instances.as_vec(),
+                        self.instances.as_vec(),
                         collect_ctx,
                         ctx,
                     );
@@ -133,7 +130,7 @@ impl<'a> Collect<'a> for Component<'a> {
                     collect_vec(
                         start_idx,
                         *num as usize,
-                        &self.alias.items.as_vec(),
+                        self.alias.items.as_vec(),
                         collect_ctx,
                         ctx,
                     );
@@ -142,7 +139,7 @@ impl<'a> Collect<'a> for Component<'a> {
                     collect_vec(
                         start_idx,
                         *num as usize,
-                        &self.canons.items.as_vec(),
+                        self.canons.items.as_vec(),
                         collect_ctx,
                         ctx,
                     );
@@ -151,7 +148,7 @@ impl<'a> Collect<'a> for Component<'a> {
                     collect_vec(
                         start_idx,
                         *num as usize,
-                        &self.start_section.as_vec(),
+                        self.start_section.as_vec(),
                         collect_ctx,
                         ctx,
                     );
@@ -402,7 +399,7 @@ impl<'a> Collect<'a> for ComponentStartFunction {
 }
 
 fn collect_subitem_vec<'a, T: GetScopeKind + CollectSubItem<'a> + 'a>(
-    all: &'a Box<[T]>,
+    all: &'a [T],
     collect_ctx: &mut CollectCtx<'a>,
     ctx: &mut EncodeCtx,
 ) -> SubItemPlan {
@@ -418,7 +415,7 @@ fn collect_subitem_vec<'a, T: GetScopeKind + CollectSubItem<'a> + 'a>(
 fn collect_vec<'a, T: Collect<'a> + 'a>(
     start: usize,
     num: usize,
-    all: &'a Vec<T>,
+    all: &'a [T],
     collect_ctx: &mut CollectCtx<'a>,
     ctx: &mut EncodeCtx,
 ) {
@@ -642,7 +639,6 @@ impl<'a> ComponentItem<'a> {
         Self::CompType {
             node,
             idx,
-            // subspace,
             subitem_plan: subitem_order,
         }
     }
@@ -704,7 +700,6 @@ impl<'a> ComponentItem<'a> {
         Self::CoreType {
             node,
             idx,
-            // subspace,
             subitem_plan: subitem_order,
         }
     }

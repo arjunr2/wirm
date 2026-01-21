@@ -5,8 +5,3 @@ target
 .DS_Store
 **/out.**
 output
-
-# Tmp files
-src/**/*.bk
-test*.wat
-test*.wasm

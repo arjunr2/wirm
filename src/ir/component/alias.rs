@@ -19,10 +19,11 @@ impl<'a> Aliases<'a> {
         let (mut num_core_funcs, mut num_funcs, mut num_types) = (0, 0, 0);
         for i in items.iter() {
             match i {
-                ComponentAlias::CoreInstanceExport { kind, .. } => match kind {
-                    ExternalKind::Func => num_core_funcs += 1,
-                    _ => {}
-                },
+                ComponentAlias::CoreInstanceExport { kind, .. } => {
+                    if kind == &ExternalKind::Func {
+                        num_core_funcs += 1
+                    }
+                }
                 ComponentAlias::InstanceExport { kind, .. } => match kind {
                     ComponentExternalKind::Type => num_types += 1,
                     ComponentExternalKind::Func => num_funcs += 1,
