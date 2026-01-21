@@ -9,7 +9,10 @@ use crate::ir::component::idx_spaces::{
     Depth, IndexSpaceOf, IndexStore, ReferencedIndices, Space, SpaceId, SpaceSubtype, StoreHandle,
 };
 use crate::ir::component::scopes::{IndexScopeRegistry, RegistryHandle};
-use crate::ir::component::section::{get_sections_for_comp_ty, get_sections_for_core_ty_and_assign_top_level_ids, ComponentSection, populate_space_for_comp_ty, populate_space_for_core_ty};
+use crate::ir::component::section::{
+    get_sections_for_comp_ty, get_sections_for_core_ty_and_assign_top_level_ids,
+    populate_space_for_comp_ty, populate_space_for_core_ty, ComponentSection,
+};
 use crate::ir::component::types::ComponentTypes;
 use crate::ir::helpers::{
     print_alias, print_component_export, print_component_import, print_component_type,
@@ -24,6 +27,7 @@ use crate::ir::module::module_globals::Global;
 use crate::ir::module::Module;
 use crate::ir::types::CustomSections;
 use crate::ir::wrappers::add_to_namemap;
+use crate::ir::AppendOnlyVec;
 use std::cell::RefCell;
 use std::rc::Rc;
 use wasmparser::{
@@ -44,34 +48,33 @@ mod types;
 pub struct Component<'a> {
     // TODO: Lock down capabilities of instrumentation here, APPEND-ONLY vectors
     //       Don't even use Vec<Node> --> use Vec<Box<Node>>!!
-
     pub id: ComponentId,
     /// Nested Components
     // These have scopes, but the scopes are looked up by ComponentId
-    pub components: Vec<Component<'a>>,
+    pub components: AppendOnlyVec<Component<'a>>,
     /// Modules
     // These have scopes, but they aren't handled by component encoding logic
-    pub modules: Vec<Module<'a>>,
+    pub modules: AppendOnlyVec<Module<'a>>,
     /// Component Types
     // These can have scopes and need to be looked up by a pointer to the IR node --> Box the value!
     pub component_types: ComponentTypes<'a>,
     /// Component Instances
-    pub component_instance: Vec<ComponentInstance<'a>>,
+    pub component_instance: AppendOnlyVec<ComponentInstance<'a>>,
     /// Canons
     pub canons: Canons,
 
     /// Alias
     pub alias: Aliases<'a>,
     /// Imports
-    pub imports: Vec<ComponentImport<'a>>,
+    pub imports: AppendOnlyVec<ComponentImport<'a>>,
     /// Exports
-    pub exports: Vec<ComponentExport<'a>>,
+    pub exports: AppendOnlyVec<ComponentExport<'a>>,
 
     /// Core Types
     // These can have scopes and need to be looked up by a pointer to the IR node --> Box the value!
-    pub core_types: Vec<Box<CoreType<'a>>>,
+    pub core_types: AppendOnlyVec<Box<CoreType<'a>>>,
     /// Core Instances
-    pub instances: Vec<Instance<'a>>,
+    pub instances: AppendOnlyVec<Instance<'a>>,
 
     // Tracks the index spaces of this component.
     pub(crate) space_id: SpaceId, // cached for quick lookup!
@@ -81,12 +84,10 @@ pub struct Component<'a> {
     /// Custom sections
     pub custom_sections: CustomSections<'a>,
     /// Component Start Section
-    pub start_section: Vec<ComponentStartFunction>,
+    pub start_section: AppendOnlyVec<ComponentStartFunction>,
     /// Sections of the Component. Represented as (#num of occurrences of a section, type of section)
     pub sections: Vec<(u32, ComponentSection)>,
     num_sections: usize,
-
-    // pub interned_strs: Vec<Box<str>>,
 
     // Names
     pub(crate) component_name: Option<String>,
@@ -141,7 +142,10 @@ impl<'a> Component<'a> {
 
     /// Add a Global to this Component.
     pub fn add_globals(&mut self, global: Global, module_idx: ModuleID) -> GlobalID {
-        self.modules[*module_idx as usize].globals.add(global)
+        self.modules
+            .get_mut(*module_idx as usize)
+            .globals
+            .add(global)
     }
 
     pub fn add_import(&mut self, import: ComponentImport<'a>) -> u32 {
@@ -303,20 +307,21 @@ impl<'a> Component<'a> {
         let my_comp_id = ComponentId(*next_comp_id);
         *next_comp_id += 1;
 
-        let mut modules = vec![];
-        let mut core_types = vec![];
-        let mut component_types = vec![];
-        let mut imports = vec![];
-        let mut exports = vec![];
-        let mut instances = vec![];
-        let mut canons = vec![];
-        let mut alias = vec![];
-        let mut component_instance = vec![];
+        let mut modules = AppendOnlyVec::default();
+        let mut core_types = AppendOnlyVec::default();
+        let mut component_types = AppendOnlyVec::default();
+        let mut imports = AppendOnlyVec::default();
+        let mut exports = AppendOnlyVec::default();
+        let mut instances = AppendOnlyVec::default();
+        let mut canons = AppendOnlyVec::default();
+        let mut alias = AppendOnlyVec::default();
+        let mut component_instance = AppendOnlyVec::default();
+        let mut components = AppendOnlyVec::default();
+        let mut start_section = AppendOnlyVec::default();
         let mut custom_sections = vec![];
+
         let mut sections = vec![];
         let mut num_sections: usize = 0;
-        let mut components = vec![];
-        let mut start_section = vec![];
         let mut stack = vec![];
 
         // Names
@@ -421,7 +426,7 @@ impl<'a> Component<'a> {
 
                     let mut new_sects = vec![];
                     let mut has_subscope = false;
-                    for (idx, ty) in core_types[old_len..].iter().enumerate() {
+                    for (idx, ty) in core_types.slice_from(old_len).iter().enumerate() {
                         let (new_sect, sect_has_subscope) =
                             get_sections_for_core_ty_and_assign_top_level_ids(
                                 ty,
@@ -453,7 +458,7 @@ impl<'a> Component<'a> {
 
                     let mut new_sects = vec![];
                     let mut has_subscope = false;
-                    for ty in &component_types[old_len..] {
+                    for ty in component_types.slice_from(old_len) {
                         let (new_sect, sect_has_subscope) = get_sections_for_comp_ty(ty);
                         has_subscope |= sect_has_subscope;
                         new_sects.push(new_sect);
@@ -461,7 +466,7 @@ impl<'a> Component<'a> {
 
                     store_handle.borrow_mut().assign_assumed_id_for_boxed(
                         &space_id,
-                        &component_types[old_len..].to_vec(),
+                        &component_types.slice_from(old_len).to_vec(),
                         old_len,
                         &new_sects,
                     );
@@ -474,9 +479,8 @@ impl<'a> Component<'a> {
                     );
                 }
                 Payload::ComponentInstanceSection(component_instances) => {
-                    let mut temp: Vec<ComponentInstance> = component_instances
-                        .into_iter()
-                        .collect::<Result<_, _>>()?;
+                    let mut temp: Vec<ComponentInstance> =
+                        component_instances.into_iter().collect::<Result<_, _>>()?;
                     let l = temp.len();
                     let new_sections = vec![ComponentSection::ComponentInstance; l];
                     store_handle.borrow_mut().assign_assumed_id_for(
@@ -495,9 +499,8 @@ impl<'a> Component<'a> {
                     );
                 }
                 Payload::ComponentAliasSection(alias_reader) => {
-                    let mut temp: Vec<ComponentAlias> = alias_reader
-                        .into_iter()
-                        .collect::<Result<_, _>>()?;
+                    let mut temp: Vec<ComponentAlias> =
+                        alias_reader.into_iter().collect::<Result<_, _>>()?;
                     let l = temp.len();
                     let new_sections = vec![ComponentSection::Alias; l];
                     store_handle.borrow_mut().assign_assumed_id_for(
@@ -516,9 +519,8 @@ impl<'a> Component<'a> {
                     );
                 }
                 Payload::ComponentCanonicalSection(canon_reader) => {
-                    let mut temp: Vec<CanonicalFunction> = canon_reader
-                        .into_iter()
-                        .collect::<Result<_, _>>()?;
+                    let mut temp: Vec<CanonicalFunction> =
+                        canon_reader.into_iter().collect::<Result<_, _>>()?;
                     let l = temp.len();
                     let new_sections = vec![ComponentSection::Canon; l];
                     store_handle.borrow_mut().assign_assumed_id_for(
@@ -681,17 +683,17 @@ impl<'a> Component<'a> {
         }
 
         // Scope discovery
-        for comp in &components {
+        for comp in components.iter() {
             let comp_id = comp.id;
             let sub_space_id = comp.space_id;
             registry_handle
                 .borrow_mut()
                 .register_comp(comp_id, sub_space_id);
         }
-        for ty in &core_types {
+        for ty in core_types.iter() {
             populate_space_for_core_ty(ty, registry_handle.clone(), store_handle.clone());
         }
-        for ty in &component_types {
+        for ty in component_types.iter() {
             populate_space_for_comp_ty(ty, registry_handle.clone(), store_handle.clone());
         }
 
@@ -758,7 +760,7 @@ impl<'a> Component<'a> {
         export_id: ComponentExportId,
     ) -> Option<&Box<ComponentType<'a>>> {
         let mut store = self.index_store.borrow_mut();
-        if let Some(export) = self.exports.get(*export_id as usize) {
+        if let Some(export) = self.exports.maybe_get(*export_id as usize) {
             if let Some(refs) = export.referenced_indices(Depth::default()) {
                 let list = refs.as_list();
                 assert_eq!(1, list.len());
@@ -774,13 +776,11 @@ impl<'a> Component<'a> {
                         .alias
                         .items
                         .get(f_idx)
-                        .unwrap()
                         .referenced_indices(Depth::default()),
                     SpaceSubtype::Main => self
                         .canons
                         .items
                         .get(f_idx)
-                        .unwrap()
                         .referenced_indices(Depth::default()),
                 };
                 if let Some(func_refs) = func {
@@ -791,7 +791,7 @@ impl<'a> Component<'a> {
                         panic!("Should've been an main space!")
                     }
 
-                    let res = self.component_types.items.get(t_idx);
+                    let res = self.component_types.items.maybe_get(t_idx);
                     res
                 } else {
                     None
@@ -855,7 +855,9 @@ impl<'a> Component<'a> {
     /// Get Local Function ID by name
     // Note: returned absolute id here
     pub fn get_fid_by_name(&self, name: &str, module_idx: ModuleID) -> Option<FunctionID> {
-        for (idx, func) in self.modules[*module_idx as usize]
+        for (idx, func) in self
+            .modules
+            .get(*module_idx as usize)
             .functions
             .iter()
             .enumerate()

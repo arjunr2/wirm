@@ -2002,6 +2002,7 @@ impl From<BlockType> for wasmparser::BlockType {
 /// Intermediate Representation of Custom Sections
 #[derive(Clone, Debug, Default)]
 pub struct CustomSections<'a> {
+    // Custom sections are special, they don't have to be append only!
     pub(crate) custom_sections: Vec<CustomSection<'a>>,
 }
 

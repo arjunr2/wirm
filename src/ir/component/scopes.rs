@@ -156,11 +156,7 @@ impl IndexScopeRegistry {
 
         let old = self.node_scopes.insert(ptr, ScopeEntry { space, kind });
 
-        debug_assert!(
-            old.is_none(),
-            "node registered twice: {:p}",
-            node
-        );
+        debug_assert!(old.is_none(), "node registered twice: {:p}", node);
     }
 
     pub fn scope_entry<T: GetScopeKind>(&self, node: &T) -> Option<ScopeEntry> {

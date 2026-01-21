@@ -87,10 +87,7 @@ use wasmparser::{
 ///
 /// Therefore, dereferencing `*const ComponentAlias` during index
 /// assignment is safe.
-pub(crate) fn assign_indices(
-    plan: &mut ComponentPlan,
-    ctx: &mut EncodeCtx,
-) {
+pub(crate) fn assign_indices(plan: &mut ComponentPlan, ctx: &mut EncodeCtx) {
     for item in &mut plan.items {
         match item {
             ComponentItem::Component {

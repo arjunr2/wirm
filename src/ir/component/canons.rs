@@ -1,15 +1,16 @@
 use crate::ir::id::CanonicalFuncId;
+use crate::ir::AppendOnlyVec;
 use wasmparser::CanonicalFunction;
 
 #[derive(Debug, Default)]
 pub struct Canons {
-    pub items: Vec<CanonicalFunction>,
+    pub items: AppendOnlyVec<CanonicalFunction>,
 
     pub(crate) num_lift_lower: usize,
     num_lift_lower_added: usize,
 }
 impl Canons {
-    pub fn new(items: Vec<CanonicalFunction>) -> Self {
+    pub fn new(items: AppendOnlyVec<CanonicalFunction>) -> Self {
         let mut num_lift_lower = 0;
         for i in items.iter() {
             if matches!(

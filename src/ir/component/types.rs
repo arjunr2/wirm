@@ -1,9 +1,10 @@
 use crate::ir::id::ComponentTypeId;
+use crate::ir::AppendOnlyVec;
 use wasmparser::ComponentType;
 
 #[derive(Debug, Default)]
 pub struct ComponentTypes<'a> {
-    pub items: Vec<Box<ComponentType<'a>>>,
+    pub items: AppendOnlyVec<Box<ComponentType<'a>>>,
 
     num_funcs: usize,
     num_funcs_added: usize,
@@ -17,7 +18,7 @@ pub struct ComponentTypes<'a> {
     num_resources_added: usize,
 }
 impl<'a> ComponentTypes<'a> {
-    pub fn new(items: Vec<Box<ComponentType<'a>>>) -> Self {
+    pub fn new(items: AppendOnlyVec<Box<ComponentType<'a>>>) -> Self {
         let (
             mut num_funcs,
             mut num_instances,
@@ -47,6 +48,7 @@ impl<'a> ComponentTypes<'a> {
     }
 
     /// Add a new component type to the component.
+    /// This assumes that scope registration is done by the caller!
     pub(crate) fn add<'b>(&'b mut self, ty: ComponentType<'a>) -> (u32, ComponentTypeId) {
         let ty_id = self.items.len();
         let ty_inner_id = match ty {
@@ -83,8 +85,6 @@ impl<'a> ComponentTypes<'a> {
         };
 
         self.items.push(Box::new(ty));
-        // TODO: I need to register this possibly!
-        
         (ty_inner_id as u32, ComponentTypeId(ty_id as u32))
     }
 }

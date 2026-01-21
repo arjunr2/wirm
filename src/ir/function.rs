@@ -125,8 +125,9 @@ impl<'a> FunctionBuilder<'a> {
     ) -> FunctionID {
         // add End as last instruction
         self.end();
+        let module = comp.modules.get_mut(*mod_idx as usize);
 
-        let id = comp.modules[*mod_idx as usize].add_local_func_with_tag(
+        let id = module.add_local_func_with_tag(
             self.name,
             &self.params,
             &self.results,
@@ -135,10 +136,8 @@ impl<'a> FunctionBuilder<'a> {
         );
 
         assert_eq!(
-            comp.modules[*mod_idx as usize].functions.as_vec().len() as u32,
-            comp.modules[*mod_idx as usize].num_local_functions
-                + comp.modules[*mod_idx as usize].imports.num_funcs
-                + comp.modules[*mod_idx as usize].imports.num_funcs_added
+            module.functions.as_vec().len() as u32,
+            module.num_local_functions + module.imports.num_funcs + module.imports.num_funcs_added
         );
         id
     }

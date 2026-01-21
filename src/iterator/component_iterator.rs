@@ -86,7 +86,10 @@ impl<'a, 'b> ComponentIterator<'a, 'b> {
             ..,
         ) = self.comp_iterator.curr_loc()
         {
-            match &self.comp.modules[*mod_idx as usize]
+            match &self
+                .comp
+                .modules
+                .get(*mod_idx as usize)
                 .functions
                 .get(func_idx)
                 .kind
@@ -147,7 +150,14 @@ impl<'b> Inject<'b> for ComponentIterator<'_, 'b> {
     fn inject(&mut self, instr: Operator<'b>) {
         let (mod_idx, func_idx, instr_idx) = self.comp_iterator.curr_loc_indices();
 
-        match self.comp.modules[mod_idx].functions.get_mut(func_idx).kind {
+        match self
+            .comp
+            .modules
+            .get_mut(mod_idx)
+            .functions
+            .get_mut(func_idx)
+            .kind
+        {
             FuncKind::Import(_) => {
                 panic!("Can't inject into an imported function!")
             }
@@ -183,7 +193,14 @@ impl<'b> Instrumenter<'b> for ComponentIterator<'_, 'b> {
     fn finish_instr(&mut self) {
         let (mod_idx, func_idx, instr_idx) = self.comp_iterator.curr_loc_indices();
 
-        match self.comp.modules[mod_idx].functions.get_mut(func_idx).kind {
+        match self
+            .comp
+            .modules
+            .get_mut(mod_idx)
+            .functions
+            .get_mut(func_idx)
+            .kind
+        {
             FuncKind::Import(_) => panic!("Can't inject into an imported function!"),
             FuncKind::Local(ref mut l) => {
                 l.instr_flag.finish_instr();
@@ -228,7 +245,10 @@ impl<'b> Instrumenter<'b> for ComponentIterator<'_, 'b> {
             ..,
         ) = self.comp_iterator.curr_loc()
         {
-            match &self.comp.modules[*mod_idx as usize]
+            match &self
+                .comp
+                .modules
+                .get(*mod_idx as usize)
                 .functions
                 .get(func_idx)
                 .kind
@@ -251,7 +271,10 @@ impl<'b> Instrumenter<'b> for ComponentIterator<'_, 'b> {
             ..
         } = loc
         {
-            match self.comp.modules[*mod_idx as usize]
+            match self
+                .comp
+                .modules
+                .get_mut(*mod_idx as usize)
                 .functions
                 .get_mut(func_idx)
                 .kind
@@ -294,7 +317,10 @@ impl<'b> Instrumenter<'b> for ComponentIterator<'_, 'b> {
             ..,
         ) = self.comp_iterator.curr_loc()
         {
-            match &self.comp.modules[*mod_idx as usize]
+            match &self
+                .comp
+                .modules
+                .get(*mod_idx as usize)
                 .functions
                 .get(func_idx)
                 .kind
@@ -312,7 +338,14 @@ impl<'b> Instrumenter<'b> for ComponentIterator<'_, 'b> {
     fn set_func_instrument_mode(&mut self, mode: FuncInstrMode) {
         let (mod_idx, func_idx, _) = self.comp_iterator.curr_loc_indices();
 
-        match self.comp.modules[mod_idx].functions.get_mut(func_idx).kind {
+        match self
+            .comp
+            .modules
+            .get_mut(mod_idx)
+            .functions
+            .get_mut(func_idx)
+            .kind
+        {
             FuncKind::Import(_) => panic!("Can't inject into an imported function!"),
             FuncKind::Local(ref mut l) => l.instr_flag.current_mode = Some(mode),
         }
@@ -329,7 +362,10 @@ impl<'b> Instrumenter<'b> for ComponentIterator<'_, 'b> {
             ..,
         ) = self.comp_iterator.curr_loc()
         {
-            match &self.comp.modules[*mod_idx as usize]
+            match &self
+                .comp
+                .modules
+                .get(*mod_idx as usize)
                 .functions
                 .get(func_idx)
                 .kind
@@ -352,7 +388,10 @@ impl<'b> Instrumenter<'b> for ComponentIterator<'_, 'b> {
             ..
         } = loc
         {
-            match self.comp.modules[*mod_idx as usize]
+            match self
+                .comp
+                .modules
+                .get_mut(*mod_idx as usize)
                 .functions
                 .get_mut(func_idx)
                 .kind
@@ -373,7 +412,10 @@ impl<'b> Instrumenter<'b> for ComponentIterator<'_, 'b> {
             ..
         } = loc
         {
-            match self.comp.modules[*mod_idx as usize]
+            match self
+                .comp
+                .modules
+                .get_mut(*mod_idx as usize)
                 .functions
                 .get_mut(func_idx)
                 .kind
@@ -396,7 +438,10 @@ impl<'b> Instrumenter<'b> for ComponentIterator<'_, 'b> {
             ..
         } = loc
         {
-            match self.comp.modules[*mod_idx as usize]
+            match self
+                .comp
+                .modules
+                .get_mut(*mod_idx as usize)
                 .functions
                 .get_mut(func_idx)
                 .kind
@@ -423,7 +468,10 @@ impl<'b> Instrumenter<'b> for ComponentIterator<'_, 'b> {
             ..
         } = loc
         {
-            match self.comp.modules[*mod_idx as usize]
+            match self
+                .comp
+                .modules
+                .get_mut(*mod_idx as usize)
                 .functions
                 .get_mut(func_idx)
                 .kind
@@ -451,7 +499,10 @@ impl<'b> Instrumenter<'b> for ComponentIterator<'_, 'b> {
             ..
         } = loc
         {
-            match &mut self.comp.modules[*mod_idx as usize]
+            match &mut self
+                .comp
+                .modules
+                .get_mut(*mod_idx as usize)
                 .functions
                 .get_mut(func_idx)
                 .kind
@@ -470,7 +521,7 @@ impl<'b> IteratingInstrumenter<'b> for ComponentIterator<'_, 'b> {
     fn add_global(&mut self, global: Global) -> GlobalID {
         let curr_mod = *self.curr_module() as usize;
 
-        self.comp.modules[curr_mod].globals.add(global)
+        self.comp.modules.get_mut(curr_mod).globals.add(global)
     }
 }
 
@@ -509,7 +560,10 @@ impl Iterator for ComponentIterator<'_, '_> {
             ..,
         ) = self.comp_iterator.curr_loc()
         {
-            match &self.comp.modules[*mod_idx as usize]
+            match &self
+                .comp
+                .modules
+                .get(*mod_idx as usize)
                 .functions
                 .get(func_idx)
                 .kind
@@ -527,7 +581,9 @@ impl AddLocal for ComponentIterator<'_, '_> {
     fn add_local(&mut self, val_type: DataType) -> LocalID {
         let (mod_idx, func_idx, _) = self.comp_iterator.curr_loc_indices();
 
-        self.comp.modules[mod_idx]
+        self.comp
+            .modules
+            .get_mut(mod_idx)
             .functions
             .add_local(func_idx, val_type)
     }

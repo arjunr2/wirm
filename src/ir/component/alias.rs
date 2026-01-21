@@ -1,9 +1,10 @@
 use crate::ir::id::AliasId;
+use crate::ir::AppendOnlyVec;
 use wasmparser::{ComponentAlias, ComponentExternalKind, ExternalKind};
 
 #[derive(Debug, Default)]
 pub struct Aliases<'a> {
-    pub items: Vec<ComponentAlias<'a>>,
+    pub items: AppendOnlyVec<ComponentAlias<'a>>,
 
     num_core_funcs: usize,
     num_core_funcs_added: usize,
@@ -14,7 +15,7 @@ pub struct Aliases<'a> {
     num_types_added: usize,
 }
 impl<'a> Aliases<'a> {
-    pub fn new(items: Vec<ComponentAlias<'a>>) -> Self {
+    pub fn new(items: AppendOnlyVec<ComponentAlias<'a>>) -> Self {
         let (mut num_core_funcs, mut num_funcs, mut num_types) = (0, 0, 0);
         for i in items.iter() {
             match i {

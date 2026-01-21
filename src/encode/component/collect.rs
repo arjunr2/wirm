@@ -8,6 +8,7 @@ use crate::ir::component::scopes::{build_component_store, ComponentStore, GetSco
 use crate::ir::component::section::ComponentSection;
 use crate::ir::id::ComponentId;
 use crate::ir::types::CustomSection;
+use crate::ir::AppendOnlyVec;
 use crate::{assert_registered, Component, Module};
 use std::collections::{HashMap, HashSet};
 use std::fmt::Debug;
@@ -66,10 +67,22 @@ impl<'a> Collect<'a> for Component<'a> {
 
             match section {
                 ComponentSection::Module => {
-                    collect_vec(start_idx, *num as usize, &self.modules, collect_ctx, ctx);
+                    collect_vec(
+                        start_idx,
+                        *num as usize,
+                        &self.modules.as_vec(),
+                        collect_ctx,
+                        ctx,
+                    );
                 }
                 ComponentSection::CoreType { .. } => {
-                    collect_vec(start_idx, *num as usize, &self.core_types, collect_ctx, ctx);
+                    collect_vec(
+                        start_idx,
+                        *num as usize,
+                        &self.core_types.as_vec(),
+                        collect_ctx,
+                        ctx,
+                    );
                 }
                 ComponentSection::ComponentType { .. } => {
                     collect_boxed_vec(
@@ -81,28 +94,46 @@ impl<'a> Collect<'a> for Component<'a> {
                     );
                 }
                 ComponentSection::ComponentImport => {
-                    collect_vec(start_idx, *num as usize, &self.imports, collect_ctx, ctx);
+                    collect_vec(
+                        start_idx,
+                        *num as usize,
+                        &self.imports.as_vec(),
+                        collect_ctx,
+                        ctx,
+                    );
                 }
                 ComponentSection::ComponentExport => {
-                    collect_vec(start_idx, *num as usize, &self.exports, collect_ctx, ctx);
+                    collect_vec(
+                        start_idx,
+                        *num as usize,
+                        &self.exports.as_vec(),
+                        collect_ctx,
+                        ctx,
+                    );
                 }
                 ComponentSection::ComponentInstance => {
                     collect_vec(
                         start_idx,
                         *num as usize,
-                        &self.component_instance,
+                        &self.component_instance.as_vec(),
                         collect_ctx,
                         ctx,
                     );
                 }
                 ComponentSection::CoreInstance => {
-                    collect_vec(start_idx, *num as usize, &self.instances, collect_ctx, ctx);
+                    collect_vec(
+                        start_idx,
+                        *num as usize,
+                        &self.instances.as_vec(),
+                        collect_ctx,
+                        ctx,
+                    );
                 }
                 ComponentSection::Alias => {
                     collect_vec(
                         start_idx,
                         *num as usize,
-                        &self.alias.items,
+                        &self.alias.items.as_vec(),
                         collect_ctx,
                         ctx,
                     );
@@ -111,7 +142,7 @@ impl<'a> Collect<'a> for Component<'a> {
                     collect_vec(
                         start_idx,
                         *num as usize,
-                        &self.canons.items,
+                        &self.canons.items.as_vec(),
                         collect_ctx,
                         ctx,
                     );
@@ -120,7 +151,7 @@ impl<'a> Collect<'a> for Component<'a> {
                     collect_vec(
                         start_idx,
                         *num as usize,
-                        &self.start_section,
+                        &self.start_section.as_vec(),
                         collect_ctx,
                         ctx,
                     );
@@ -139,7 +170,7 @@ impl<'a> Collect<'a> for Component<'a> {
 
                     for i in 0..*num {
                         let idx = start_idx + i as usize;
-                        let c = &self.components[idx];
+                        let c = self.components.get(idx);
 
                         collect_ctx.push_plan();
                         collect_ctx.comp_stack.push(c.id);
@@ -403,14 +434,14 @@ fn collect_vec<'a, T: Collect<'a> + 'a>(
 fn collect_boxed_vec<'a, T: Collect<'a> + 'a>(
     start: usize,
     num: usize,
-    all: &'a Vec<Box<T>>,
+    all: &'a AppendOnlyVec<Box<T>>,
     collect_ctx: &mut CollectCtx<'a>,
     ctx: &mut EncodeCtx,
 ) {
     assert!(start + num <= all.len(), "{start} + {num} > {}", all.len());
     for i in 0..num {
         let idx = start + i;
-        let item = &all[idx];
+        let item = &all.get(idx);
 
         item.collect(idx, collect_ctx, ctx);
     }
@@ -438,24 +469,40 @@ fn collect_deps<'a, T: ReferencedIndices + 'a>(
             let space = r.space;
             match vec {
                 SpaceSubtype::Main => match space {
-                    Space::CompType => {
-                        referenced_comp.component_types.items[idx].collect(idx, collect_ctx, ctx)
-                    }
+                    Space::CompType => referenced_comp.component_types.items.get(idx).collect(
+                        idx,
+                        collect_ctx,
+                        ctx,
+                    ),
                     Space::CompInst => {
-                        referenced_comp.component_instance[idx].collect(idx, collect_ctx, ctx)
+                        referenced_comp
+                            .component_instance
+                            .get(idx)
+                            .collect(idx, collect_ctx, ctx)
                     }
                     Space::CoreInst => {
-                        referenced_comp.instances[idx].collect(idx, collect_ctx, ctx)
+                        referenced_comp
+                            .instances
+                            .get(idx)
+                            .collect(idx, collect_ctx, ctx)
                     }
                     Space::CoreModule => {
-                        referenced_comp.modules[idx].collect(idx, collect_ctx, ctx)
+                        referenced_comp
+                            .modules
+                            .get(idx)
+                            .collect(idx, collect_ctx, ctx)
                     }
                     Space::CoreType => {
-                        referenced_comp.core_types[idx].collect(idx, collect_ctx, ctx)
+                        referenced_comp
+                            .core_types
+                            .get(idx)
+                            .collect(idx, collect_ctx, ctx)
                     }
-                    Space::CompFunc | Space::CoreFunc => {
-                        referenced_comp.canons.items[idx].collect(idx, collect_ctx, ctx)
-                    }
+                    Space::CompFunc | Space::CoreFunc => referenced_comp
+                        .canons
+                        .items
+                        .get(idx)
+                        .collect(idx, collect_ctx, ctx),
                     Space::CompVal
                     | Space::CoreMemory
                     | Space::CoreTable
@@ -464,13 +511,30 @@ fn collect_deps<'a, T: ReferencedIndices + 'a>(
                         "This spaces don't exist in a main vector on the component IR: {vec:?}"
                     ),
                 },
-                SpaceSubtype::Export => referenced_comp.exports[idx].collect(idx, collect_ctx, ctx),
-                SpaceSubtype::Import => referenced_comp.imports[idx].collect(idx, collect_ctx, ctx),
+                SpaceSubtype::Export => {
+                    referenced_comp
+                        .exports
+                        .get(idx)
+                        .collect(idx, collect_ctx, ctx)
+                }
+                SpaceSubtype::Import => {
+                    referenced_comp
+                        .imports
+                        .get(idx)
+                        .collect(idx, collect_ctx, ctx)
+                }
                 SpaceSubtype::Alias => {
-                    referenced_comp.alias.items[idx].collect(idx, collect_ctx, ctx)
+                    referenced_comp
+                        .alias
+                        .items
+                        .get(idx)
+                        .collect(idx, collect_ctx, ctx)
                 }
                 SpaceSubtype::Components => {
-                    referenced_comp.components[idx].collect(idx, collect_ctx, ctx)
+                    referenced_comp
+                        .components
+                        .get(idx)
+                        .collect(idx, collect_ctx, ctx)
                 }
             }
         }
@@ -556,10 +620,10 @@ pub(crate) enum ComponentItem<'a> {
     },
 
     Start {
-        node: *const ComponentStartFunction
+        node: *const ComponentStartFunction,
     },
     CustomSection {
-        node: *const CustomSection<'a>
+        node: *const CustomSection<'a>,
     },
     // ... add others as needed
 }
