@@ -848,10 +848,6 @@ impl IndexSpaceOf for CanonicalFunction {
             CanonicalFunction::Lower { .. } => Space::CoreFunc,
             CanonicalFunction::Lift { .. } => Space::CompFunc,
 
-            // TODO: These actually don't create core functions!
-            // I'm just doing this as a workaround. The core function
-            // is generated IF the IR node is referenced and exported
-            // somehow...
             // Resource-related functions reference a resource type
             CanonicalFunction::ResourceNew { .. }
             | CanonicalFunction::ResourceDrop { .. }
