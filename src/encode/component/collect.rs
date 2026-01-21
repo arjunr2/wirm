@@ -451,7 +451,6 @@ fn collect_deps<'a, T: ReferencedIndices + 'a>(
 ) {
     if let Some(refs) = item.referenced_indices(Depth::default()) {
         for r in refs.as_list().iter() {
-            // println!("\tLooking up: {r:?}");
             let (vec, idx, subidx) = ctx.index_from_assumed_id(r);
             if r.space != Space::CoreType {
                 assert!(

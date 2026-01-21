@@ -93,7 +93,6 @@ pub(crate) fn populate_space_for_comp_ty(
             let section = ComponentSection::ComponentType;
             registry.borrow_mut().register(ty, space_id);
             assert_registered_with_id!(registry, ty, space_id);
-            // println!("\t@parse COMP_TYPE::component ADDR: {:p}\n\t\t{ty:?}", ty);
 
             for (idx, decl) in decls.iter().enumerate() {
                 populate_space_for_comp_ty_comp_decl(
@@ -111,7 +110,6 @@ pub(crate) fn populate_space_for_comp_ty(
             let section = ComponentSection::ComponentType;
             registry.borrow_mut().register(ty, space_id);
             assert_registered_with_id!(registry, ty, space_id);
-            // println!("\t@parse COMP_TYPE::instance ADDR: {:p}\n\t\t{ty:?}", ty);
 
             assert_eq!(space_id, registry.borrow().scope_entry(ty).unwrap().space);
             for (idx, decl) in decls.iter().enumerate() {
@@ -189,7 +187,6 @@ pub(crate) fn populate_space_for_core_ty(
         let section = ComponentSection::CoreType;
         registry.borrow_mut().register(ty, space_id);
         assert_registered_with_id!(registry, ty, space_id);
-        // println!("\t@parse CORE_TYPE ADDR: {:p}", ty);
 
         for (idx, decl) in decls.iter().enumerate() {
             populate_space_for_core_module_decl(idx, &space_id, decl, &section, handle.clone());

@@ -1,4 +1,4 @@
-//! ## Scope Tracking and Stable Component Identity
+//! ## Scope Tracking and Stable Identity
 //!
 //! This module defines the infrastructure used to safely track **nested index
 //! spaces** across parsing, instrumentation, and encoding phases of a
@@ -17,74 +17,122 @@
 //! rely on traversal order alone.
 //!
 //! To address these constraints, this module separates **identity** from
-//! **ownership** using two cooperating abstractions:
+//! **ownership** using a central registry and a small set of carefully enforced
+//! invariants.
+//!
+//! ---
 //!
 //! ### `ScopeRegistry`
 //!
-//! `ScopeRegistry` is a central, shared registry that maps *IR node identity*
-//! to the index scope (`SpaceId`) that the node owns or inhabits. This mapping is
-//! established during parsing and maintained throughout the lifetime of the IR.
+//! `ScopeRegistry` is a shared registry that maps *IR node identity* to the index
+//! scope (`SpaceId`) that the node owns or inhabits. This mapping is established
+//! during parsing and maintained throughout the lifetime of the IR.
 //!
-//! Key properties:
-//! - Index scopes are assigned **once**, during parsing or instrumentation.
-//! - Lookups are performed later, during encoding, using stable identities.
-//! - Nested scopes are resolved dynamically using an explicit **scope stack**
-//!   rather than implicit traversal order.
+//! The registry supports **two identity mechanisms**, depending on the kind of
+//! node being tracked:
 //!
-//! The registry intentionally operates on **raw pointers** (`*const T`) as
-//! identity keys. This is safe under the invariants described below and avoids
-//! coupling scope identity to Rust ownership or borrowing semantics.
+//! #### Component scopes (special-cased)
 //!
-//! ### `ComponentHandle`
+//! Components are identified by a stable `ComponentId`, assigned when the
+//! component is parsed or created. Component scopes are registered and looked
+//! up **by `ComponentId`**, rather than by pointer.
 //!
-//! `ComponentHandle` provides a **stable identity anchor** for a component after
-//! it has been returned to the user. Once parsing completes, the `Component`
-//! itself may be moved, wrapped, or otherwise owned by client code, which would
-//! invalidate pointer-based identity tracking.
+//! This reflects the fact that components:
+//! - May be stored in a central registry
+//! - Are visited via an explicit *component ID stack* during traversal
+//! - Do not rely on memory address stability for identity
 //!
-//! `ComponentHandle` solves this by:
-//! - Owning the `Component` behind an `Rc`
-//! - Providing a stable allocation address for registry lookups
-//! - Allowing internal encode logic to reliably recover the component’s
-//!   associated `SpaceId`
+//! By using `ComponentId` as the identity key, component scope lookup remains
+//! robust even as components are nested, traversed out of order, or referenced
+//! indirectly.
 //!
-//! All other IR nodes remain owned *within* the `Component` and therefore do
-//! not require handles; their addresses remain stable for the lifetime of the
-//! component.
+//! #### All other scoped IR nodes
+//!
+//! All non-component nodes that introduce or inhabit scopes (e.g. component types,
+//! core types, etc.) are tracked using **raw pointers**
+//! (`*const T`) as identity keys.
+//!
+//! These nodes are stored in append-only, stable allocations (`Box<T>`
+//! inside append-only vectors), ensuring that their addresses remain
+//! valid for the lifetime of the component graph.
+//!
+//! Raw pointers are used **only for identity comparison**; they are never
+//! dereferenced.
+//!
+//! ---
+//!
+//! ### Scope Resolution During Encoding
+//!
+//! During encoding, scopes are resolved dynamically using two stacks:
+//!
+//! - A **component ID stack**, tracking which component is currently being
+//!   traversed
+//! - A **scope stack**, tracking nested index spaces within that component
+//!
+//! When an IR node needs to resolve its associated scope:
+//!
+//! - If the node is a component, the current `ComponentId` is used to query the
+//!   registry
+//! - Otherwise, the node’s pointer identity is used to retrieve its `SpaceId`
+//!
+//! This design allows correct resolution of arbitrarily nested constructs such
+//! as deeply nested components, instances, and `(outer ...)` references without
+//! encoding traversal order into the registry itself.
+//!
+//! ---
 //!
 //! ### Safety and Invariants
 //!
 //! This design relies on the following invariants:
 //!
-//! - All IR nodes (except the top-level component) are owned by the `Component`
-//!   and are never moved after parsing.
-//! - The top-level component’s identity is always accessed via
-//!   `ComponentHandle`, never via `&Component`.
+//! - Each component is assigned a unique `ComponentId` that remains stable for
+//!   its lifetime.
+//! - All non-component IR nodes that participate in scoping are allocated in
+//!   stable memory (e.g. boxed and stored in append-only vectors).
+//! - IR nodes are never moved or removed after registration with the
+//!   `ScopeRegistry`.
 //! - `ScopeRegistry` entries are created during parsing and may be extended
 //!   during instrumentation, but are never removed.
-//! - Raw pointer usage is confined to **identity comparison only**; no pointer
+//! - Raw pointer usage is confined strictly to identity comparison; no pointer
 //!   is ever dereferenced.
 //!
-//! These constraints allow the system to use otherwise “dangerous” primitives
-//! (raw pointers, shared mutation) in a controlled and domain-specific way,
-//! trading generality for correctness and debuggability.
+//! These constraints allow the system to use low-level identity mechanisms in a
+//! controlled, domain-specific way while preserving correctness and debuggability.
+//!
+//! ---
 //!
 //! ### Design Tradeoffs
 //!
 //! This approach deliberately favors:
-//! - Explicit scope modeling over implicit traversal
-//! - Stable identity over borrow-driven lifetimes
-//! - Simplicity and traceability over highly generic abstractions
 //!
-//! While this introduces some indirection and bookkeeping, it keeps the encode
-//! logic understandable, debuggable, and resilient to future extensions of the
-//! component model.
+//! - Explicit scope modeling over implicit traversal order
+//! - Stable identity over borrow-driven lifetimes
+//! - Append-only IR construction over in-place mutation
+//!
+//! While this introduces some bookkeeping and indirection, it ensures that index
+//! correctness is enforced structurally and remains robust in the presence of
+//! instrumentation, reordering, and future extensions to the component model.
 //!
 //! In short: **index correctness is enforced structurally, not procedurally**.
 //!
+//! ## Why `ScopeOwnerKind` Exists
+//!
+//! In the IR, multiple wrapper structs may reference the same underlying
+//! scoped node. For example, a user-facing struct might contain a field
+//! pointing to a `CoreType` that is also stored directly in a component's
+//! internal vectors. Without additional tracking, the scope resolution logic
+//! would see two references to the same pointer and mistakenly treat them as
+//! separate scopes.
+//!
+//! `ScopeOwnerKind` is used to **disambiguate these cases**. Each node in the
+//! scope registry records whether it is:
+//! - An **original owner** of the scope (the canonical IR node), or
+//! - A **derived/alias** that references an existing scope
+//!
+//! This ensures that the same scope is **never entered twice**, preventing
+//! double-counting or incorrect index resolution during encoding.
 
 use crate::ir::component::idx_spaces::SpaceId;
-// use crate::ir::component::ComponentHandle;
 use crate::ir::id::ComponentId;
 use crate::ir::types::CustomSection;
 use crate::{Component, Module};
@@ -102,43 +150,93 @@ use wasmparser::{
     VariantCase,
 };
 
-/// A shared registry that maps IR node identity to the index scope it owns.
+/// ## Scope Tracking and Index Resolution
 ///
-/// `ScopeRegistry` records the `SpaceId` associated with IR nodes that introduce
-/// or participate in nested index spaces (e.g. components, instances, and
-/// component types). Entries are created during parsing and may be extended
-/// during instrumentation, then consulted during encoding to correctly resolve
-/// scoped indices such as `(outer ...)` references.
+/// WebAssembly components introduce **nested index spaces**: components may
+/// contain subcomponents, instances, types, and other constructs that define
+/// their own indices. Inner scopes may also reference indices defined in
+/// enclosing scopes via `(outer ...)`.
 ///
-/// The registry uses **raw pointer identity** (`*const T`) as lookup keys. This
-/// is safe under the invariant that all registered nodes have stable addresses
-/// for the lifetime of the component, and that pointers are never dereferenced—
-/// only compared for identity.
+/// Because this crate supports **instrumentation and transformation** of
+/// components, the order in which the IR is visited and encoded may differ from
+/// the original parse order. As a result, index resolution cannot rely on
+/// traversal order alone.
 ///
-/// This design decouples scope resolution from traversal order, allowing IR
-/// instrumentation to visit and encode nodes in arbitrary order while still
-/// producing correct index mappings.
+/// This module provides the infrastructure that ensures **correct and stable
+/// index resolution** across parsing, instrumentation, and encoding.
 ///
-/// # Debugging tips
+/// ---
 ///
-/// If a scope lookup fails (e.g. `scope_entry(...)` returns `None`):
+/// ### The Core Idea
 ///
-/// * **Check pointer identity**: ensure the same node instance is used for both
-///   registration and lookup. Lookups must use the exact allocation that was
-///   registered (for example, `Rc<Component>` vs `Component` will not match).
+/// Each IR node that participates in indexing is associated with a logical
+/// **scope**. These associations are recorded once and later queried during
+/// encoding.
 ///
-/// * **Verify registration timing**: the node must be registered *after* it is
-///   fully constructed and before any encode-time lookups occur.
+/// The system guarantees that:
 ///
-/// * **Confirm ownership invariants**: only nodes owned by the `Component`
-///   should be registered. Moving a node out of the component or cloning it
-///   will invalidate pointer-based lookups.
+/// - Index scopes are assigned explicitly, not inferred from traversal order
+/// - Nested scopes are resolved correctly, even under reordering or
+///   instrumentation
+/// - Encoding always uses the correct index space for the node being emitted
 ///
-/// * **Log addresses**: printing `{:p}` for the registered pointer and the
-///   lookup pointer is often the fastest way to identify mismatches.
+/// ---
 ///
-/// These failures usually indicate a violation of the registry’s ownership or
-/// lifetime assumptions rather than a logic error in index assignment itself.
+/// ### Component Scopes
+///
+/// Components are identified by a stable **component ID** assigned when the
+/// component is created or parsed.
+///
+/// Component scopes are registered and resolved using this ID rather than by
+/// memory identity. During traversal, encoding maintains a **stack of component
+/// IDs** representing the current nesting of components.
+///
+/// This makes component scope resolution:
+///
+/// - Independent of ownership or storage layout
+/// - Robust to reordering and nested traversal
+/// - Explicit and easy to reason about
+///
+/// ---
+///
+/// ### Scopes Within Components
+///
+/// All other scoped IR nodes—such as instances, type declarations, aliases, and
+/// similar constructs—are associated with scopes relative to their enclosing
+/// component.
+///
+/// During encoding, a **scope stack** tracks the currently active index spaces
+/// as traversal enters and exits nested constructs. When an IR node needs to
+/// resolve an index, its associated scope is retrieved and interpreted relative
+/// to the current stack.
+///
+/// This allows deeply nested structures and `(outer ...)` references to be
+/// encoded correctly without baking traversal assumptions into the IR.
+///
+/// ---
+///
+/// ### What This Enables
+///
+/// This design ensures that:
+///
+/// - Instrumentation can reorder or inject IR nodes without breaking index
+///   correctness
+/// - Encoding logic remains simple and declarative
+/// - Index resolution remains correct for arbitrarily nested components
+///
+/// Users of the library do not need to manage scopes manually—scope tracking is
+/// handled transparently as part of parsing and encoding.
+///
+/// ---
+///
+/// ### Design Philosophy
+///
+/// The scope system is intentionally explicit and conservative. Rather than
+/// inferring meaning from traversal order, it records the structure of index
+/// spaces directly and resolves them mechanically at encode time.
+///
+/// In short: **index correctness is enforced structurally, not procedurally**.
+/// ```
 #[derive(Default, Debug)]
 pub(crate) struct IndexScopeRegistry {
     pub(crate) node_scopes: HashMap<NonNull<()>, ScopeEntry>,
@@ -214,11 +312,6 @@ impl GetScopeKind for Component<'_> {
         ScopeOwnerKind::Component
     }
 }
-// impl GetScopeKind for ComponentHandle<'_> {
-//     fn scope_kind(&self) -> ScopeOwnerKind {
-//         ScopeOwnerKind::Component
-//     }
-// }
 impl GetScopeKind for CoreType<'_> {
     fn scope_kind(&self) -> ScopeOwnerKind {
         match self {
@@ -315,7 +408,6 @@ pub struct ComponentStore<'a> {
 impl<'a> ComponentStore<'a> {
     pub fn get(&self, id: &ComponentId) -> &'a Component<'a> {
         self.components.get(id).unwrap()
-        // unsafe { ptr.cast::<Component<'a>>().as_ref() }
     }
 }
 

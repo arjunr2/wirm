@@ -207,30 +207,6 @@ impl<'b> Instrumenter<'b> for ComponentIterator<'_, 'b> {
                 l.body.instructions.finish_instr(instr_idx);
             }
         };
-        // if let (
-        //     Location::Component {
-        //         mod_idx,
-        //         func_idx,
-        //         instr_idx,
-        //         ..
-        //     },
-        //     ..,
-        // ) = self.comp_iterator.curr_loc()
-        // {
-        //     match &mut self.comp.modules[*mod_idx as usize]
-        //         .functions
-        //         .get_mut(func_idx)
-        //         .kind
-        //     {
-        //         FuncKind::Import(_) => panic!("Can't inject into an imported function!"),
-        //         FuncKind::Local(l) => {
-        //             l.instr_flag.finish_instr();
-        //             l.body.instructions.finish_instr(instr_idx);
-        //         }
-        //     }
-        // } else {
-        //     panic!("Should have gotten Component Location and not Module Location!")
-        // }
     }
 
     /// Returns the Instrumentation at the current Location
@@ -287,26 +263,6 @@ impl<'b> Instrumenter<'b> for ComponentIterator<'_, 'b> {
         } else {
             panic!("Should have gotten component location!")
         }
-        // if let Location::Component {
-        //     mod_idx,
-        //     func_idx,
-        //     instr_idx,
-        //     ..
-        // } = loc
-        // {
-        //     match self.comp.modules[*mod_idx as usize]
-        //         .functions
-        //         .get_mut(func_idx)
-        //         .kind
-        //     {
-        //         FuncKind::Import(_) => panic!("Can't instrument into an imported function!"),
-        //         FuncKind::Local(ref mut l) => {
-        //             l.body.instructions.set_current_mode(instr_idx, mode);
-        //         }
-        //     }
-        // } else {
-        //     panic!("Should have gotten component location!")
-        // }
     }
 
     fn curr_func_instrument_mode(&self) -> &Option<FuncInstrMode> {
