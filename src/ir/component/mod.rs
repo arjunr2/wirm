@@ -1,7 +1,6 @@
 #![allow(clippy::mut_range_bound)] // see https://github.com/rust-lang/rust-clippy/issues/6072
 //! Intermediate Representation of a wasm component.
 
-use crate::assert_registered_with_id;
 use crate::encode::component::encode;
 use crate::error::Error;
 use crate::ir::component::alias::Aliases;
@@ -10,10 +9,7 @@ use crate::ir::component::idx_spaces::{
     Depth, IndexSpaceOf, IndexStore, ReferencedIndices, Space, SpaceId, SpaceSubtype, StoreHandle,
 };
 use crate::ir::component::scopes::{IndexScopeRegistry, RegistryHandle};
-use crate::ir::component::section::{
-    get_sections_for_comp_ty, get_sections_for_core_ty_and_assign_top_level_ids,
-    populate_space_for_comp_ty, populate_space_for_core_ty, ComponentSection,
-};
+use crate::ir::component::section::{get_sections_for_comp_ty, get_sections_for_core_ty_and_assign_top_level_ids, ComponentSection, populate_space_for_comp_ty, populate_space_for_core_ty};
 use crate::ir::component::types::ComponentTypes;
 use crate::ir::helpers::{
     print_alias, print_component_export, print_component_import, print_component_type,
@@ -29,7 +25,6 @@ use crate::ir::module::Module;
 use crate::ir::types::CustomSections;
 use crate::ir::wrappers::add_to_namemap;
 use std::cell::RefCell;
-use std::ops::Deref;
 use std::rc::Rc;
 use wasmparser::{
     CanonicalFunction, ComponentAlias, ComponentExport, ComponentFuncType, ComponentImport,
@@ -44,261 +39,21 @@ pub mod scopes;
 pub(crate) mod section;
 mod types;
 
-/// A stable handle identifying a parsed WebAssembly component.
-///
-/// `ComponentHandle` represents the identity of a component across parsing,
-/// instrumentation, and encoding phases. It exists to support advanced
-/// instrumentation and encoding logic where component identity must remain
-/// stable even if the component value itself is moved or wrapped by the user.
-///
-/// Most users will not need to interact with this type directly; it is primarily
-/// used by APIs that perform structural transformations or encoding.
-///
-/// The handle does **not** grant ownership or mutation access to the component.
-/// It exists solely to preserve identity across phases.
-#[derive(Clone, Debug)]
-pub struct ComponentHandle<'a> {
-    // TODO: Maybe I can just override scope lookups for components using a saved
-    //       component ID on the IR node? Like, that's the only one with the diff
-    //       behavior? I _think_ that'd let me avoid this ComponentHandle wrapper
-    //       nonsense that's mucking up the public API.
-    inner: Rc<Component<'a>>,
-}
-impl<'a> ComponentHandle<'a> {
-    pub fn new(inner: Rc<Component<'a>>) -> Self {
-        Self { inner }
-    }
-
-    /// Emit the Component into a wasm binary file.
-    pub fn emit_wasm(&mut self, file_name: &str) -> Result<(), std::io::Error> {
-        let wasm = self.encode();
-        std::fs::write(file_name, wasm)?;
-        Ok(())
-    }
-
-    pub fn encode(&self) -> Vec<u8> {
-        assert_registered_with_id!(self.inner.scope_registry, &*self.inner, self.inner.space_id);
-        self.inner.encode()
-    }
-
-    /// Mutably access the entire underlying [`Component`] in a controlled scope.
-    ///
-    /// This is the lowest-level mutation API on [`ComponentHandle`]. It grants
-    /// temporary, exclusive mutable access to the underlying component and applies
-    /// the provided closure to it.
-    ///
-    /// ## Why this exists
-    ///
-    /// The component is internally reference-counted to support stable identity
-    /// (used for scope registration and lookup). As a result, direct mutable access
-    /// is only possible when the component is uniquely owned.
-    ///
-    /// This method:
-    ///
-    /// * Enforces **exclusive ownership** at the time of mutation
-    /// * Prevents mutable references from escaping the call
-    /// * Centralizes the ownership check in one place
-    ///
-    /// Higher-level helpers such as [`mut_module_at`] and [`mut_component_at`] are
-    /// built on top of this pattern and should be preferred when possible.
-    ///
-    /// ## Panics
-    ///
-    /// Panics if the component is shared (i.e. there is more than one owner).
-    /// Instrumentation requires exclusive access.
-    ///
-    /// ## Example
-    ///
-    /// ```rust,ignore
-    /// // Rename the component
-    /// handle.mutate(|comp| {
-    ///     comp.component_name = Some("instrumented".into());
-    /// });
-    /// ```
-    ///
-    /// ## Notes
-    ///
-    /// * The mutable borrow of the component is limited to the duration of the closure.
-    /// * Do not store references to the component outside the closure.
-    /// * Prefer more specific mutation helpers when available.
-    pub fn mutate<F, R>(&mut self, f: F) -> R
-    where
-        F: for<'b> FnOnce(&'b mut Component<'a>) -> R,
-    {
-        let comp =
-            Rc::get_mut(&mut self.inner).expect("Cannot mutably access Component: it is shared");
-        f(comp)
-    }
-
-    /// Mutably access a specific core module within this component.
-    ///
-    /// This method provides scoped mutable access to a single [`Module`] identified
-    /// by index, without exposing the rest of the component to mutation.
-    ///
-    /// ## Why this exists
-    ///
-    /// Many instrumentation passes operate at the module level. This helper:
-    ///
-    /// * Avoids borrowing the entire component mutably
-    /// * Prevents accidental cross-module mutation
-    /// * Keeps mutations localized and easier to reason about
-    ///
-    /// Like all mutation APIs on [`ComponentHandle`], access is only permitted when
-    /// the component is uniquely owned.
-    ///
-    /// ## Panics
-    ///
-    /// Panics if the component is shared or if `idx` is out of bounds.
-    ///
-    /// ## Example
-    ///
-    /// ```rust,ignore
-    /// // Add a `nop` instruction to start of the first module's first function.
-    /// handle.mut_module_at(0, |module| {
-    ///     module.functions.get_mut(0).unwrap_local().add_instr(
-    ///         Operator::Nop,
-    ///         0
-    ///     );
-    /// });
-    /// ```
-    ///
-    /// ## Notes
-    ///
-    /// * The module reference cannot escape the closure.
-    /// * If you need to mutate multiple modules, call this method multiple times.
-    /// * For structural changes to the component itself, use [`mutate`].
-    pub fn mut_module_at<F, R>(&mut self, idx: usize, f: F) -> R
-    where
-        F: FnOnce(&mut Module) -> R,
-    {
-        let comp =
-            Rc::get_mut(&mut self.inner).expect("Cannot mutably access Component: it is shared");
-        f(&mut comp.modules[idx])
-    }
-
-    /// Mutably access a nested component within this component.
-    ///
-    /// This method provides scoped mutable access to an inner [`ComponentHandle`]
-    /// by index, enabling recursive instrumentation of nested components.
-    ///
-    /// ## Why this exists
-    ///
-    /// Components may contain other components, each with their own index spaces
-    /// and scopes. This helper:
-    ///
-    /// * Preserves component identity and scope registration
-    /// * Enables safe, recursive traversal and mutation
-    /// * Avoids exposing raw mutable access to internal structures
-    ///
-    /// Each nested component is still subject to the same ownership rules as the
-    /// outer component.
-    ///
-    /// ## Panics
-    ///
-    /// Panics if the component is shared or if `idx` is out of bounds.
-    ///
-    /// ## Example
-    ///
-    /// ```rust,ignore
-    /// // Instrument a nested component
-    /// handle.mut_component_at(0, |child| {
-    ///     child.mutate(|comp| {
-    ///         comp.component_name = Some("child".into());
-    ///     });
-    /// });
-    /// ```
-    ///
-    /// ## Notes
-    ///
-    /// * The nested component is accessed through its own [`ComponentHandle`].
-    /// * This preserves invariants around scope registration and index spaces.
-    /// * Mutations must remain within the closure.
-    pub fn mut_component_at<F, R>(&mut self, idx: usize, f: F) -> R
-    where
-        F: FnOnce(&mut ComponentHandle) -> R,
-    {
-        let comp =
-            Rc::get_mut(&mut self.inner).expect("Cannot mutably access Component: it is shared");
-        f(&mut comp.components[idx])
-    }
-
-    /// Mutably access a single instance within this component and apply a scoped mutation.
-    ///
-    /// This method provides controlled mutable access to an [`Instance`] without exposing
-    /// long-lived mutable borrows of the underlying [`Component`]. The mutation is performed
-    /// by invoking the provided closure on the selected instance.
-    ///
-    /// ## Why this API exists
-    ///
-    /// Instances inside a component may contain references with lifetimes tied to the
-    /// component itself (for example, borrowed strings parsed from the original binary).
-    /// Allowing callers to obtain `&mut Instance` directly would permit those references
-    /// to escape, which is unsound and rejected by the Rust compiler.
-    ///
-    /// To prevent this, the closure is required to be valid for **any** borrow lifetime.
-    /// This guarantees that:
-    ///
-    /// * The mutable reference to the instance **cannot escape** the closure
-    /// * The instance **cannot be stored or returned**
-    /// * All mutations are strictly **local and scoped**
-    ///
-    /// This pattern is intentionally used to support safe IR instrumentation while
-    /// preserving internal invariants.
-    ///
-    /// ## Panics
-    ///
-    /// Panics if the underlying component is shared (i.e. if there are multiple owners).
-    /// Instrumentation requires exclusive access to the component.
-    ///
-    /// ## Example
-    ///
-    /// ```rust,ignore
-    /// // Append an instantiation argument to a specific instance
-    /// wasm.mut_instance_at(0, |inst| {
-    ///     if let Instance::Instantiate { args, .. } = inst {
-    ///         args.push(InstantiationArg {
-    ///             name: "my_lib",
-    ///             kind: InstantiationArgKind::Instance,
-    ///             index: 3,
-    ///         });
-    ///     }
-    /// });
-    /// ```
-    ///
-    /// ## Notes for users
-    ///
-    /// * You cannot return the instance or store references to it outside the closure.
-    /// * This is by design and enforced at compile time.
-    /// * If you need to perform multiple mutations, do so within the same closure.
-    ///
-    /// This API is part of the library’s commitment to **safe, structured instrumentation**
-    /// of component IR without relying on runtime borrow checking or unsafe code.
-    pub fn mut_instance_at<F>(&mut self, i: usize, f: F)
-    where
-        F: for<'b> FnOnce(&'b mut Instance<'a>),
-    {
-        let comp =
-            Rc::get_mut(&mut self.inner).expect("Cannot mutably access Component: it is shared");
-
-        f(&mut comp.instances[i]);
-    }
-}
-impl<'a> Deref for ComponentHandle<'a> {
-    type Target = Component<'a>;
-    fn deref(&self) -> &Component<'a> {
-        &self.inner
-    }
-}
-
 #[derive(Debug)]
 /// Intermediate Representation of a wasm component.
 pub struct Component<'a> {
+    // TODO: Lock down capabilities of instrumentation here, APPEND-ONLY vectors
+    //       Don't even use Vec<Node> --> use Vec<Box<Node>>!!
+
     pub id: ComponentId,
     /// Nested Components
-    pub components: Vec<ComponentHandle<'a>>,
+    // These have scopes, but the scopes are looked up by ComponentId
+    pub components: Vec<Component<'a>>,
     /// Modules
+    // These have scopes, but they aren't handled by component encoding logic
     pub modules: Vec<Module<'a>>,
     /// Component Types
+    // These can have scopes and need to be looked up by a pointer to the IR node --> Box the value!
     pub component_types: ComponentTypes<'a>,
     /// Component Instances
     pub component_instance: Vec<ComponentInstance<'a>>,
@@ -313,7 +68,8 @@ pub struct Component<'a> {
     pub exports: Vec<ComponentExport<'a>>,
 
     /// Core Types
-    pub core_types: Vec<CoreType<'a>>,
+    // These can have scopes and need to be looked up by a pointer to the IR node --> Box the value!
+    pub core_types: Vec<Box<CoreType<'a>>>,
     /// Core Instances
     pub instances: Vec<Instance<'a>>,
 
@@ -350,9 +106,11 @@ pub struct Component<'a> {
 }
 
 impl<'a> Component<'a> {
-    /// Creates a new Empty Component
-    pub fn new(component: Self) -> ComponentHandle<'a> {
-        ComponentHandle::new(Rc::new(component))
+    /// Emit the Component into a wasm binary file.
+    pub fn emit_wasm(&mut self, file_name: &str) -> Result<(), std::io::Error> {
+        let wasm = self.encode();
+        std::fs::write(file_name, wasm)?;
+        Ok(())
     }
 
     fn add_section(&mut self, space: Space, sect: ComponentSection, idx: usize) -> usize {
@@ -508,7 +266,7 @@ impl<'a> Component<'a> {
         wasm: &'_ [u8],
         enable_multi_memory: bool,
         with_offsets: bool,
-    ) -> Result<ComponentHandle<'_>, Error> {
+    ) -> Result<Component<'_>, Error> {
         let parser = Parser::new(0);
 
         let registry = IndexScopeRegistry::default();
@@ -527,11 +285,6 @@ impl<'a> Component<'a> {
             Rc::new(RefCell::new(store)),
             &mut next_comp_id,
         );
-        //
-        // if let Ok(comp) = &res {
-        //     comp.scope_registry.borrow_mut().register(&comp.inner, space_id, ScopeOwnerKind::Component);
-        //     assert_eq!(comp.space_id, comp.scope_registry.borrow().scope_entry(&comp.inner).unwrap().space);
-        // }
         res
     }
 
@@ -546,7 +299,7 @@ impl<'a> Component<'a> {
         registry_handle: RegistryHandle,
         store_handle: StoreHandle,
         next_comp_id: &mut u32,
-    ) -> Result<ComponentHandle<'a>, Error> {
+    ) -> Result<Component<'a>, Error> {
         let my_comp_id = ComponentId(*next_comp_id);
         *next_comp_id += 1;
 
@@ -562,7 +315,7 @@ impl<'a> Component<'a> {
         let mut custom_sections = vec![];
         let mut sections = vec![];
         let mut num_sections: usize = 0;
-        let mut components: Vec<ComponentHandle> = vec![];
+        let mut components = vec![];
         let mut start_section = vec![];
         let mut stack = vec![];
 
@@ -594,7 +347,7 @@ impl<'a> Component<'a> {
             }
             match payload {
                 Payload::ComponentImportSection(import_section_reader) => {
-                    let temp: &mut Vec<ComponentImport> = &mut import_section_reader
+                    let mut temp: Vec<ComponentImport> = import_section_reader
                         .into_iter()
                         .collect::<Result<_, _>>()?;
                     let l = temp.len();
@@ -605,7 +358,7 @@ impl<'a> Component<'a> {
                         imports.len(),
                         &new_sections,
                     );
-                    imports.append(temp);
+                    imports.append(&mut temp);
                     Self::add_to_sections(
                         false,
                         &mut sections,
@@ -615,7 +368,7 @@ impl<'a> Component<'a> {
                     );
                 }
                 Payload::ComponentExportSection(export_section_reader) => {
-                    let temp: &mut Vec<ComponentExport> = &mut export_section_reader
+                    let mut temp: Vec<ComponentExport> = export_section_reader
                         .into_iter()
                         .collect::<Result<_, _>>()?;
                     let l = temp.len();
@@ -626,7 +379,7 @@ impl<'a> Component<'a> {
                         exports.len(),
                         &new_sections,
                     );
-                    exports.append(temp);
+                    exports.append(&mut temp);
                     Self::add_to_sections(
                         false,
                         &mut sections,
@@ -636,7 +389,7 @@ impl<'a> Component<'a> {
                     );
                 }
                 Payload::InstanceSection(instance_section_reader) => {
-                    let temp: &mut Vec<Instance> = &mut instance_section_reader
+                    let mut temp: Vec<Instance> = instance_section_reader
                         .into_iter()
                         .collect::<Result<_, _>>()?;
                     let l = temp.len();
@@ -647,7 +400,7 @@ impl<'a> Component<'a> {
                         instances.len(),
                         &new_sections,
                     );
-                    instances.append(temp);
+                    instances.append(&mut temp);
                     Self::add_to_sections(
                         false,
                         &mut sections,
@@ -657,12 +410,14 @@ impl<'a> Component<'a> {
                     );
                 }
                 Payload::CoreTypeSection(core_type_reader) => {
-                    let temp: &mut Vec<CoreType> =
-                        &mut core_type_reader.into_iter().collect::<Result<_, _>>()?;
+                    let mut temp: Vec<Box<CoreType>> = core_type_reader
+                        .into_iter()
+                        .map(|res| res.map(Box::new))
+                        .collect::<Result<_, _>>()?;
 
                     let old_len = core_types.len();
                     let l = temp.len();
-                    core_types.append(temp);
+                    core_types.append(&mut temp);
 
                     let mut new_sects = vec![];
                     let mut has_subscope = false;
@@ -678,13 +433,6 @@ impl<'a> Component<'a> {
                         new_sects.push(new_sect);
                     }
 
-                    // TODO: Properly populate the index space for rec groups!
-                    // store_handle.borrow_mut().assign_assumed_id_for(
-                    //     &space_id,
-                    //     &core_types[old_len..].to_vec(),
-                    //     old_len,
-                    //     &new_sects,
-                    // );
                     Self::add_to_sections(
                         has_subscope,
                         &mut sections,
@@ -694,13 +442,14 @@ impl<'a> Component<'a> {
                     );
                 }
                 Payload::ComponentTypeSection(component_type_reader) => {
-                    let temp: &mut Vec<ComponentType> = &mut component_type_reader
+                    let mut temp: Vec<Box<ComponentType>> = component_type_reader
                         .into_iter()
+                        .map(|res| res.map(Box::new))
                         .collect::<Result<_, _>>()?;
 
                     let old_len = component_types.len();
                     let l = temp.len();
-                    component_types.append(temp);
+                    component_types.append(&mut temp);
 
                     let mut new_sects = vec![];
                     let mut has_subscope = false;
@@ -710,7 +459,7 @@ impl<'a> Component<'a> {
                         new_sects.push(new_sect);
                     }
 
-                    store_handle.borrow_mut().assign_assumed_id_for(
+                    store_handle.borrow_mut().assign_assumed_id_for_boxed(
                         &space_id,
                         &component_types[old_len..].to_vec(),
                         old_len,
@@ -725,8 +474,9 @@ impl<'a> Component<'a> {
                     );
                 }
                 Payload::ComponentInstanceSection(component_instances) => {
-                    let temp: &mut Vec<ComponentInstance> =
-                        &mut component_instances.into_iter().collect::<Result<_, _>>()?;
+                    let mut temp: Vec<ComponentInstance> = component_instances
+                        .into_iter()
+                        .collect::<Result<_, _>>()?;
                     let l = temp.len();
                     let new_sections = vec![ComponentSection::ComponentInstance; l];
                     store_handle.borrow_mut().assign_assumed_id_for(
@@ -735,7 +485,7 @@ impl<'a> Component<'a> {
                         component_instance.len(),
                         &new_sections,
                     );
-                    component_instance.append(temp);
+                    component_instance.append(&mut temp);
                     Self::add_to_sections(
                         false,
                         &mut sections,
@@ -745,8 +495,9 @@ impl<'a> Component<'a> {
                     );
                 }
                 Payload::ComponentAliasSection(alias_reader) => {
-                    let temp: &mut Vec<ComponentAlias> =
-                        &mut alias_reader.into_iter().collect::<Result<_, _>>()?;
+                    let mut temp: Vec<ComponentAlias> = alias_reader
+                        .into_iter()
+                        .collect::<Result<_, _>>()?;
                     let l = temp.len();
                     let new_sections = vec![ComponentSection::Alias; l];
                     store_handle.borrow_mut().assign_assumed_id_for(
@@ -755,7 +506,7 @@ impl<'a> Component<'a> {
                         alias.len(),
                         &new_sections,
                     );
-                    alias.append(temp);
+                    alias.append(&mut temp);
                     Self::add_to_sections(
                         false,
                         &mut sections,
@@ -765,8 +516,9 @@ impl<'a> Component<'a> {
                     );
                 }
                 Payload::ComponentCanonicalSection(canon_reader) => {
-                    let temp: &mut Vec<CanonicalFunction> =
-                        &mut canon_reader.into_iter().collect::<Result<_, _>>()?;
+                    let mut temp: Vec<CanonicalFunction> = canon_reader
+                        .into_iter()
+                        .collect::<Result<_, _>>()?;
                     let l = temp.len();
                     let new_sections = vec![ComponentSection::Canon; l];
                     store_handle.borrow_mut().assign_assumed_id_for(
@@ -775,7 +527,7 @@ impl<'a> Component<'a> {
                         canons.len(),
                         &new_sections,
                     );
-                    canons.append(temp);
+                    canons.append(&mut temp);
                     Self::add_to_sections(
                         false,
                         &mut sections,
@@ -930,9 +682,11 @@ impl<'a> Component<'a> {
 
         // Scope discovery
         for comp in &components {
+            let comp_id = comp.id;
             let sub_space_id = comp.space_id;
-            registry_handle.borrow_mut().register(comp, sub_space_id);
-            assert_registered_with_id!(registry_handle, comp, sub_space_id);
+            registry_handle
+                .borrow_mut()
+                .register_comp(comp_id, sub_space_id);
         }
         for ty in &core_types {
             populate_space_for_core_ty(ty, registry_handle.clone(), store_handle.clone());
@@ -941,7 +695,7 @@ impl<'a> Component<'a> {
             populate_space_for_comp_ty(ty, registry_handle.clone(), store_handle.clone());
         }
 
-        let comp_rc = Rc::new(Component {
+        let comp = Component {
             id: my_comp_id,
             modules,
             alias: Aliases::new(alias),
@@ -959,7 +713,6 @@ impl<'a> Component<'a> {
             sections,
             start_section,
             num_sections,
-            // interned_strs: vec![],
             component_name,
             core_func_names,
             global_names,
@@ -975,25 +728,13 @@ impl<'a> Component<'a> {
             func_names,
             components,
             value_names,
-        });
+        };
 
-        comp_rc
-            .scope_registry
+        comp.scope_registry
             .borrow_mut()
-            .register(&*comp_rc, space_id);
-        let handle = ComponentHandle::new(comp_rc);
-        assert_eq!(
-            handle.inner.space_id,
-            handle
-                .inner
-                .scope_registry
-                .borrow()
-                .scope_entry(&*handle.inner)
-                .unwrap()
-                .space
-        );
+            .register_comp(my_comp_id, space_id);
 
-        Ok(handle)
+        Ok(comp)
     }
 
     /// Encode a `Component` to bytes.
@@ -1008,14 +749,14 @@ impl<'a> Component<'a> {
     /// let mut comp = Component::parse(&buff, false, false).unwrap();
     /// let result = comp.encode();
     /// ```
-    fn encode(&self) -> Vec<u8> {
+    pub fn encode(&self) -> Vec<u8> {
         encode(&self)
     }
 
     pub fn get_type_of_exported_lift_func(
         &self,
         export_id: ComponentExportId,
-    ) -> Option<&ComponentType<'a>> {
+    ) -> Option<&Box<ComponentType<'a>>> {
         let mut store = self.index_store.borrow_mut();
         if let Some(export) = self.exports.get(*export_id as usize) {
             if let Some(refs) = export.referenced_indices(Depth::default()) {

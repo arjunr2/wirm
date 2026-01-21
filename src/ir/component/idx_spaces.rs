@@ -96,6 +96,16 @@ impl IndexStore {
         self.get_mut(id)
             .assign_assumed_id_for(items, curr_idx, sections)
     }
+    pub fn assign_assumed_id_for_boxed<I: Debug + IndexSpaceOf>(
+        &mut self,
+        id: &SpaceId,
+        items: &Vec<Box<I>>,
+        curr_idx: usize,
+        sections: &Vec<ComponentSection>,
+    ) {
+        self.get_mut(id)
+            .assign_assumed_id_for_boxed(items, curr_idx, sections)
+    }
     fn use_next_id(&mut self) -> SpaceId {
         let next = self.next_id;
         self.next_id += 1;
@@ -227,6 +237,17 @@ impl IndexScope {
     pub fn assign_assumed_id_for<I: Debug + IndexSpaceOf>(
         &mut self,
         items: &Vec<I>,
+        curr_idx: usize,
+        sections: &Vec<ComponentSection>, // one per item
+    ) {
+        debug_assert_eq!(items.len(), sections.len());
+        for ((i, item), section) in items.iter().enumerate().zip(sections) {
+            self.assign_assumed_id(&item.index_space_of(), section, curr_idx + i);
+        }
+    }
+    pub fn assign_assumed_id_for_boxed<I: Debug + IndexSpaceOf>(
+        &mut self,
+        items: &Vec<Box<I>>,
         curr_idx: usize,
         sections: &Vec<ComponentSection>, // one per item
     ) {

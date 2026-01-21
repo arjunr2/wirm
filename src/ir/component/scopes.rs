@@ -84,7 +84,7 @@
 //!
 
 use crate::ir::component::idx_spaces::SpaceId;
-use crate::ir::component::ComponentHandle;
+// use crate::ir::component::ComponentHandle;
 use crate::ir::id::ComponentId;
 use crate::ir::types::CustomSection;
 use crate::{Component, Module};
@@ -142,14 +142,25 @@ use wasmparser::{
 #[derive(Default, Debug)]
 pub(crate) struct IndexScopeRegistry {
     pub(crate) node_scopes: HashMap<NonNull<()>, ScopeEntry>,
+    pub(crate) comp_scopes: HashMap<ComponentId, SpaceId>,
 }
 impl IndexScopeRegistry {
     pub fn register<T: GetScopeKind>(&mut self, node: &T, space: SpaceId) {
         let ptr = NonNull::from(node).cast::<()>();
         let kind = node.scope_kind();
-        assert_ne!(kind, ScopeOwnerKind::Unregistered);
+        debug_assert_ne!(
+            kind,
+            ScopeOwnerKind::Unregistered,
+            "attempted to register an unscoped node"
+        );
 
-        self.node_scopes.insert(ptr, ScopeEntry { space, kind });
+        let old = self.node_scopes.insert(ptr, ScopeEntry { space, kind });
+
+        debug_assert!(
+            old.is_none(),
+            "node registered twice: {:p}",
+            node
+        );
     }
 
     pub fn scope_entry<T: GetScopeKind>(&self, node: &T) -> Option<ScopeEntry> {
@@ -161,6 +172,12 @@ impl IndexScopeRegistry {
             }
         }
         None
+    }
+    pub fn register_comp(&mut self, comp_id: ComponentId, space: SpaceId) {
+        self.comp_scopes.insert(comp_id, space);
+    }
+    pub fn scope_of_comp(&self, comp_id: ComponentId) -> Option<SpaceId> {
+        self.comp_scopes.get(&comp_id).copied()
     }
 }
 
@@ -191,23 +208,6 @@ pub enum ScopeOwnerKind {
     Unregistered,
 }
 
-// impl ScopeOwnerKind {
-//     pub(crate) fn from_section(value: &ComponentSection) -> Option<Self> {
-//         match value {
-//             ComponentSection::Component => Some(Self::Component),
-//             ComponentSection::ComponentInstance
-//             | ComponentSection::CoreType
-//             | ComponentSection::ComponentImport
-//             | ComponentSection::ComponentExport
-//             | ComponentSection::CoreInstance
-//             | ComponentSection::Canon
-//             | ComponentSection::Alias
-//             | ComponentSection::CustomSection
-//             | ComponentSection::ComponentStartSection => None
-//         }
-//     }
-// }
-
 pub trait GetScopeKind {
     fn scope_kind(&self) -> ScopeOwnerKind {
         ScopeOwnerKind::Unregistered
@@ -218,11 +218,11 @@ impl GetScopeKind for Component<'_> {
         ScopeOwnerKind::Component
     }
 }
-impl GetScopeKind for ComponentHandle<'_> {
-    fn scope_kind(&self) -> ScopeOwnerKind {
-        ScopeOwnerKind::Component
-    }
-}
+// impl GetScopeKind for ComponentHandle<'_> {
+//     fn scope_kind(&self) -> ScopeOwnerKind {
+//         ScopeOwnerKind::Component
+//     }
+// }
 impl GetScopeKind for CoreType<'_> {
     fn scope_kind(&self) -> ScopeOwnerKind {
         match self {

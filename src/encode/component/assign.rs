@@ -90,26 +90,20 @@ use wasmparser::{
 pub(crate) fn assign_indices(
     plan: &mut ComponentPlan,
     ctx: &mut EncodeCtx,
-    // space_stack: &mut SpaceStack,
-    // registry: RegistryHandle,
-    // store: StoreHandle,
 ) {
     for item in &mut plan.items {
-        // println!("{item:?} Assigning!");
         match item {
             ComponentItem::Component {
                 node,
                 plan: subplan,
-                // space_id: sub_space_id,
                 idx,
-            } => {
+            } => unsafe {
                 let ptr: &Component = &**node;
 
-                // CREATES A NEW IDX SPACE SCOPE
                 // Visit this component's internals
-                let subscope_entry = ctx.registry.borrow().scope_entry(ptr).unwrap();
-                ctx.store.borrow_mut().reset_ids(&subscope_entry.space);
-                ctx.space_stack.enter_space(subscope_entry.space);
+                let scope_id = ctx.registry.borrow().scope_of_comp(ptr.id).unwrap();
+                ctx.store.borrow_mut().reset_ids(&scope_id);
+                ctx.space_stack.enter_space(scope_id);
                 assign_indices(subplan, ctx);
                 ctx.space_stack.exit_space();
 
@@ -119,7 +113,7 @@ pub(crate) fn assign_indices(
                     &ComponentSection::Component,
                     *idx,
                 );
-            }
+            },
             ComponentItem::Module { node, idx } => unsafe {
                 let ptr: &Module = &**node;
                 ctx.store.borrow_mut().assign_actual_id(
@@ -132,10 +126,8 @@ pub(crate) fn assign_indices(
             ComponentItem::CompType {
                 node,
                 idx,
-                // subspace,
                 subitem_plan,
             } => unsafe {
-                // CREATES A NEW IDX SPACE SCOPE (if Type::Component or Type::Instance)
                 let ptr: &ComponentType = &**node;
                 assignments_for_comp_ty(ptr, subitem_plan, ctx);
 
@@ -185,7 +177,6 @@ pub(crate) fn assign_indices(
             ComponentItem::CoreType {
                 node,
                 idx,
-                // subspace,
                 subitem_plan,
             } => unsafe {
                 let ptr: &CoreType = &**node;
@@ -212,7 +203,6 @@ pub(crate) fn assign_indices(
             },
             ComponentItem::Export { node, idx } => unsafe {
                 let ptr: &ComponentExport = &**node;
-                // NA: exports don't get IDs
                 ctx.store.borrow_mut().assign_actual_id(
                     &ctx.space_stack.curr_space_id(),
                     &ptr.index_space_of(),
@@ -238,7 +228,6 @@ pub(crate) fn assignments_for_comp_ty(
     match ty {
         ComponentType::Component(decls) => {
             ctx.maybe_enter_scope(ty);
-            // println!("\t@assign COMP_TYPE ADDR: {:p}", ty);
             assert_registered!(ctx.registry, ty);
 
             let section = ComponentSection::ComponentType;
@@ -252,7 +241,6 @@ pub(crate) fn assignments_for_comp_ty(
         }
         ComponentType::Instance(decls) => {
             ctx.maybe_enter_scope(ty);
-            // println!("\t@assign COMP_TYPE ADDR: {:p}", ty);
             assert_registered!(ctx.registry, ty);
 
             let section = ComponentSection::ComponentType;
@@ -334,7 +322,6 @@ pub(crate) fn assignments_for_core_ty(
     match ty {
         CoreType::Module(decls) => {
             ctx.maybe_enter_scope(ty);
-            // println!("\t@assign COMP_TYPE ADDR: {:p}", ty);
             assert_registered!(ctx.registry, ty);
 
             for (idx, subplan) in subitem_plan.as_ref().unwrap().order().iter() {

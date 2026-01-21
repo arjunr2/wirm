@@ -2076,7 +2076,7 @@ impl<'a> CustomSections<'a> {
 #[derive(Clone, Debug)]
 pub struct CustomSection<'a> {
     pub name: &'a str,
-    pub data: std::borrow::Cow<'a, [u8]>,
+    pub data: Cow<'a, [u8]>,
 }
 
 impl<'a> CustomSection<'a> {

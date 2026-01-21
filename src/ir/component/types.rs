@@ -3,7 +3,7 @@ use wasmparser::ComponentType;
 
 #[derive(Debug, Default)]
 pub struct ComponentTypes<'a> {
-    pub items: Vec<ComponentType<'a>>,
+    pub items: Vec<Box<ComponentType<'a>>>,
 
     num_funcs: usize,
     num_funcs_added: usize,
@@ -17,7 +17,7 @@ pub struct ComponentTypes<'a> {
     num_resources_added: usize,
 }
 impl<'a> ComponentTypes<'a> {
-    pub fn new(items: Vec<ComponentType<'a>>) -> Self {
+    pub fn new(items: Vec<Box<ComponentType<'a>>>) -> Self {
         let (
             mut num_funcs,
             mut num_instances,
@@ -26,7 +26,7 @@ impl<'a> ComponentTypes<'a> {
             mut num_resources,
         ) = (0, 0, 0, 0, 0);
         for i in items.iter() {
-            match i {
+            match i.as_ref() {
                 ComponentType::Func(_) => num_funcs += 1,
                 ComponentType::Instance(_) => num_instances += 1,
                 ComponentType::Defined(_) => num_defined += 1,
@@ -82,7 +82,9 @@ impl<'a> ComponentTypes<'a> {
             }
         };
 
-        self.items.push(ty);
+        self.items.push(Box::new(ty));
+        // TODO: I need to register this possibly!
+        
         (ty_inner_id as u32, ComponentTypeId(ty_id as u32))
     }
 }

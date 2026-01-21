@@ -40,7 +40,6 @@ impl sealed::Sealed for ComponentExport<'_> {}
 #[rustfmt::skip]
 impl FixIndicesImpl for ComponentExport<'_> {
     fn fixme<'a>(&self, plan: &Option<SubItemPlan>, ctx: &mut EncodeCtx) -> Self {
-        // ctx.maybe_enter_scope(self);
         let refs = self.referenced_indices(Depth::default());
         let misc = refs.as_ref().unwrap().misc();
         let new_id = ctx.lookup_actual_id_or_panic(&misc);
@@ -49,7 +48,6 @@ impl FixIndicesImpl for ComponentExport<'_> {
             ty.fix(plan, ctx)
         });
 
-        // ctx.maybe_exit_scope(self);
         ComponentExport {
             name: self.name,
             kind: self.kind.clone(),
@@ -79,7 +77,6 @@ impl sealed::Sealed for ComponentType<'_> {}
 #[rustfmt::skip]
 impl FixIndicesImpl for ComponentType<'_> {
     fn fixme<'a>(&self, plan: &Option<SubItemPlan>, ctx: &mut EncodeCtx) -> Self {
-        // println!("\t---> ComponentType: {:p}", self);
         match self {
             ComponentType::Defined(ty) => ComponentType::Defined(ty.fix(plan, ctx)),
             ComponentType::Func(ty) => ComponentType::Func(ty.fix(plan, ctx)),
@@ -96,7 +93,6 @@ impl FixIndicesImpl for ComponentType<'_> {
                 let mut new_tys = vec![];
                 for (idx, subplan) in plan.as_ref().unwrap().order().iter() {
                     let decl = &tys[*idx];
-                    // println!("\t---> comp_type: {:p}", decl);
                     new_tys.push(decl.fix(subplan, ctx));
                 }
 
@@ -443,7 +439,6 @@ impl FixIndicesImpl for Instance<'_> {
                 }
             }
             Instance::FromExports(exports_orig) => {
-                // NOTE: We will not be fixing ALL indices here (complexity)
                 let mut exports = vec![];
                 for export in exports_orig.iter() {
                     exports.push(export.fix(plan, ctx));
@@ -806,7 +801,6 @@ impl FixIndicesImpl for ModuleTypeDeclaration<'_> {
             ModuleTypeDeclaration::Import(import) => {
                 ModuleTypeDeclaration::Import(import.fix(plan, ctx))
             }
-            // In the case of outer aliases, the u32 pair serves as a de Bruijn index, with first u32 being the number of enclosing components/modules to skip and the second u32 being an index into the target's sort's index space. In particular, the first u32 can be 0, in which case the outer alias refers to the current component. To maintain the acyclicity of module instantiation, outer aliases are only allowed to refer to preceding outer definitions.
             ModuleTypeDeclaration::OuterAlias { kind, count, .. } => {
                 let refs = self.referenced_indices(Depth::default());
                 let misc = refs.as_ref().unwrap().misc();
@@ -897,7 +891,6 @@ impl FixIndicesImpl for ComponentAlias<'_> {
                     instance_index: new_id as u32,
                 }
             }
-            // In the case of outer aliases, the u32 pair serves as a de Bruijn index, with first u32 being the number of enclosing components/modules to skip and the second u32 being an index into the target's sort's index space. In particular, the first u32 can be 0, in which case the outer alias refers to the current component. To maintain the acyclicity of module instantiation, outer aliases are only allowed to refer to preceding outer definitions.
             ComponentAlias::Outer { kind, count, .. } => {
                 let refs = self.referenced_indices(Depth::default());
                 let misc = refs.as_ref().unwrap().misc();
@@ -1059,25 +1052,3 @@ impl FixIndicesImpl for TypeRef {
         }
     }
 }
-
-// impl sealed::Sealed for SubType {}
-// impl FixIndicesImpl for SubType {
-//     fn fixme(&self, subitem_plan: &Option<SubItemPlan>, ctx: &mut EncodeCtx) -> Self {
-//         // let refs = self.referenced_indices(Depth::default()).unwrap();
-//         // let refs = opt_refs.as_ref().unwrap();
-//         //
-//         // let new_subtype = SubType {
-//         //     is_final: subty.is_final,
-//         //     supertype_idx: if let Some(idx) = &refs.ty {
-//         //         todo!()
-//         //     } else {
-//         //         None
-//         //     },
-//         //     composite_type: CompositeType {},
-//         // }
-//         //
-//         // // TODO: Here is where I fix the indices!
-//         // // let new_ty = ty.fix(component, indices, reencode);
-//         todo!()
-//     }
-// }

@@ -1,12 +1,12 @@
 //! Enums the represent a section of a Module or a Component
 
-use crate::assert_registered_with_id;
 use crate::ir::component::idx_spaces::{IndexSpaceOf, SpaceId, StoreHandle};
 use crate::ir::component::scopes::RegistryHandle;
 use wasmparser::{
     ComponentType, ComponentTypeDeclaration, CoreType, InstanceTypeDeclaration,
     ModuleTypeDeclaration, RecGroup,
 };
+use crate::assert_registered_with_id;
 
 #[derive(Debug, Clone, Eq, PartialEq)]
 /// Represents a Section in a Component
@@ -68,7 +68,6 @@ pub(crate) fn assign_top_level_ids_recgroup(
 ) {
     let section = ComponentSection::CoreType;
     let tys = recgroup.types();
-    let len = tys.len();
     for (_, _) in tys.enumerate() {
         store.borrow_mut().assign_assumed_id(
             space_id,

@@ -81,19 +81,16 @@ pub(crate) fn encode_internal<'a>(
                 node,
                 plan: subplan,
                 ..
-            } => {
-                // CREATES A NEW IDX SPACE SCOPE
+            } => unsafe {
                 let subcomp: &Component = &**node;
-                ctx.maybe_enter_scope(subcomp);
+                ctx.enter_comp_scope(subcomp.id);
                 component.section(&NestedComponentSection(&encode_internal(
                     subcomp, subplan, ctx,
                 )));
-                ctx.maybe_exit_scope(subcomp);
-            }
+                ctx.exit_comp_scope(subcomp.id);
+            },
             ComponentItem::Module { node, .. } => unsafe {
                 let t: &Module = &**node;
-                // TODO: Should I implement the below?
-                // let fixed = t.fix(&mut component, indices, &mut reencode);
                 encode_module_section(&t, &mut component);
             },
             ComponentItem::CompType {
@@ -786,7 +783,6 @@ fn encode_inst_ty_decl(
                     name,
                 });
             }
-            // In the case of outer aliases, the u32 pair serves as a de Bruijn index, with first u32 being the number of enclosing components/modules to skip and the second u32 being an index into the target's sort's index space. In particular, the first u32 can be 0, in which case the outer alias refers to the current component. To maintain the acyclicity of module instantiation, outer aliases are only allowed to refer to preceding outer definitions.
             ComponentAlias::Outer { kind, count, index } => {
                 ity.alias(Alias::Outer {
                     kind: reencode.component_outer_alias_kind(*kind),
@@ -903,7 +899,6 @@ fn into_wasm_encoder_alias<'a>(
             ),
             name: *name,
         },
-        //In the case of outer aliases, the u32 pair serves as a de Bruijn index, with first u32 being the number of enclosing components/modules to skip and the second u32 being an index into the target's sort's index space. In particular, the first u32 can be 0, in which case the outer alias refers to the current component. To maintain the acyclicity of module instantiation, outer aliases are only allowed to refer to preceding outer definitions.
         ComponentAlias::Outer { kind, count, index } => Alias::Outer {
             kind: reencode.component_outer_alias_kind(*kind),
             count: *count,
@@ -933,11 +928,6 @@ pub fn into_wasm_encoder_recgroup(
     subtypes
 }
 
-// Not added to wasm-tools
-/// Convert ModuleTypeDeclaration to ModuleType
-/// NOTE: I am NOT fixing indices on this. If instrumentation is performed,
-/// it must only add new module type declarations, it cannot edit already existing
-/// ones. And it must make sure that the dependencies are added in-order.
 pub fn encode_module_type_decls(
     subitem_plan: &Option<SubItemPlan>,
     decls: &[wasmparser::ModuleTypeDeclaration],
@@ -967,7 +957,6 @@ pub fn encode_module_type_decls(
             wasmparser::ModuleTypeDeclaration::Export { name, ty } => {
                 mty.export(name, reencode.entity_type(*ty).unwrap());
             }
-            // In the case of outer aliases, the u32 pair serves as a de Bruijn index, with first u32 being the number of enclosing components/modules to skip and the second u32 being an index into the target's sort's index space. In particular, the first u32 can be 0, in which case the outer alias refers to the current component. To maintain the acyclicity of module instantiation, outer aliases are only allowed to refer to preceding outer definitions.
             wasmparser::ModuleTypeDeclaration::OuterAlias {
                 kind: _kind,
                 count,
@@ -1002,7 +991,6 @@ pub(crate) fn do_reencode<I, O>(
     inst: &mut RoundtripReencoder,
     msg: &str,
 ) -> O {
-    // TODO: check if I need this?
     match reencode(inst, i) {
         Ok(o) => o,
         Err(e) => panic!("Couldn't encode {} due to error: {}", msg, e),
