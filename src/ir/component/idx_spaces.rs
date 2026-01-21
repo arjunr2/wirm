@@ -1350,7 +1350,12 @@ impl ReferencedIndices for ComponentDefinedType<'_> {
             }
 
             ComponentDefinedType::Map(key_ty, val_ty) => {
-                todo!()
+                let key = key_ty.referenced_indices(depth);
+                let val = val_ty.referenced_indices(depth);
+                Some(Refs {
+                    others: vec![key, val],
+                    ..Default::default()
+                })
             }
         }
     }
@@ -1741,7 +1746,7 @@ impl ReferencedIndices for CanonicalFunction {
             | CanonicalFunction::ThreadSwitchTo { .. }
             | CanonicalFunction::ThreadSuspend { .. }
             | CanonicalFunction::ThreadYieldTo { .. } => None,
-            CanonicalFunction::ContextGet(i) | CanonicalFunction::ContextSet(i) => None,
+            CanonicalFunction::ContextGet(_) | CanonicalFunction::ContextSet(_) => None,
             CanonicalFunction::ThreadAvailableParallelism
             | CanonicalFunction::BackpressureInc
             | CanonicalFunction::BackpressureDec
