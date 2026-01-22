@@ -221,7 +221,8 @@ impl EncodeCtx {
         if let Some(scope_entry) = self.registry.borrow().scope_entry(node) {
             // Exit the nested index space...should be equivalent to the ID
             // of the scope that was entered by this node
-            debug_assert_eq!(scope_entry.space, self.space_stack.exit_space());
+            let exited_from = self.space_stack.exit_space();
+            assert_eq!(scope_entry.space, exited_from);
         }
     }
     fn enter_comp_scope(&mut self, comp_id: ComponentId) {
@@ -234,7 +235,8 @@ impl EncodeCtx {
         let Some(scope_id) = self.registry.borrow().scope_of_comp(comp_id) else {
             panic!("no scope found for component {:?}", comp_id);
         };
-        debug_assert_eq!(scope_id, self.space_stack.exit_space());
+        let exited_from = self.space_stack.exit_space();
+        debug_assert_eq!(scope_id, exited_from);
     }
 
     fn lookup_actual_id_or_panic(&self, r: &IndexedRef) -> usize {
