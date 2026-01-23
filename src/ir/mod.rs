@@ -105,7 +105,6 @@ impl<T> Default for AppendOnlyVec<T> {
     }
 }
 impl<T> AppendOnlyVec<T> {
-
     // INSERTs (only accessible in the crate)
     /// To push an item into the vector. Note that this is not exposed beyond the crate.
     /// This is to protect users from appending IR nodes without them going through
@@ -142,11 +141,13 @@ impl<T> AppendOnlyVec<T> {
 }
 impl<T> Deref for AppendOnlyVec<T> {
     type Target = [T];
-    fn deref(&self) -> &Self::Target { &self.vec }
+    fn deref(&self) -> &Self::Target {
+        &self.vec
+    }
 }
 impl<T, I> Index<I> for AppendOnlyVec<T>
 where
-    I: SliceIndex<[T]>
+    I: SliceIndex<[T]>,
 {
     type Output = I::Output;
     fn index(&self, index: I) -> &Self::Output {
@@ -155,7 +156,7 @@ where
 }
 impl<T, I> IndexMut<I> for AppendOnlyVec<T>
 where
-    I: SliceIndex<[T]>
+    I: SliceIndex<[T]>,
 {
     fn index_mut(&mut self, index: I) -> &mut Self::Output {
         &mut self.vec[index]
@@ -165,19 +166,27 @@ where
 impl<T> IntoIterator for AppendOnlyVec<T> {
     type Item = T;
     type IntoIter = std::vec::IntoIter<T>;
-    fn into_iter(self) -> Self::IntoIter { self.vec.into_iter() }
+    fn into_iter(self) -> Self::IntoIter {
+        self.vec.into_iter()
+    }
 }
 /// Iterator support for references to the vector.
 impl<'a, T> IntoIterator for &'a AppendOnlyVec<T> {
     type Item = &'a T;
     type IntoIter = std::slice::Iter<'a, T>;
-    fn into_iter(self) -> Self::IntoIter { self.vec.iter() }
+    fn into_iter(self) -> Self::IntoIter {
+        self.vec.iter()
+    }
 }
 impl<T> From<Vec<T>> for AppendOnlyVec<T> {
-    fn from(vec: Vec<T>) -> Self { Self { vec } }
+    fn from(vec: Vec<T>) -> Self {
+        Self { vec }
+    }
 }
 impl<T> FromIterator<T> for AppendOnlyVec<T> {
     fn from_iter<I: IntoIterator<Item = T>>(iter: I) -> Self {
-        Self { vec: Vec::from_iter(iter)}
+        Self {
+            vec: Vec::from_iter(iter),
+        }
     }
 }

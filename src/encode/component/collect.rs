@@ -112,7 +112,7 @@ impl<'a> Collect<'a> for Component<'a> {
                     collect_vec(
                         start_idx,
                         *num as usize,
-                        self.component_instances.as_vec(),
+                        self.component_instance.as_vec(),
                         collect_ctx,
                         ctx,
                     );
@@ -465,35 +465,24 @@ fn collect_deps<'a, T: ReferencedIndices + 'a>(
             let space = r.space;
             match vec {
                 SpaceSubtype::Main => match space {
-                    Space::CompType => referenced_comp.component_types.items[idx].collect(
-                        idx,
-                        collect_ctx,
-                        ctx,
-                    ),
+                    Space::CompType => {
+                        referenced_comp.component_types.items[idx].collect(idx, collect_ctx, ctx)
+                    }
                     Space::CompInst => {
-                        referenced_comp
-                            .component_instances[idx]
-                            .collect(idx, collect_ctx, ctx)
+                        referenced_comp.component_instance[idx].collect(idx, collect_ctx, ctx)
                     }
                     Space::CoreInst => {
-                        referenced_comp
-                            .instances[idx]
-                            .collect(idx, collect_ctx, ctx)
+                        referenced_comp.instances[idx].collect(idx, collect_ctx, ctx)
                     }
                     Space::CoreModule => {
-                        referenced_comp
-                            .modules[idx]
-                            .collect(idx, collect_ctx, ctx)
+                        referenced_comp.modules[idx].collect(idx, collect_ctx, ctx)
                     }
                     Space::CoreType => {
-                        referenced_comp
-                            .core_types[idx]
-                            .collect(idx, collect_ctx, ctx)
+                        referenced_comp.core_types[idx].collect(idx, collect_ctx, ctx)
                     }
-                    Space::CompFunc | Space::CoreFunc => referenced_comp
-                        .canons
-                        .items[idx]
-                        .collect(idx, collect_ctx, ctx),
+                    Space::CompFunc | Space::CoreFunc => {
+                        referenced_comp.canons.items[idx].collect(idx, collect_ctx, ctx)
+                    }
                     Space::CompVal
                     | Space::CoreMemory
                     | Space::CoreTable
@@ -502,26 +491,13 @@ fn collect_deps<'a, T: ReferencedIndices + 'a>(
                         "This spaces don't exist in a main vector on the component IR: {vec:?}"
                     ),
                 },
-                SpaceSubtype::Export => {
-                    referenced_comp
-                        .exports[idx]
-                        .collect(idx, collect_ctx, ctx)
-                }
-                SpaceSubtype::Import => {
-                    referenced_comp
-                        .imports[idx]
-                        .collect(idx, collect_ctx, ctx)
-                }
+                SpaceSubtype::Export => referenced_comp.exports[idx].collect(idx, collect_ctx, ctx),
+                SpaceSubtype::Import => referenced_comp.imports[idx].collect(idx, collect_ctx, ctx),
                 SpaceSubtype::Alias => {
-                    referenced_comp
-                        .alias
-                        .items[idx]
-                        .collect(idx, collect_ctx, ctx)
+                    referenced_comp.alias.items[idx].collect(idx, collect_ctx, ctx)
                 }
                 SpaceSubtype::Components => {
-                    referenced_comp
-                        .components[idx]
-                        .collect(idx, collect_ctx, ctx)
+                    referenced_comp.components[idx].collect(idx, collect_ctx, ctx)
                 }
             }
         }

@@ -950,7 +950,7 @@ impl<'a> FuncInstrFlag<'a> {
                 panic!("Current mode is not set...cannot grab instruction without context!")
             }
             Some(FuncInstrMode::Entry) => &self.entry.instrs[idx],
-            Some(FuncInstrMode::Exit) => &self.exit.instrs[idx]
+            Some(FuncInstrMode::Exit) => &self.exit.instrs[idx],
         }
     }
 

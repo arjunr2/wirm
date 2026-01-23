@@ -139,9 +139,7 @@ impl<'a> Component<'a> {
 
     /// Add a Global to this Component.
     pub fn add_globals(&mut self, global: Global, module_idx: ModuleID) -> GlobalID {
-        self.modules[*module_idx as usize]
-            .globals
-            .add(global)
+        self.modules[*module_idx as usize].globals.add(global)
     }
 
     /// Add an Import to this Component.
@@ -816,14 +814,12 @@ impl<'a> Component<'a> {
                     SpaceSubtype::Export | SpaceSubtype::Components | SpaceSubtype::Import => {
                         unreachable!()
                     }
-                    SpaceSubtype::Alias => self
-                        .alias
-                        .items[f_idx]
-                        .referenced_indices(Depth::default()),
-                    SpaceSubtype::Main => self
-                        .canons
-                        .items[f_idx]
-                        .referenced_indices(Depth::default()),
+                    SpaceSubtype::Alias => {
+                        self.alias.items[f_idx].referenced_indices(Depth::default())
+                    }
+                    SpaceSubtype::Main => {
+                        self.canons.items[f_idx].referenced_indices(Depth::default())
+                    }
                 };
                 if let Some(func_refs) = func {
                     let (ty, t_idx, subidx) =
