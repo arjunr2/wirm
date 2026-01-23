@@ -20,11 +20,12 @@ use crate::ir::helpers::{
 };
 use crate::ir::id::{
     AliasFuncId, AliasId, CanonicalFuncId, ComponentExportId, ComponentId, ComponentTypeFuncId,
-    ComponentTypeId, ComponentTypeInstanceId, CoreInstanceId, FunctionID, GlobalID, ModuleID,
+    ComponentTypeId, ComponentTypeInstanceId, CoreInstanceId, CustomSectionID, FunctionID,
+    GlobalID, ModuleID,
 };
 use crate::ir::module::module_globals::Global;
 use crate::ir::module::Module;
-use crate::ir::types::CustomSections;
+use crate::ir::types::{CustomSection, CustomSections};
 use crate::ir::wrappers::add_to_namemap;
 use crate::ir::AppendOnlyVec;
 use std::cell::RefCell;
@@ -111,27 +112,37 @@ impl<'a> Component<'a> {
         Ok(())
     }
 
-    fn add_section(&mut self, space: Space, sect: ComponentSection, idx: usize) -> usize {
+    fn add_section_and_get_id(
+        &mut self,
+        space: Space,
+        sect: ComponentSection,
+        idx: usize,
+    ) -> usize {
         // get and save off the assumed id
         let assumed_id =
             self.index_store
                 .borrow_mut()
                 .assign_assumed_id(&self.space_id, &space, &sect, idx);
 
+        self.add_section(sect);
+
+        assumed_id.unwrap_or(idx)
+    }
+
+    fn add_section(&mut self, sect: ComponentSection) {
         // add to section order list
-        if self.sections[self.num_sections - 1].1 == sect {
+        if !self.sections.is_empty() && self.sections[self.num_sections - 1].1 == sect {
             self.sections[self.num_sections - 1].0 += 1;
         } else {
             self.sections.push((1, sect));
         }
-
-        assumed_id.unwrap_or(idx)
     }
 
     /// Add a Module to this Component.
     pub fn add_module(&mut self, module: Module<'a>) -> ModuleID {
         let idx = self.modules.len();
-        let id = self.add_section(module.index_space_of(), ComponentSection::Module, idx);
+        let id =
+            self.add_section_and_get_id(module.index_space_of(), ComponentSection::Module, idx);
         self.modules.push(module);
 
         ModuleID(id as u32)
@@ -142,10 +153,17 @@ impl<'a> Component<'a> {
         self.modules[*module_idx as usize].globals.add(global)
     }
 
+    pub fn add_custom_section(&mut self, section: CustomSection<'a>) -> CustomSectionID {
+        let id = self.custom_sections.add(section);
+        self.add_section(ComponentSection::CustomSection);
+
+        id
+    }
+
     /// Add an Import to this Component.
     pub fn add_import(&mut self, import: ComponentImport<'a>) -> u32 {
         let idx = self.imports.len();
-        let id = self.add_section(
+        let id = self.add_section_and_get_id(
             import.index_space_of(),
             ComponentSection::ComponentImport,
             idx,
@@ -159,7 +177,7 @@ impl<'a> Component<'a> {
     pub fn add_alias_func(&mut self, alias: ComponentAlias<'a>) -> (AliasFuncId, AliasId) {
         let space = alias.index_space_of();
         let (_item_id, alias_id) = self.alias.add(alias);
-        let id = self.add_section(space, ComponentSection::Alias, *alias_id as usize);
+        let id = self.add_section_and_get_id(space, ComponentSection::Alias, *alias_id as usize);
 
         (AliasFuncId(id as u32), alias_id)
     }
@@ -168,7 +186,7 @@ impl<'a> Component<'a> {
     pub fn add_canon_func(&mut self, canon: CanonicalFunction) -> CanonicalFuncId {
         let space = canon.index_space_of();
         let idx = self.canons.add(canon).1;
-        let id = self.add_section(space, ComponentSection::Canon, *idx as usize);
+        let id = self.add_section_and_get_id(space, ComponentSection::Canon, *idx as usize);
 
         CanonicalFuncId(id as u32)
     }
@@ -180,7 +198,8 @@ impl<'a> Component<'a> {
     ) -> (u32, ComponentTypeId) {
         let space = component_ty.index_space_of();
         let ids = self.component_types.add(component_ty);
-        let id = self.add_section(space, ComponentSection::ComponentType, *ids.1 as usize);
+        let id =
+            self.add_section_and_get_id(space, ComponentSection::ComponentType, *ids.1 as usize);
 
         // Handle the index space of this node
         populate_space_for_comp_ty(
@@ -218,7 +237,7 @@ impl<'a> Component<'a> {
     /// Add a new core instance to this component.
     pub fn add_core_instance(&mut self, instance: Instance<'a>) -> CoreInstanceId {
         let idx = self.instances.len();
-        let id = self.add_section(
+        let id = self.add_section_and_get_id(
             instance.index_space_of(),
             ComponentSection::CoreInstance,
             idx,
