@@ -1,5 +1,8 @@
 //! The Intermediate Representation for components and modules.
 
+use std::ops::{Deref, Index, IndexMut};
+use std::slice::SliceIndex;
+
 pub mod component;
 pub mod function;
 mod helpers;
@@ -68,13 +71,13 @@ pub(crate) mod wrappers;
 /// ```rust
 /// use wirm::ir::AppendOnlyVec;
 ///
-/// let mut vec = AppendOnlyVec::new(vec![42, 100]);
+/// let mut vec = AppendOnlyVec::from(vec![42, 100]);
 /// for v in vec.iter_mut() {
 ///     *v += 1;
 /// }
 ///
-/// assert_eq!(*vec.get(0), 43);
-/// assert_eq!(*vec.get(1), 101);
+/// assert_eq!(vec[0], 43);
+/// assert_eq!(vec[1], 101);
 /// ```
 ///
 /// # Design Notes
@@ -92,7 +95,7 @@ pub(crate) mod wrappers;
 /// This type does not panic on its own, but misuse of raw pointers or
 /// assumptions about append-only behavior elsewhere in the system may
 /// result in panics during encoding.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct AppendOnlyVec<T> {
     vec: Vec<T>,
 }
@@ -102,15 +105,6 @@ impl<T> Default for AppendOnlyVec<T> {
     }
 }
 impl<T> AppendOnlyVec<T> {
-    pub fn new(vec: Vec<T>) -> Self {
-        Self { vec }
-    }
-    pub fn len(&self) -> usize {
-        self.vec.len()
-    }
-    pub fn is_empty(&self) -> bool {
-        self.vec.is_empty()
-    }
 
     // INSERTs (only accessible in the crate)
     /// To push an item into the vector. Note that this is not exposed beyond the crate.
@@ -130,32 +124,11 @@ impl<T> AppendOnlyVec<T> {
         self.vec.append(other);
     }
 
-    // GETs
-    pub fn maybe_get(&self, i: usize) -> Option<&T> {
-        self.vec.get(i)
-    }
-    pub fn get(&self, i: usize) -> &T {
-        &self.vec[i]
-    }
-    pub fn get_mut(&mut self, i: usize) -> &mut T {
-        &mut self.vec[i]
-    }
-    pub fn last(&mut self) -> Option<&T> {
-        self.vec.last()
-    }
-
-    // ITERation
-    pub fn iter(&'_ self) -> core::slice::Iter<'_, T> {
-        self.vec.iter()
-    }
+    /// Must provide our own implementation for `iter_mut` in order to
+    /// avoid implementing DerefMut trait (we don't want to expose general
+    /// mutation control to users).
     pub fn iter_mut(&'_ mut self) -> core::slice::IterMut<'_, T> {
         self.vec.iter_mut()
-    }
-    pub fn slice_from(&self, start: usize) -> &[T] {
-        &self.vec[start..]
-    }
-    pub fn slice_from_mut(&mut self, start: usize) -> &mut [T] {
-        &mut self.vec[start..]
     }
 
     /// We will only ever expose a non-mutable vec here!
@@ -166,4 +139,45 @@ impl<T> AppendOnlyVec<T> {
     }
 
     // no remove, no replace
+}
+impl<T> Deref for AppendOnlyVec<T> {
+    type Target = [T];
+    fn deref(&self) -> &Self::Target { &self.vec }
+}
+impl<T, I> Index<I> for AppendOnlyVec<T>
+where
+    I: SliceIndex<[T]>
+{
+    type Output = I::Output;
+    fn index(&self, index: I) -> &Self::Output {
+        &self.vec[index]
+    }
+}
+impl<T, I> IndexMut<I> for AppendOnlyVec<T>
+where
+    I: SliceIndex<[T]>
+{
+    fn index_mut(&mut self, index: I) -> &mut Self::Output {
+        &mut self.vec[index]
+    }
+}
+/// General iterator support.
+impl<T> IntoIterator for AppendOnlyVec<T> {
+    type Item = T;
+    type IntoIter = std::vec::IntoIter<T>;
+    fn into_iter(self) -> Self::IntoIter { self.vec.into_iter() }
+}
+/// Iterator support for references to the vector.
+impl<'a, T> IntoIterator for &'a AppendOnlyVec<T> {
+    type Item = &'a T;
+    type IntoIter = std::slice::Iter<'a, T>;
+    fn into_iter(self) -> Self::IntoIter { self.vec.iter() }
+}
+impl<T> From<Vec<T>> for AppendOnlyVec<T> {
+    fn from(vec: Vec<T>) -> Self { Self { vec } }
+}
+impl<T> FromIterator<T> for AppendOnlyVec<T> {
+    fn from_iter<I: IntoIterator<Item = T>>(iter: I) -> Self {
+        Self { vec: Vec::from_iter(iter)}
+    }
 }

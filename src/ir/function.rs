@@ -125,7 +125,7 @@ impl<'a> FunctionBuilder<'a> {
     ) -> FunctionID {
         // add End as last instruction
         self.end();
-        let module = comp.modules.get_mut(*mod_idx as usize);
+        let module = &mut comp.modules[*mod_idx as usize];
 
         let id = module.add_local_func_with_tag(
             self.name,

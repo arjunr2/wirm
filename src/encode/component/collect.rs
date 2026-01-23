@@ -167,7 +167,7 @@ impl<'a> Collect<'a> for Component<'a> {
 
                     for i in 0..*num {
                         let idx = start_idx + i as usize;
-                        let c = self.components.get(idx);
+                        let c = &self.components[idx];
 
                         collect_ctx.push_plan();
                         collect_ctx.comp_stack.push(c.id);
@@ -438,7 +438,7 @@ fn collect_boxed_vec<'a, T: Collect<'a> + 'a>(
     assert!(start + num <= all.len(), "{start} + {num} > {}", all.len());
     for i in 0..num {
         let idx = start + i;
-        let item = &all.get(idx);
+        let item = &all[idx];
 
         item.collect(idx, collect_ctx, ctx);
     }
@@ -465,39 +465,34 @@ fn collect_deps<'a, T: ReferencedIndices + 'a>(
             let space = r.space;
             match vec {
                 SpaceSubtype::Main => match space {
-                    Space::CompType => referenced_comp.component_types.items.get(idx).collect(
+                    Space::CompType => referenced_comp.component_types.items[idx].collect(
                         idx,
                         collect_ctx,
                         ctx,
                     ),
                     Space::CompInst => {
                         referenced_comp
-                            .component_instance
-                            .get(idx)
+                            .component_instance[idx]
                             .collect(idx, collect_ctx, ctx)
                     }
                     Space::CoreInst => {
                         referenced_comp
-                            .instances
-                            .get(idx)
+                            .instances[idx]
                             .collect(idx, collect_ctx, ctx)
                     }
                     Space::CoreModule => {
                         referenced_comp
-                            .modules
-                            .get(idx)
+                            .modules[idx]
                             .collect(idx, collect_ctx, ctx)
                     }
                     Space::CoreType => {
                         referenced_comp
-                            .core_types
-                            .get(idx)
+                            .core_types[idx]
                             .collect(idx, collect_ctx, ctx)
                     }
                     Space::CompFunc | Space::CoreFunc => referenced_comp
                         .canons
-                        .items
-                        .get(idx)
+                        .items[idx]
                         .collect(idx, collect_ctx, ctx),
                     Space::CompVal
                     | Space::CoreMemory
@@ -509,27 +504,23 @@ fn collect_deps<'a, T: ReferencedIndices + 'a>(
                 },
                 SpaceSubtype::Export => {
                     referenced_comp
-                        .exports
-                        .get(idx)
+                        .exports[idx]
                         .collect(idx, collect_ctx, ctx)
                 }
                 SpaceSubtype::Import => {
                     referenced_comp
-                        .imports
-                        .get(idx)
+                        .imports[idx]
                         .collect(idx, collect_ctx, ctx)
                 }
                 SpaceSubtype::Alias => {
                     referenced_comp
                         .alias
-                        .items
-                        .get(idx)
+                        .items[idx]
                         .collect(idx, collect_ctx, ctx)
                 }
                 SpaceSubtype::Components => {
                     referenced_comp
-                        .components
-                        .get(idx)
+                        .components[idx]
                         .collect(idx, collect_ctx, ctx)
                 }
             }

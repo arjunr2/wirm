@@ -949,8 +949,8 @@ impl<'a> FuncInstrFlag<'a> {
             None => {
                 panic!("Current mode is not set...cannot grab instruction without context!")
             }
-            Some(FuncInstrMode::Entry) => self.entry.instrs.get(idx).unwrap(),
-            Some(FuncInstrMode::Exit) => self.exit.instrs.get(idx).unwrap(),
+            Some(FuncInstrMode::Entry) => &self.entry.instrs[idx],
+            Some(FuncInstrMode::Exit) => &self.exit.instrs[idx]
         }
     }
 
@@ -1390,20 +1390,18 @@ impl<'a> InstrumentationFlag<'a> {
             None => {
                 panic!("Current mode is not set...cannot grab instruction without context!")
             }
-            Some(InstrumentationMode::Before) => self.before.instrs.get(idx).unwrap(),
-            Some(InstrumentationMode::After) => self.after.instrs.get(idx).unwrap(),
+            Some(InstrumentationMode::Before) => &self.before.instrs[idx],
+            Some(InstrumentationMode::After) => &self.after.instrs[idx],
             Some(InstrumentationMode::Alternate) => match &self.alternate {
                 None => panic!("No alternate instructions to pull idx '{}' from", idx),
-                Some(alternate) => alternate.instrs.get(idx).unwrap(),
+                Some(alternate) => &alternate.instrs[idx],
             },
-            Some(InstrumentationMode::SemanticAfter) => {
-                self.semantic_after.instrs.get(idx).unwrap()
-            }
-            Some(InstrumentationMode::BlockEntry) => self.block_entry.instrs.get(idx).unwrap(),
-            Some(InstrumentationMode::BlockExit) => self.block_exit.instrs.get(idx).unwrap(),
+            Some(InstrumentationMode::SemanticAfter) => &self.semantic_after.instrs[idx],
+            Some(InstrumentationMode::BlockEntry) => &self.block_entry.instrs[idx],
+            Some(InstrumentationMode::BlockExit) => &self.block_exit.instrs[idx],
             Some(InstrumentationMode::BlockAlt) => match &self.block_alt {
                 None => panic!("No block alt instructions to pull idx '{}' from", idx),
-                Some(block_alt) => block_alt.instrs.get(idx).unwrap(),
+                Some(block_alt) => &block_alt.instrs[idx],
             },
         }
     }

@@ -88,8 +88,7 @@ impl<'a, 'b> ComponentIterator<'a, 'b> {
         {
             match &self
                 .comp
-                .modules
-                .get(*mod_idx as usize)
+                .modules[*mod_idx as usize]
                 .functions
                 .get(func_idx)
                 .kind
@@ -152,8 +151,7 @@ impl<'b> Inject<'b> for ComponentIterator<'_, 'b> {
 
         match self
             .comp
-            .modules
-            .get_mut(mod_idx)
+            .modules[mod_idx]
             .functions
             .get_mut(func_idx)
             .kind
@@ -195,8 +193,7 @@ impl<'b> Instrumenter<'b> for ComponentIterator<'_, 'b> {
 
         match self
             .comp
-            .modules
-            .get_mut(mod_idx)
+            .modules[mod_idx]
             .functions
             .get_mut(func_idx)
             .kind
@@ -223,8 +220,7 @@ impl<'b> Instrumenter<'b> for ComponentIterator<'_, 'b> {
         {
             match &self
                 .comp
-                .modules
-                .get(*mod_idx as usize)
+                .modules[*mod_idx as usize]
                 .functions
                 .get(func_idx)
                 .kind
@@ -249,8 +245,7 @@ impl<'b> Instrumenter<'b> for ComponentIterator<'_, 'b> {
         {
             match self
                 .comp
-                .modules
-                .get_mut(*mod_idx as usize)
+                .modules[*mod_idx as usize]
                 .functions
                 .get_mut(func_idx)
                 .kind
@@ -275,8 +270,7 @@ impl<'b> Instrumenter<'b> for ComponentIterator<'_, 'b> {
         {
             match &self
                 .comp
-                .modules
-                .get(*mod_idx as usize)
+                .modules[*mod_idx as usize]
                 .functions
                 .get(func_idx)
                 .kind
@@ -296,8 +290,7 @@ impl<'b> Instrumenter<'b> for ComponentIterator<'_, 'b> {
 
         match self
             .comp
-            .modules
-            .get_mut(mod_idx)
+            .modules[mod_idx]
             .functions
             .get_mut(func_idx)
             .kind
@@ -320,8 +313,7 @@ impl<'b> Instrumenter<'b> for ComponentIterator<'_, 'b> {
         {
             match &self
                 .comp
-                .modules
-                .get(*mod_idx as usize)
+                .modules[*mod_idx as usize]
                 .functions
                 .get(func_idx)
                 .kind
@@ -346,8 +338,7 @@ impl<'b> Instrumenter<'b> for ComponentIterator<'_, 'b> {
         {
             match self
                 .comp
-                .modules
-                .get_mut(*mod_idx as usize)
+                .modules[*mod_idx as usize]
                 .functions
                 .get_mut(func_idx)
                 .kind
@@ -370,8 +361,7 @@ impl<'b> Instrumenter<'b> for ComponentIterator<'_, 'b> {
         {
             match self
                 .comp
-                .modules
-                .get_mut(*mod_idx as usize)
+                .modules[*mod_idx as usize]
                 .functions
                 .get_mut(func_idx)
                 .kind
@@ -396,8 +386,7 @@ impl<'b> Instrumenter<'b> for ComponentIterator<'_, 'b> {
         {
             match self
                 .comp
-                .modules
-                .get_mut(*mod_idx as usize)
+                .modules[*mod_idx as usize]
                 .functions
                 .get_mut(func_idx)
                 .kind
@@ -426,8 +415,7 @@ impl<'b> Instrumenter<'b> for ComponentIterator<'_, 'b> {
         {
             match self
                 .comp
-                .modules
-                .get_mut(*mod_idx as usize)
+                .modules[*mod_idx as usize]
                 .functions
                 .get_mut(func_idx)
                 .kind
@@ -457,8 +445,7 @@ impl<'b> Instrumenter<'b> for ComponentIterator<'_, 'b> {
         {
             match &mut self
                 .comp
-                .modules
-                .get_mut(*mod_idx as usize)
+                .modules[*mod_idx as usize]
                 .functions
                 .get_mut(func_idx)
                 .kind
@@ -477,7 +464,7 @@ impl<'b> IteratingInstrumenter<'b> for ComponentIterator<'_, 'b> {
     fn add_global(&mut self, global: Global) -> GlobalID {
         let curr_mod = *self.curr_module() as usize;
 
-        self.comp.modules.get_mut(curr_mod).globals.add(global)
+        self.comp.modules[curr_mod].globals.add(global)
     }
 }
 
@@ -518,8 +505,7 @@ impl Iterator for ComponentIterator<'_, '_> {
         {
             match &self
                 .comp
-                .modules
-                .get(*mod_idx as usize)
+                .modules[*mod_idx as usize]
                 .functions
                 .get(func_idx)
                 .kind
@@ -538,8 +524,7 @@ impl AddLocal for ComponentIterator<'_, '_> {
         let (mod_idx, func_idx, _) = self.comp_iterator.curr_loc_indices();
 
         self.comp
-            .modules
-            .get_mut(mod_idx)
+            .modules[mod_idx]
             .functions
             .add_local(func_idx, val_type)
     }

@@ -139,8 +139,7 @@ impl<'a> Component<'a> {
 
     /// Add a Global to this Component.
     pub fn add_globals(&mut self, global: Global, module_idx: ModuleID) -> GlobalID {
-        self.modules
-            .get_mut(*module_idx as usize)
+        self.modules[*module_idx as usize]
             .globals
             .add(global)
     }
@@ -431,7 +430,7 @@ impl<'a> Component<'a> {
 
                     let mut new_sects = vec![];
                     let mut has_subscope = false;
-                    for (idx, ty) in core_types.slice_from(old_len).iter().enumerate() {
+                    for (idx, ty) in core_types[old_len..].iter().enumerate() {
                         let (new_sect, sect_has_subscope) =
                             get_sections_for_core_ty_and_assign_top_level_ids(
                                 ty,
@@ -463,7 +462,7 @@ impl<'a> Component<'a> {
 
                     let mut new_sects = vec![];
                     let mut has_subscope = false;
-                    for ty in component_types.slice_from(old_len) {
+                    for ty in &component_types[old_len..] {
                         let (new_sect, sect_has_subscope) = get_sections_for_comp_ty(ty);
                         has_subscope |= sect_has_subscope;
                         new_sects.push(new_sect);
@@ -471,7 +470,7 @@ impl<'a> Component<'a> {
 
                     store_handle.borrow_mut().assign_assumed_id_for_boxed(
                         &space_id,
-                        component_types.slice_from(old_len),
+                        &component_types[old_len..],
                         old_len,
                         &new_sects,
                     );
@@ -805,7 +804,7 @@ impl<'a> Component<'a> {
         export_id: ComponentExportId,
     ) -> Option<&ComponentType<'a>> {
         let mut store = self.index_store.borrow_mut();
-        if let Some(export) = self.exports.maybe_get(*export_id as usize) {
+        if let Some(export) = self.exports.get(*export_id as usize) {
             if let Some(refs) = export.referenced_indices(Depth::default()) {
                 let list = refs.as_list();
                 assert_eq!(1, list.len());
@@ -819,13 +818,11 @@ impl<'a> Component<'a> {
                     }
                     SpaceSubtype::Alias => self
                         .alias
-                        .items
-                        .get(f_idx)
+                        .items[f_idx]
                         .referenced_indices(Depth::default()),
                     SpaceSubtype::Main => self
                         .canons
-                        .items
-                        .get(f_idx)
+                        .items[f_idx]
                         .referenced_indices(Depth::default()),
                 };
                 if let Some(func_refs) = func {
@@ -836,7 +833,7 @@ impl<'a> Component<'a> {
                         panic!("Should've been an main space!")
                     }
 
-                    let res = self.component_types.items.maybe_get(t_idx);
+                    let res = self.component_types.items.get(t_idx);
                     res.map(|v| &**v)
                 } else {
                     None
@@ -900,8 +897,7 @@ impl<'a> Component<'a> {
     /// Get Local Function ID by name
     // Note: returned absolute id here
     pub fn get_fid_by_name(&self, name: &str, module_idx: ModuleID) -> Option<FunctionID> {
-        self.modules
-            .get(*module_idx as usize)
+        self.modules[*module_idx as usize]
             .functions
             .get_local_fid_by_name(name)
     }
