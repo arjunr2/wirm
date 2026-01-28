@@ -28,17 +28,27 @@ pub(crate) struct IndexStore {
     next_id: usize,
 }
 impl IndexStore {
+    /// Create a new scope in the scope store.
     pub fn new_scope(&mut self) -> SpaceId {
         let id = self.use_next_id();
         self.scopes.insert(id, IndexScope::new(id));
 
         id
     }
+    /// Reset the used indices in all scopes.
     pub fn reset_indices(&mut self) {
         for scope in self.scopes.values_mut() {
             scope.reset_ids();
         }
     }
+    /// Lookup where to find an item in the component IR based on its assumed ID
+    /// (the ID given to the item at parse and IR-injection time). This is done WITHOUT
+    /// caching the found result, which is helpful when performing an operation when the
+    /// IndexStore cannot be mutable.
+    /// Returns:
+    /// - .0,SpaceSubtype: the space vector to look up this index in
+    /// - .1,usize: the index of the vector in the IR to find the item
+    /// - .2,Option<usize>: the index within the node to find the item (as in pointing to a certain subtype in a recgroup)
     pub fn index_from_assumed_id_no_cache(
         &self,
         id: &SpaceId,
@@ -46,6 +56,13 @@ impl IndexStore {
     ) -> (SpaceSubtype, usize, Option<usize>) {
         self.get(id).index_from_assumed_id_no_cache(r)
     }
+    /// Lookup where to find an item in the component IR based on its assumed ID
+    /// (the ID given to the item at parse and IR-injection time). The found result will
+    /// then be cached for faster future lookups.
+    /// Returns:
+    /// - .0,SpaceSubtype: the space vector to look up this index in
+    /// - .1,usize: the index of the vector in the IR to find the item
+    /// - .2,Option<usize>: the index within the node to find the item (as in pointing to a certain subtype in a recgroup)
     pub fn index_from_assumed_id(
         &mut self,
         id: &SpaceId,
@@ -53,9 +70,11 @@ impl IndexStore {
     ) -> (SpaceSubtype, usize, Option<usize>) {
         self.get_mut(id).index_from_assumed_id(r)
     }
+    /// Reset the used IDs for the specified scope.
     pub fn reset_ids(&mut self, id: &SpaceId) {
         self.get_mut(id).reset_ids()
     }
+    /// Assign the actual ID for the specified item in the IR.
     pub fn assign_actual_id(
         &mut self,
         id: &SpaceId,
@@ -65,6 +84,8 @@ impl IndexStore {
     ) {
         self.get_mut(id).assign_actual_id(space, section, vec_idx)
     }
+    /// Assign the actual ID for the specified item in the IR.
+    /// This part of the IR also has a subvector (as in a recgroup)
     pub fn assign_actual_id_with_subvec(
         &mut self,
         id: &SpaceId,
@@ -76,6 +97,7 @@ impl IndexStore {
         self.get_mut(id)
             .assign_actual_id_with_subvec(space, section, vec_idx, subvec_idx)
     }
+    /// Give an assumed ID for some IR item (done at parse and IR-injection time).
     pub fn assign_assumed_id(
         &mut self,
         id: &SpaceId,
@@ -86,6 +108,7 @@ impl IndexStore {
         self.get_mut(id).assign_assumed_id(space, section, curr_idx)
     }
 
+    /// Iterate over a list of items to assign an assumed ID for.
     pub fn assign_assumed_id_for<I: Debug + IndexSpaceOf>(
         &mut self,
         id: &SpaceId,
@@ -96,6 +119,7 @@ impl IndexStore {
         self.get_mut(id)
             .assign_assumed_id_for(items, curr_idx, sections)
     }
+    /// Iterate over a list of _boxed_ items to assign an assumed ID for.
     pub fn assign_assumed_id_for_boxed<I: Debug + IndexSpaceOf>(
         &mut self,
         id: &SpaceId,
@@ -106,6 +130,7 @@ impl IndexStore {
         self.get_mut(id)
             .assign_assumed_id_for_boxed(items, curr_idx, sections)
     }
+    /// Use up the next ID to assign in the tracker.
     fn use_next_id(&mut self) -> SpaceId {
         let next = self.next_id;
         self.next_id += 1;
@@ -113,9 +138,11 @@ impl IndexStore {
         next
     }
 
+    /// Get an index scope that can be mutated.
     fn get_mut(&mut self, id: &SpaceId) -> &mut IndexScope {
         self.scopes.get_mut(id).unwrap()
     }
+    /// Get an immutable ref to an index scope.
     fn get(&self, id: &SpaceId) -> &IndexScope {
         self.scopes.get(id).unwrap()
     }
