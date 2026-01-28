@@ -12,7 +12,7 @@ use wasmparser::{
     ComponentTypeDeclaration, ComponentTypeRef, ComponentValType, CompositeInnerType,
     CompositeType, ContType, CoreType, Export, ExternalKind, FieldType, Import, Instance,
     InstanceTypeDeclaration, InstantiationArg, InstantiationArgKind, ModuleTypeDeclaration,
-    OuterAliasKind, RecGroup, RefType, StorageType, SubType, TagType, TypeRef, ValType,
+    OuterAliasKind, RecGroup, RefType, StorageType, SubType, TagType, TypeBounds, TypeRef, ValType,
     VariantCase,
 };
 
@@ -1839,7 +1839,23 @@ impl ReferencedIndices for ComponentTypeRef {
                 ..Default::default()
             }),
             ComponentTypeRef::Value(ty) => ty.referenced_indices(depth),
-            ComponentTypeRef::Type(_) => None,
+            ComponentTypeRef::Type(ty_bounds) => ty_bounds.referenced_indices(depth),
+        }
+    }
+}
+
+impl ReferencedIndices for TypeBounds {
+    fn referenced_indices(&self, depth: Depth) -> Option<Refs> {
+        match self {
+            TypeBounds::Eq(id) => Some(Refs {
+                ty: Some(IndexedRef {
+                    depth,
+                    space: Space::CompType,
+                    index: *id,
+                }),
+                ..Default::default()
+            }),
+            TypeBounds::SubResource => None,
         }
     }
 }
