@@ -634,6 +634,7 @@ fn encode_comp_func_ty(
     mut enc: ComponentFuncTypeEncoder,
     reencode: &mut RoundtripReencoder,
 ) {
+    enc.async_(ty.async_);
     enc.params(
         ty.params
             .iter()
