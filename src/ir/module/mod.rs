@@ -1,9 +1,9 @@
 //! Intermediate Representation of a wasm module.
 
-use super::types::{DataType, InitExpr, InjectedInstrs, InstrumentationMode, Tag, TagUtils};
+use super::types::{CustomSection, DataType, InitExpr, InjectedInstrs, InstrumentationMode, Tag, TagUtils};
 use crate::error::Error;
 use crate::ir::function::FunctionModifier;
-use crate::ir::id::{DataSegmentID, FunctionID, GlobalID, ImportsID, LocalID, MemoryID, TypeID};
+use crate::ir::id::{CustomSectionID, DataSegmentID, FunctionID, GlobalID, ImportsID, LocalID, MemoryID, TypeID};
 use crate::ir::module::module_exports::{Export, ModuleExports};
 use crate::ir::module::module_functions::{
     add_local, FuncKind, Function, Functions, ImportedFunction, LocalFunction,
@@ -36,6 +36,7 @@ use wasmparser::{
     CompositeInnerType, ExternalKind, GlobalType, MemoryType, Operator, PackedIndex, Parser,
     Payload, TagType, TypeRef,
 };
+use crate::ir::component::section::ComponentSection;
 
 pub mod module_exports;
 pub mod module_functions;
@@ -1926,6 +1927,10 @@ impl<'a> Module<'a> {
             num_imported
         };
         (id, self.imports.add(import))
+    }
+
+    pub fn add_custom_section(&mut self, section: CustomSection<'a>) -> CustomSectionID {
+        self.custom_sections.add(section)
     }
 
     // ===========================
