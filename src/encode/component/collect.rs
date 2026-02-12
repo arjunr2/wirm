@@ -465,9 +465,7 @@ fn collect_deps<'a, T: ReferencedIndices + 'a>(
             let space = r.space;
             match vec {
                 SpaceSubtype::Main => match space {
-                    Space::Comp => {
-                        referenced_comp.components[idx].collect(idx, collect_ctx, ctx)
-                    }
+                    Space::Comp => referenced_comp.components[idx].collect(idx, collect_ctx, ctx),
                     Space::CompType => {
                         referenced_comp.component_types.items[idx].collect(idx, collect_ctx, ctx)
                     }
