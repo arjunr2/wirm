@@ -20,7 +20,7 @@ fn roundtrip(filename: String, component: bool) {
         let out = wasmprinter::print_bytes(result.clone()).expect("couldn't translate Wasm to wat");
         assert_eq!(out, original);
     } else {
-        let mut parser = Module::parse(&buff, false, false).expect("Unable to parse");
+        let parser = Module::parse(&buff, false, false).expect("Unable to parse");
         let result = parser.encode();
         let out = wasmprinter::print_bytes(result.clone()).expect("couldn't translate Wasm to wat");
         assert_eq!(out, original);

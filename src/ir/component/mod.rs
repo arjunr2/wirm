@@ -830,7 +830,7 @@ impl<'a> Component<'a> {
                     store.index_from_assumed_id_no_cache(&self.space_id, &list[0]);
                 assert!(subidx.is_none(), "a lift function shouldn't reference anything with a subvec space (like a recgroup)");
                 let func = match vec {
-                    SpaceSubtype::Export | SpaceSubtype::Components | SpaceSubtype::Import => {
+                    SpaceSubtype::Export | SpaceSubtype::Import => {
                         unreachable!()
                     }
                     SpaceSubtype::Alias => {

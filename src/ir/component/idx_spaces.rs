@@ -216,6 +216,7 @@ pub(crate) struct IndexScope {
     pub(crate) id: SpaceId,
 
     // Component-level spaces
+    pub comp: IdxSpace,
     pub comp_func: IdxSpace,
     pub comp_val: IdxSpace,
     pub comp_type: IdxSpace,
@@ -428,6 +429,7 @@ impl IndexScope {
     }
 
     pub fn reset_ids(&mut self) {
+        self.comp.reset_ids();
         self.comp_func.reset_ids();
         self.comp_val.reset_ids();
         self.comp_type.reset_ids();
@@ -450,6 +452,7 @@ impl IndexScope {
 
     fn get_space_mut(&mut self, space: &Space) -> Option<&mut IdxSpace> {
         let s = match space {
+            Space::Comp => &mut self.comp,
             Space::CompFunc => &mut self.comp_func,
             Space::CompVal => &mut self.comp_val,
             Space::CompType => &mut self.comp_type,
@@ -468,6 +471,7 @@ impl IndexScope {
 
     fn get_space(&self, space: &Space) -> Option<&IdxSpace> {
         let s = match space {
+            Space::Comp => &self.comp,
             Space::CompFunc => &self.comp_func,
             Space::CompVal => &self.comp_val,
             Space::CompType => &self.comp_type,
@@ -561,11 +565,6 @@ pub(crate) struct IdxSpace {
     /// This ID will be used to reference that item in the IR.
     exports_assumed_ids: HashMap<usize, AssumedIdForIdx>,
 
-    /// (Only relevant for component_types)
-    /// Tracks the index in the COMPONENT item vector to the ID we've assumed for it: `component_idx -> assumed_id`
-    /// This ID will be used to reference that item in the IR.
-    components_assumed_ids: HashMap<usize, AssumedIdForIdx>,
-
     index_from_assumed_id_cache: HashMap<usize, (SpaceSubtype, usize, Option<usize>)>,
 }
 impl IdxSpace {
@@ -596,9 +595,9 @@ impl IdxSpace {
             ComponentSection::ComponentImport => ("imports", &self.imports_assumed_ids),
             ComponentSection::ComponentExport => ("exports", &self.exports_assumed_ids),
             ComponentSection::Alias => ("aliases", &self.alias_assumed_ids),
-            ComponentSection::Component => ("components", &self.components_assumed_ids),
 
-            ComponentSection::Module
+            ComponentSection::Component
+            | ComponentSection::Module
             | ComponentSection::CoreType
             | ComponentSection::ComponentType
             | ComponentSection::CoreInstance
@@ -621,9 +620,9 @@ impl IdxSpace {
             ComponentSection::ComponentImport => ("imports", &self.imports_assumed_ids),
             ComponentSection::ComponentExport => ("exports", &self.exports_assumed_ids),
             ComponentSection::Alias => ("aliases", &self.alias_assumed_ids),
-            ComponentSection::Component => ("components", &self.components_assumed_ids),
 
-            ComponentSection::Module
+            ComponentSection::Component
+            | ComponentSection::Module
             | ComponentSection::CoreType
             | ComponentSection::ComponentType
             | ComponentSection::CoreInstance
@@ -656,8 +655,7 @@ impl IdxSpace {
             (SpaceSubtype::Main, &self.main_assumed_ids),
             (SpaceSubtype::Import, &self.imports_assumed_ids),
             (SpaceSubtype::Export, &self.exports_assumed_ids),
-            (SpaceSubtype::Alias, &self.alias_assumed_ids),
-            (SpaceSubtype::Components, &self.components_assumed_ids),
+            (SpaceSubtype::Alias, &self.alias_assumed_ids)
         ];
 
         for (subty, map) in maps.iter() {
@@ -692,8 +690,7 @@ impl IdxSpace {
             (SpaceSubtype::Main, &self.main_assumed_ids),
             (SpaceSubtype::Import, &self.imports_assumed_ids),
             (SpaceSubtype::Export, &self.exports_assumed_ids),
-            (SpaceSubtype::Alias, &self.alias_assumed_ids),
-            (SpaceSubtype::Components, &self.components_assumed_ids),
+            (SpaceSubtype::Alias, &self.alias_assumed_ids)
         ];
 
         for (subty, map) in maps.iter() {
@@ -715,9 +712,9 @@ impl IdxSpace {
             ComponentSection::ComponentImport => &mut self.imports_assumed_ids,
             ComponentSection::ComponentExport => &mut self.exports_assumed_ids,
             ComponentSection::Alias => &mut self.alias_assumed_ids,
-            ComponentSection::Component => &mut self.components_assumed_ids,
 
-            ComponentSection::Module
+            ComponentSection::Component
+            | ComponentSection::Module
             | ComponentSection::CoreType
             | ComponentSection::ComponentType
             | ComponentSection::CoreInstance
@@ -746,8 +743,6 @@ pub(crate) enum SpaceSubtype {
     Export,
     Import,
     Alias,
-    // This is only relevant for component types!
-    Components,
     Main,
 }
 
@@ -755,6 +750,7 @@ pub(crate) enum SpaceSubtype {
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum Space {
     // Component-level spaces
+    Comp,
     CompFunc,
     CompVal,
     CompType,
@@ -808,7 +804,7 @@ impl IndexSpaceOf for ComponentImport<'_> {
             ComponentTypeRef::Value(_) => Space::CompVal,
             ComponentTypeRef::Type(_) => Space::CompType,
             ComponentTypeRef::Instance(_) => Space::CompInst,
-            ComponentTypeRef::Component(_) => Space::CompInst,
+            ComponentTypeRef::Component(_) => Space::Comp,      // verified in wat (instantiate.wast)
             ComponentTypeRef::Module(_) => Space::CoreModule,
         }
     }
@@ -824,7 +820,7 @@ impl IndexSpaceOf for ComponentExport<'_> {
             ComponentExternalKind::Value => Space::CompVal,
             ComponentExternalKind::Type => Space::CompType,
             ComponentExternalKind::Instance => Space::CompInst,
-            ComponentExternalKind::Component => Space::CompInst,
+            ComponentExternalKind::Component => Space::CompInst,    // verified in alias.wast
         }
     }
 }
@@ -844,7 +840,7 @@ impl<'a> IndexSpaceOf for ComponentAlias<'a> {
                 ComponentExternalKind::Value => Space::CompVal,
                 ComponentExternalKind::Type => Space::CompType,
                 ComponentExternalKind::Instance => Space::CompInst,
-                ComponentExternalKind::Component => Space::CompType,
+                ComponentExternalKind::Component => Space::Comp,    // verified in alias.wast
                 ComponentExternalKind::Module => Space::CoreModule,
             },
 
@@ -863,7 +859,7 @@ impl<'a> IndexSpaceOf for ComponentAlias<'a> {
                 ComponentOuterAliasKind::CoreModule => Space::CoreModule,
                 ComponentOuterAliasKind::CoreType => Space::CoreType,
                 ComponentOuterAliasKind::Type => Space::CompType,
-                ComponentOuterAliasKind::Component => Space::CompType,
+                ComponentOuterAliasKind::Component => Space::Comp,    // verified in alias.wast
             },
         }
     }
@@ -947,7 +943,7 @@ impl IndexSpaceOf for Module<'_> {
 
 impl IndexSpaceOf for Component<'_> {
     fn index_space_of(&self) -> Space {
-        Space::CompType
+        Space::Comp    // verified
     }
 }
 
@@ -1009,7 +1005,7 @@ impl IndexSpaceOf for ComponentExternalKind {
             ComponentExternalKind::Value => Space::CompVal,
             ComponentExternalKind::Type => Space::CompType,
             ComponentExternalKind::Instance => Space::CompInst,
-            ComponentExternalKind::Component => Space::CompType,
+            ComponentExternalKind::Component => Space::Comp,    // verified in alias.wast
             ComponentExternalKind::Module => Space::CoreModule,
         }
     }
@@ -1021,7 +1017,7 @@ impl IndexSpaceOf for ComponentOuterAliasKind {
             ComponentOuterAliasKind::CoreModule => Space::CoreModule,
             ComponentOuterAliasKind::CoreType => Space::CoreType,
             ComponentOuterAliasKind::Type => Space::CompType,
-            ComponentOuterAliasKind::Component => Space::CompType,
+            ComponentOuterAliasKind::Component => Space::Comp,      // verified in wat (alias.wast)
         }
     }
 }
@@ -1860,7 +1856,7 @@ impl ReferencedIndices for ComponentTypeRef {
             ComponentTypeRef::Component(id) => Some(Refs {
                 ty: Some(IndexedRef {
                     depth,
-                    space: Space::CompType,
+                    space: Space::CompType,     // verified in wat (instantiate.wast)
                     index: *id,
                 }),
                 ..Default::default()
@@ -2061,7 +2057,7 @@ impl ReferencedIndices for ComponentInstance<'_> {
                 Some(Refs {
                     comp: Some(IndexedRef {
                         depth,
-                        space: Space::CompType,
+                        space: Space::Comp,    // verified in alias.wast
                         index: *component_index,
                     }),
                     others,
