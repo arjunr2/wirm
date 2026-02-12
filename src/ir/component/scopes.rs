@@ -132,7 +132,7 @@
 //! This ensures that the same scope is **never entered twice**, preventing
 //! double-counting or incorrect index resolution during encoding.
 
-use crate::ir::component::idx_spaces::SpaceId;
+use crate::ir::component::idx_spaces::ScopeId;
 use crate::ir::id::ComponentId;
 use crate::ir::types::CustomSection;
 use crate::{Component, Module};
@@ -240,10 +240,10 @@ use wasmparser::{
 #[derive(Default, Debug)]
 pub(crate) struct IndexScopeRegistry {
     pub(crate) node_scopes: HashMap<NonNull<()>, ScopeEntry>,
-    pub(crate) comp_scopes: HashMap<ComponentId, SpaceId>,
+    pub(crate) comp_scopes: HashMap<ComponentId, ScopeId>,
 }
 impl IndexScopeRegistry {
-    pub fn register<T: GetScopeKind>(&mut self, node: &T, space: SpaceId) {
+    pub fn register<T: GetScopeKind>(&mut self, node: &T, space: ScopeId) {
         let ptr = NonNull::from(node).cast::<()>();
         let kind = node.scope_kind();
         debug_assert_ne!(
@@ -267,10 +267,10 @@ impl IndexScopeRegistry {
         }
         None
     }
-    pub fn register_comp(&mut self, comp_id: ComponentId, space: SpaceId) {
+    pub fn register_comp(&mut self, comp_id: ComponentId, space: ScopeId) {
         self.comp_scopes.insert(comp_id, space);
     }
-    pub fn scope_of_comp(&self, comp_id: ComponentId) -> Option<SpaceId> {
+    pub fn scope_of_comp(&self, comp_id: ComponentId) -> Option<ScopeId> {
         self.comp_scopes.get(&comp_id).copied()
     }
 }
@@ -281,7 +281,7 @@ pub(crate) type RegistryHandle = Rc<RefCell<IndexScopeRegistry>>;
 
 #[derive(Debug, Clone, Copy)]
 pub struct ScopeEntry {
-    pub space: SpaceId,
+    pub space: ScopeId,
     pub kind: ScopeOwnerKind,
 }
 

@@ -16,7 +16,7 @@ use wasmparser::{
     VariantCase,
 };
 
-pub(crate) type SpaceId = usize;
+pub(crate) type ScopeId = usize;
 
 /// Every IR node can have a reference to this to allow for instrumentation
 /// to have access to the index stores and perform manipulations!
@@ -24,12 +24,12 @@ pub(crate) type StoreHandle = Rc<RefCell<IndexStore>>;
 
 #[derive(Default, Debug)]
 pub(crate) struct IndexStore {
-    pub scopes: HashMap<SpaceId, IndexScope>,
+    pub scopes: HashMap<ScopeId, IndexScope>,
     next_id: usize,
 }
 impl IndexStore {
     /// Create a new scope in the scope store.
-    pub fn new_scope(&mut self) -> SpaceId {
+    pub fn new_scope(&mut self) -> ScopeId {
         let id = self.use_next_id();
         self.scopes.insert(id, IndexScope::new(id));
 
@@ -51,7 +51,7 @@ impl IndexStore {
     /// - .2,Option<usize>: the index within the node to find the item (as in pointing to a certain subtype in a recgroup)
     pub fn index_from_assumed_id_no_cache(
         &self,
-        id: &SpaceId,
+        id: &ScopeId,
         r: &IndexedRef,
     ) -> (SpaceSubtype, usize, Option<usize>) {
         self.get(id).index_from_assumed_id_no_cache(r)
@@ -65,19 +65,19 @@ impl IndexStore {
     /// - .2,Option<usize>: the index within the node to find the item (as in pointing to a certain subtype in a recgroup)
     pub fn index_from_assumed_id(
         &mut self,
-        id: &SpaceId,
+        id: &ScopeId,
         r: &IndexedRef,
     ) -> (SpaceSubtype, usize, Option<usize>) {
         self.get_mut(id).index_from_assumed_id(r)
     }
     /// Reset the used IDs for the specified scope.
-    pub fn reset_ids(&mut self, id: &SpaceId) {
+    pub fn reset_ids(&mut self, id: &ScopeId) {
         self.get_mut(id).reset_ids()
     }
     /// Assign the actual ID for the specified item in the IR.
     pub fn assign_actual_id(
         &mut self,
-        id: &SpaceId,
+        id: &ScopeId,
         space: &Space,
         section: &ComponentSection,
         vec_idx: usize,
@@ -88,7 +88,7 @@ impl IndexStore {
     /// This part of the IR also has a subvector (as in a recgroup)
     pub fn assign_actual_id_with_subvec(
         &mut self,
-        id: &SpaceId,
+        id: &ScopeId,
         space: &Space,
         section: &ComponentSection,
         vec_idx: usize,
@@ -100,7 +100,7 @@ impl IndexStore {
     /// Give an assumed ID for some IR item (done at parse and IR-injection time).
     pub fn assign_assumed_id(
         &mut self,
-        id: &SpaceId,
+        id: &ScopeId,
         space: &Space,
         section: &ComponentSection,
         curr_idx: usize,
@@ -111,7 +111,7 @@ impl IndexStore {
     /// Iterate over a list of items to assign an assumed ID for.
     pub fn assign_assumed_id_for<I: Debug + IndexSpaceOf>(
         &mut self,
-        id: &SpaceId,
+        id: &ScopeId,
         items: &[I],
         curr_idx: usize,
         sections: &Vec<ComponentSection>,
@@ -122,7 +122,7 @@ impl IndexStore {
     /// Iterate over a list of _boxed_ items to assign an assumed ID for.
     pub fn assign_assumed_id_for_boxed<I: Debug + IndexSpaceOf>(
         &mut self,
-        id: &SpaceId,
+        id: &ScopeId,
         items: &[Box<I>],
         curr_idx: usize,
         sections: &Vec<ComponentSection>,
@@ -131,7 +131,7 @@ impl IndexStore {
             .assign_assumed_id_for_boxed(items, curr_idx, sections)
     }
     /// Use up the next ID to assign in the tracker.
-    fn use_next_id(&mut self) -> SpaceId {
+    fn use_next_id(&mut self) -> ScopeId {
         let next = self.next_id;
         self.next_id += 1;
 
@@ -139,11 +139,11 @@ impl IndexStore {
     }
 
     /// Get an index scope that can be mutated.
-    fn get_mut(&mut self, id: &SpaceId) -> &mut IndexScope {
+    fn get_mut(&mut self, id: &ScopeId) -> &mut IndexScope {
         self.scopes.get_mut(id).unwrap()
     }
     /// Get an immutable ref to an index scope.
-    fn get(&self, id: &SpaceId) -> &IndexScope {
+    fn get(&self, id: &ScopeId) -> &IndexScope {
         self.scopes.get(id).unwrap()
     }
 }
@@ -213,7 +213,7 @@ impl IndexStore {
 /// faithful to the specification.
 #[derive(Clone, Debug, Default)]
 pub(crate) struct IndexScope {
-    pub(crate) id: SpaceId,
+    pub(crate) id: ScopeId,
 
     // Component-level spaces
     pub comp: IdxSpace,
@@ -249,7 +249,7 @@ pub(crate) struct IndexScope {
     last_processed_custom: usize,
 }
 impl IndexScope {
-    pub fn new(id: SpaceId) -> Self {
+    pub fn new(id: ScopeId) -> Self {
         Self {
             id,
             ..Self::default()

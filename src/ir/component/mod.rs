@@ -6,7 +6,7 @@ use crate::error::Error;
 use crate::ir::component::alias::Aliases;
 use crate::ir::component::canons::Canons;
 use crate::ir::component::idx_spaces::{
-    Depth, IndexSpaceOf, IndexStore, ReferencedIndices, Space, SpaceId, SpaceSubtype, StoreHandle,
+    Depth, IndexSpaceOf, IndexStore, ReferencedIndices, Space, ScopeId, SpaceSubtype, StoreHandle,
 };
 use crate::ir::component::scopes::{IndexScopeRegistry, RegistryHandle};
 use crate::ir::component::section::{
@@ -38,10 +38,11 @@ use wasmparser::{
 
 mod alias;
 mod canons;
-pub mod idx_spaces;
-pub mod scopes;
+pub(crate) mod idx_spaces;
+pub(crate) mod scopes;
 pub(crate) mod section;
 mod types;
+pub mod visitor;
 
 #[derive(Debug)]
 /// Intermediate Representation of a wasm component.
@@ -75,7 +76,7 @@ pub struct Component<'a> {
     pub instances: AppendOnlyVec<Instance<'a>>,
 
     // Tracks the index spaces of this component.
-    pub(crate) space_id: SpaceId, // cached for quick lookup!
+    pub(crate) space_id: ScopeId, // cached for quick lookup!
     pub(crate) scope_registry: RegistryHandle,
     pub(crate) index_store: StoreHandle,
 
@@ -320,7 +321,7 @@ impl<'a> Component<'a> {
         parser: Parser,
         start: usize,
         parent_stack: &mut Vec<Encoding>,
-        space_id: SpaceId,
+        space_id: ScopeId,
         registry_handle: RegistryHandle,
         store_handle: StoreHandle,
         next_comp_id: &mut u32,

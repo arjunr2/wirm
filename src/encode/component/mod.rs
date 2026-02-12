@@ -1,6 +1,6 @@
 use crate::encode::component::assign::assign_indices;
 use crate::encode::component::encode::encode_internal;
-use crate::ir::component::idx_spaces::{Depth, IndexedRef, SpaceId, SpaceSubtype, StoreHandle};
+use crate::ir::component::idx_spaces::{Depth, IndexedRef, ScopeId, SpaceSubtype, StoreHandle};
 use crate::ir::component::scopes::{GetScopeKind, RegistryHandle};
 use crate::ir::id::ComponentId;
 use crate::Component;
@@ -162,18 +162,18 @@ pub fn encode(comp: &Component) -> Vec<u8> {
 
 #[derive(Clone)]
 pub(crate) struct SpaceStack {
-    pub(crate) stack: Vec<SpaceId>,
+    pub(crate) stack: Vec<ScopeId>,
 }
 impl SpaceStack {
-    fn new(outermost_id: SpaceId) -> Self {
+    fn new(outermost_id: ScopeId) -> Self {
         Self {
             stack: vec![outermost_id],
         }
     }
-    fn curr_space_id(&self) -> SpaceId {
+    fn curr_space_id(&self) -> ScopeId {
         self.stack.last().cloned().unwrap()
     }
-    fn space_at_depth(&self, depth: &Depth) -> SpaceId {
+    fn space_at_depth(&self, depth: &Depth) -> ScopeId {
         *self
             .stack
             .get(self.stack.len() - depth.val() as usize - 1)
@@ -186,11 +186,11 @@ impl SpaceStack {
             })
     }
 
-    pub fn enter_space(&mut self, id: SpaceId) {
+    pub fn enter_space(&mut self, id: ScopeId) {
         self.stack.push(id)
     }
 
-    pub fn exit_space(&mut self) -> SpaceId {
+    pub fn exit_space(&mut self) -> ScopeId {
         debug_assert!(
             self.stack.len() >= 2,
             "Trying to exit the index space scope when there isn't an outer!"

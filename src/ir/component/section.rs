@@ -1,7 +1,7 @@
 //! Enums the represent a section of a Module or a Component
 
 use crate::assert_registered_with_id;
-use crate::ir::component::idx_spaces::{IndexSpaceOf, SpaceId, StoreHandle};
+use crate::ir::component::idx_spaces::{IndexSpaceOf, ScopeId, StoreHandle};
 use crate::ir::component::scopes::RegistryHandle;
 use wasmparser::{
     ComponentType, ComponentTypeDeclaration, CoreType, InstanceTypeDeclaration,
@@ -38,7 +38,7 @@ pub(crate) fn get_sections_for_comp_ty(ty: &ComponentType) -> (ComponentSection,
 pub(crate) fn get_sections_for_core_ty_and_assign_top_level_ids(
     ty: &CoreType,
     curr_idx: usize,
-    space_id: &SpaceId,
+    space_id: &ScopeId,
     store: StoreHandle,
 ) -> (ComponentSection, bool) {
     let section = ComponentSection::CoreType;
@@ -63,7 +63,7 @@ pub(crate) fn get_sections_for_core_ty_and_assign_top_level_ids(
 pub(crate) fn assign_top_level_ids_recgroup(
     recgroup: &RecGroup,
     curr_idx: usize,
-    space_id: &SpaceId,
+    space_id: &ScopeId,
     store: StoreHandle,
 ) {
     let section = ComponentSection::CoreType;
@@ -129,7 +129,7 @@ pub(crate) fn populate_space_for_comp_ty(
 
 fn populate_space_for_comp_ty_comp_decl(
     idx: usize,
-    space_id: &SpaceId,
+    space_id: &ScopeId,
     decl: &ComponentTypeDeclaration,
     section: &ComponentSection,
     registry: RegistryHandle,
@@ -155,7 +155,7 @@ fn populate_space_for_comp_ty_comp_decl(
 
 fn populate_space_for_comp_ty_inst_decl(
     idx: usize,
-    space_id: &SpaceId,
+    space_id: &ScopeId,
     decl: &InstanceTypeDeclaration,
     section: &ComponentSection,
     registry: RegistryHandle,
@@ -196,7 +196,7 @@ pub(crate) fn populate_space_for_core_ty(
 
 fn populate_space_for_core_module_decl(
     idx: usize,
-    space_id: &SpaceId,
+    space_id: &ScopeId,
     decl: &ModuleTypeDeclaration,
     section: &ComponentSection,
     handle: StoreHandle,
