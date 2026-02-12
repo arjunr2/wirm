@@ -54,7 +54,7 @@ impl<'a> FunctionBuilder<'a> {
             tag,
         );
 
-        assert_eq!(
+        debug_assert_eq!(
             module.functions.as_vec().len() as u32,
             module.num_local_functions + module.imports.num_funcs
         );
@@ -135,7 +135,7 @@ impl<'a> FunctionBuilder<'a> {
             tag,
         );
 
-        assert_eq!(
+        debug_assert_eq!(
             module.functions.as_vec().len() as u32,
             module.num_local_functions + module.imports.num_funcs + module.imports.num_funcs_added
         );

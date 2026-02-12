@@ -530,7 +530,7 @@ impl AssumedIdForIdx {
     fn unwrap_for_idx(&self, subvec_idx: usize) -> usize {
         match self {
             AssumedIdForIdx::Single(my_id) => {
-                assert_eq!(subvec_idx, 0);
+                debug_assert_eq!(subvec_idx, 0);
                 *my_id
             }
             AssumedIdForIdx::Multiple(subvec) => subvec[subvec_idx],

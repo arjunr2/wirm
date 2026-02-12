@@ -507,7 +507,7 @@ impl<'a> Functions<'a> {
         imp_fn_id: u32,
     ) {
         self.recalculate_ids = true;
-        assert_eq!(*self.next_id(), imp_fn_id);
+        debug_assert_eq!(*self.next_id(), imp_fn_id);
         self.functions.push(Function::new(
             FuncKind::Import(ImportedFunction::new(imp_id, ty_id, FunctionID(imp_fn_id))),
             name,

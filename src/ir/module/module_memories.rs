@@ -133,7 +133,7 @@ impl Memories {
         tag: InjectTag,
     ) {
         self.recalculate_ids = true;
-        assert_eq!(*self.next_id(), imp_mem_id);
+        debug_assert_eq!(*self.next_id(), imp_mem_id);
         self.memories.push(Memory {
             ty,
             kind: MemKind::Import(ImportedMemory {

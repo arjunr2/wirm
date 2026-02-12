@@ -824,11 +824,11 @@ impl<'a> Component<'a> {
         if let Some(export) = self.exports.get(*export_id as usize) {
             if let Some(refs) = export.referenced_indices(Depth::default()) {
                 let list = refs.as_list();
-                assert_eq!(1, list.len());
+                debug_assert_eq!(1, list.len());
 
                 let (vec, f_idx, subidx) =
                     store.index_from_assumed_id_no_cache(&self.space_id, &list[0]);
-                assert!(subidx.is_none(), "a lift function shouldn't reference anything with a subvec space (like a recgroup)");
+                debug_assert!(subidx.is_none(), "a lift function shouldn't reference anything with a subvec space (like a recgroup)");
                 let func = match vec {
                     SpaceSubtype::Export | SpaceSubtype::Import => {
                         unreachable!()
@@ -843,7 +843,7 @@ impl<'a> Component<'a> {
                 if let Some(func_refs) = func {
                     let (ty, t_idx, subidx) =
                         store.index_from_assumed_id(&self.space_id, func_refs.ty());
-                    assert!(subidx.is_none(), "a lift function shouldn't reference anything with a subvec space (like a recgroup)");
+                    debug_assert!(subidx.is_none(), "a lift function shouldn't reference anything with a subvec space (like a recgroup)");
                     if !matches!(ty, SpaceSubtype::Main) {
                         panic!("Should've been an main space!")
                     }

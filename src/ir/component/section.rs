@@ -111,7 +111,7 @@ pub(crate) fn populate_space_for_comp_ty(
             registry.borrow_mut().register(ty, space_id);
             assert_registered_with_id!(registry, ty, space_id);
 
-            assert_eq!(space_id, registry.borrow().scope_entry(ty).unwrap().space);
+            debug_assert_eq!(space_id, registry.borrow().scope_entry(ty).unwrap().space);
             for (idx, decl) in decls.iter().enumerate() {
                 populate_space_for_comp_ty_inst_decl(
                     idx,

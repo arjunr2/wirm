@@ -1097,7 +1097,7 @@ impl<'a> Module<'a> {
     ) -> HashMap<u32, u32> {
         Self::reorganize(items.as_vec_mut());
         let id_mapping = Self::get_mapping_generic(items.as_vec().iter());
-        assert_eq!(items.as_vec().len(), id_mapping.len());
+        debug_assert_eq!(items.as_vec().len(), id_mapping.len());
         id_mapping
     }
 
@@ -2133,7 +2133,7 @@ impl<'a> Module<'a> {
                 import_fn_id: function_id,
                 ty_id,
             }));
-        assert!(self.functions.set_imported_fn_name(function_id, name));
+        debug_assert!(self.functions.set_imported_fn_name(function_id, name));
         true
     }
 
@@ -2142,10 +2142,10 @@ impl<'a> Module<'a> {
         if *id < self.imports.num_funcs {
             // the function is an import
             self.imports.set_fn_name(name.clone(), id);
-            assert!(self.functions.set_imported_fn_name(id, name));
+            debug_assert!(self.functions.set_imported_fn_name(id, name));
         } else {
             // the function is local
-            assert!(self.functions.set_local_fn_name(id, name));
+            debug_assert!(self.functions.set_local_fn_name(id, name));
         }
     }
 

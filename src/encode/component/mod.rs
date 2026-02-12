@@ -155,7 +155,7 @@ pub fn encode(comp: &Component) -> Vec<u8> {
     assign_indices(&mut plan, &mut ctx);
 
     // Phase 3: Encode (pass in the root-level component's plan, assigned indices, and original->new index map)
-    assert_eq!(1, ctx.space_stack.stack.len());
+    debug_assert_eq!(1, ctx.space_stack.stack.len());
     let bytes = encode_internal(comp, &plan, &mut ctx);
     bytes.finish()
 }
@@ -191,7 +191,7 @@ impl SpaceStack {
     }
 
     pub fn exit_space(&mut self) -> SpaceId {
-        assert!(
+        debug_assert!(
             self.stack.len() >= 2,
             "Trying to exit the index space scope when there isn't an outer!"
         );
@@ -222,7 +222,7 @@ impl EncodeCtx {
             // Exit the nested index space...should be equivalent to the ID
             // of the scope that was entered by this node
             let exited_from = self.space_stack.exit_space();
-            assert_eq!(scope_entry.space, exited_from);
+            debug_assert_eq!(scope_entry.space, exited_from);
         }
     }
     fn enter_comp_scope(&mut self, comp_id: ComponentId) {
