@@ -1,9 +1,10 @@
 use crate::encode::component::assign::assign_indices;
 use crate::encode::component::encode::encode_internal;
-use crate::ir::component::idx_spaces::{Depth, IndexedRef, ScopeId, SpaceSubtype, StoreHandle};
+use crate::ir::component::idx_spaces::{ScopeId, SpaceSubtype, StoreHandle};
 use crate::ir::component::scopes::{GetScopeKind, RegistryHandle};
 use crate::ir::id::ComponentId;
 use crate::Component;
+use crate::ir::component::refs::{Depth, IndexedRef};
 
 mod assign;
 mod collect;

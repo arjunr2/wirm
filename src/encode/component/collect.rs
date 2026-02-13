@@ -1,6 +1,5 @@
 use crate::encode::component::EncodeCtx;
-use crate::ir::component::idx_spaces::Depth;
-use crate::ir::component::idx_spaces::{ReferencedIndices, Space, SpaceSubtype};
+use crate::ir::component::idx_spaces::{Space, SpaceSubtype};
 use crate::ir::component::scopes::{build_component_store, ComponentStore, GetScopeKind};
 use crate::ir::component::section::ComponentSection;
 use crate::ir::id::ComponentId;
@@ -14,6 +13,7 @@ use wasmparser::{
     ComponentStartFunction, ComponentType, ComponentTypeDeclaration, CoreType, Instance,
     InstanceTypeDeclaration, ModuleTypeDeclaration,
 };
+use crate::ir::component::refs::{Depth, RefKind, ReferencedIndices};
 
 /// A trait for each IR node to implement --> The node knows how to `collect` itself.
 /// Passes the collection context AND a pointer to the containing Component
@@ -449,54 +449,53 @@ fn collect_deps<'a, T: ReferencedIndices + 'a>(
     collect_ctx: &mut CollectCtx<'a>,
     ctx: &mut EncodeCtx,
 ) {
-    if let Some(refs) = item.referenced_indices(Depth::default()) {
-        for r in refs.as_list().iter() {
-            let (vec, idx, subidx) = ctx.index_from_assumed_id(r);
-            if r.space != Space::CoreType {
-                assert!(
-                    subidx.is_none(),
-                    "only core types (with rec groups) should ever have subvec indices!"
-                );
-            }
+    let refs = item.referenced_indices(Depth::default());
+    for RefKind {ref_, ..} in refs.iter() {
+        let (vec, idx, subidx) = ctx.index_from_assumed_id(ref_);
+        if ref_.space != Space::CoreType {
+            assert!(
+                subidx.is_none(),
+                "only core types (with rec groups) should ever have subvec indices!"
+            );
+        }
 
-            let comp_id = collect_ctx.comp_at(r.depth);
-            let referenced_comp = collect_ctx.comp_store.get(comp_id);
+        let comp_id = collect_ctx.comp_at(ref_.depth);
+        let referenced_comp = collect_ctx.comp_store.get(comp_id);
 
-            let space = r.space;
-            match vec {
-                SpaceSubtype::Main => match space {
-                    Space::Comp => referenced_comp.components[idx].collect(idx, collect_ctx, ctx),
-                    Space::CompType => {
-                        referenced_comp.component_types.items[idx].collect(idx, collect_ctx, ctx)
-                    }
-                    Space::CompInst => {
-                        referenced_comp.component_instance[idx].collect(idx, collect_ctx, ctx)
-                    }
-                    Space::CoreInst => {
-                        referenced_comp.instances[idx].collect(idx, collect_ctx, ctx)
-                    }
-                    Space::CoreModule => {
-                        referenced_comp.modules[idx].collect(idx, collect_ctx, ctx)
-                    }
-                    Space::CoreType => {
-                        referenced_comp.core_types[idx].collect(idx, collect_ctx, ctx)
-                    }
-                    Space::CompFunc | Space::CoreFunc => {
-                        referenced_comp.canons.items[idx].collect(idx, collect_ctx, ctx)
-                    }
-                    Space::CompVal
-                    | Space::CoreMemory
-                    | Space::CoreTable
-                    | Space::CoreGlobal
-                    | Space::CoreTag => unreachable!(
-                        "This spaces don't exist in a main vector on the component IR: {vec:?}"
-                    ),
-                },
-                SpaceSubtype::Export => referenced_comp.exports[idx].collect(idx, collect_ctx, ctx),
-                SpaceSubtype::Import => referenced_comp.imports[idx].collect(idx, collect_ctx, ctx),
-                SpaceSubtype::Alias => {
-                    referenced_comp.alias.items[idx].collect(idx, collect_ctx, ctx)
+        let space = ref_.space;
+        match vec {
+            SpaceSubtype::Main => match space {
+                Space::Comp => referenced_comp.components[idx].collect(idx, collect_ctx, ctx),
+                Space::CompType => {
+                    referenced_comp.component_types.items[idx].collect(idx, collect_ctx, ctx)
                 }
+                Space::CompInst => {
+                    referenced_comp.component_instance[idx].collect(idx, collect_ctx, ctx)
+                }
+                Space::CoreInst => {
+                    referenced_comp.instances[idx].collect(idx, collect_ctx, ctx)
+                }
+                Space::CoreModule => {
+                    referenced_comp.modules[idx].collect(idx, collect_ctx, ctx)
+                }
+                Space::CoreType => {
+                    referenced_comp.core_types[idx].collect(idx, collect_ctx, ctx)
+                }
+                Space::CompFunc | Space::CoreFunc => {
+                    referenced_comp.canons.items[idx].collect(idx, collect_ctx, ctx)
+                }
+                Space::CompVal
+                | Space::CoreMemory
+                | Space::CoreTable
+                | Space::CoreGlobal
+                | Space::CoreTag => unreachable!(
+                    "This spaces don't exist in a main vector on the component IR: {vec:?}"
+                ),
+            },
+            SpaceSubtype::Export => referenced_comp.exports[idx].collect(idx, collect_ctx, ctx),
+            SpaceSubtype::Import => referenced_comp.imports[idx].collect(idx, collect_ctx, ctx),
+            SpaceSubtype::Alias => {
+                referenced_comp.alias.items[idx].collect(idx, collect_ctx, ctx)
             }
         }
     }

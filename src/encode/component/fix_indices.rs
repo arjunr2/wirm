@@ -2,7 +2,6 @@
 
 use crate::encode::component::collect::SubItemPlan;
 use crate::encode::component::EncodeCtx;
-use crate::ir::component::idx_spaces::{Depth, ReferencedIndices};
 use crate::ir::component::scopes::GetScopeKind;
 use crate::ir::types::CustomSection;
 use wasmparser::{
@@ -14,6 +13,7 @@ use wasmparser::{
     InstantiationArg, ModuleTypeDeclaration, PackedIndex, PrimitiveValType, RecGroup, RefType,
     StorageType, StructType, SubType, TagType, TypeRef, UnpackedIndex, ValType, VariantCase,
 };
+use crate::ir::component::refs::{GetArgRefs, GetCompRefs, GetFuncRef, GetFuncRefs, GetItemRef, GetItemRefs, GetMemRefs, GetModuleRefs, GetTableRefs, GetTypeRefs, ReferencedIndices};
 
 mod sealed {
     pub trait Sealed {}
@@ -47,9 +47,9 @@ impl sealed::Sealed for ComponentExport<'_> {}
 #[rustfmt::skip]
 impl FixIndicesImpl for ComponentExport<'_> {
     fn fixme<'a>(&self, plan: &Option<SubItemPlan>, ctx: &mut EncodeCtx) -> Self {
-        let refs = self.referenced_indices(Depth::default());
-        let misc = refs.as_ref().unwrap().misc();
-        let new_id = ctx.lookup_actual_id_or_panic(misc);
+        let new_id = ctx.lookup_actual_id_or_panic(
+            &self.get_item_ref().ref_
+        );
 
         let fixed_ty = self.ty.map(|ty| {
             ty.fix(plan, ctx)
@@ -68,9 +68,9 @@ impl sealed::Sealed for ComponentInstantiationArg<'_> {}
 #[rustfmt::skip]
 impl FixIndicesImpl for ComponentInstantiationArg<'_> {
     fn fixme<'a>(&self, _: &Option<SubItemPlan>, ctx: &mut EncodeCtx) -> Self {
-        let refs = self.referenced_indices(Depth::default());
-        let ty = refs.as_ref().unwrap().ty();
-        let new_id = ctx.lookup_actual_id_or_panic(ty);
+        let new_id = ctx.lookup_actual_id_or_panic(
+            &self.get_item_ref().ref_
+        );
 
         ComponentInstantiationArg {
             name: self.name,
@@ -109,9 +109,9 @@ impl FixIndicesImpl for ComponentType<'_> {
                 ComponentType::Resource {
                     rep: rep.fix(plan, ctx),
                     dtor: dtor.map(|_| {
-                        let refs = self.referenced_indices(Depth::default());
-                        let func = refs.as_ref().unwrap().func();
-                        ctx.lookup_actual_id_or_panic(func) as u32
+                        ctx.lookup_actual_id_or_panic(
+                            &self.get_func_refs().first().unwrap().ref_
+                        ) as u32
                     })
                 }
             }
@@ -125,9 +125,9 @@ impl FixIndicesImpl for ComponentInstance<'_> {
     fn fixme<'a>(&self, plan: &Option<SubItemPlan>, ctx: &mut EncodeCtx) -> Self {
         match self {
             ComponentInstance::Instantiate { args, .. } => {
-                let refs = self.referenced_indices(Depth::default());
-                let comp = refs.as_ref().unwrap().comp();
-                let new_id = ctx.lookup_actual_id_or_panic(comp);
+                let new_id = ctx.lookup_actual_id_or_panic(
+                    &self.get_comp_refs().first().unwrap().ref_
+                );
 
                 ComponentInstance::Instantiate {
                     component_index: new_id as u32,
@@ -149,13 +149,15 @@ impl sealed::Sealed for CanonicalFunction {}
 #[rustfmt::skip]
 impl FixIndicesImpl for CanonicalFunction {
     fn fixme<'a>(&self, plan: &Option<SubItemPlan>, ctx: &mut EncodeCtx) -> Self {
-        let refs = self.referenced_indices(Depth::default());
         match self {
             CanonicalFunction::Lift { options: options_orig, .. } => {
-                let func = refs.as_ref().unwrap().func();
-                let ty = refs.as_ref().unwrap().ty();
-                let new_fid = ctx.lookup_actual_id_or_panic(func);
-                let new_tid = ctx.lookup_actual_id_or_panic(ty);
+                let new_fid = ctx.lookup_actual_id_or_panic(
+                    &self.get_func_refs().first().unwrap().ref_
+                );
+                let new_tid = ctx.lookup_actual_id_or_panic(
+                    &self.get_type_refs().first().unwrap().ref_
+                );
+                
                 let mut fixed_options = vec![];
                 for opt in options_orig.iter() {
                     fixed_options.push(opt.fix(plan, ctx));
@@ -168,36 +170,45 @@ impl FixIndicesImpl for CanonicalFunction {
                 }
             }
             CanonicalFunction::Lower { options: options_orig, .. } => {
-                let func = refs.as_ref().unwrap().func();
+                let new_fid = ctx.lookup_actual_id_or_panic(
+                    &self.get_func_refs().first().unwrap().ref_
+                );
                 let mut fixed_options = vec![];
                 for opt in options_orig.iter() {
                     fixed_options.push(opt.fix(plan, ctx));
                 }
-
-                let new_fid = ctx.lookup_actual_id_or_panic(func);
+                
                 CanonicalFunction::Lower {
                     func_index: new_fid as u32,
                     options: fixed_options.into_boxed_slice()
                 }
             }
             CanonicalFunction::ResourceNew { .. } => {
-                let ty = refs.as_ref().unwrap().ty();
-                let new_tid = ctx.lookup_actual_id_or_panic(ty);
+                let new_tid = ctx.lookup_actual_id_or_panic(
+                    &self.get_type_refs().first().unwrap().ref_
+                );
+                
                 CanonicalFunction::ResourceNew { resource: new_tid as u32}
             }
             CanonicalFunction::ResourceDrop { .. } => {
-                let ty = refs.as_ref().unwrap().ty();
-                let new_tid = ctx.lookup_actual_id_or_panic(ty);
+                let new_tid = ctx.lookup_actual_id_or_panic(
+                    &self.get_type_refs().first().unwrap().ref_
+                );
+                
                 CanonicalFunction::ResourceDrop { resource: new_tid as u32}
             }
             CanonicalFunction::ResourceRep { .. } => {
-                let ty = refs.as_ref().unwrap().ty();
-                let new_tid = ctx.lookup_actual_id_or_panic(ty);
+                let new_tid = ctx.lookup_actual_id_or_panic(
+                    &self.get_type_refs().first().unwrap().ref_
+                );
+                
                 CanonicalFunction::ResourceRep { resource: new_tid as u32}
             }
             CanonicalFunction::ResourceDropAsync { .. } => {
-                let ty = refs.as_ref().unwrap().ty();
-                let new_tid = ctx.lookup_actual_id_or_panic(ty);
+                let new_tid = ctx.lookup_actual_id_or_panic(
+                    &self.get_type_refs().first().unwrap().ref_
+                );
+                
                 CanonicalFunction::ResourceDropAsync { resource: new_tid as u32}
             }
             CanonicalFunction::TaskReturn {
@@ -216,31 +227,38 @@ impl FixIndicesImpl for CanonicalFunction {
                 }
             }
             CanonicalFunction::WaitableSetWait { cancellable, .. } => {
-                let mem = refs.as_ref().unwrap().mem();
-                let new_mid = ctx.lookup_actual_id_or_panic(mem);
+                let new_mid = ctx.lookup_actual_id_or_panic(
+                    &self.get_mem_refs().first().unwrap().ref_
+                );
+                
                 CanonicalFunction::WaitableSetWait {
                     cancellable: *cancellable,
                     memory: new_mid as u32,
                 }
             }
             CanonicalFunction::WaitableSetPoll { cancellable, .. } => {
-                let mem = refs.as_ref().unwrap().mem();
-                let new_mid = ctx.lookup_actual_id_or_panic(mem);
+                let new_mid = ctx.lookup_actual_id_or_panic(
+                    &self.get_mem_refs().first().unwrap().ref_
+                );
+                
                 CanonicalFunction::WaitableSetPoll {
                     cancellable: *cancellable,
                     memory: new_mid as u32,
                 }
             }
             CanonicalFunction::StreamNew { .. } => {
-                let ty = refs.as_ref().unwrap().ty();
-                let new_tid = ctx.lookup_actual_id_or_panic(ty);
+                let new_tid = ctx.lookup_actual_id_or_panic(
+                    &self.get_type_refs().first().unwrap().ref_
+                );
+                
                 CanonicalFunction::StreamNew {
                     ty: new_tid as u32,
                 }
             }
             CanonicalFunction::StreamRead { options: options_orig, .. } => {
-                let ty = refs.as_ref().unwrap().ty();
-                let new_tid = ctx.lookup_actual_id_or_panic(ty);
+                let new_tid = ctx.lookup_actual_id_or_panic(
+                    &self.get_type_refs().first().unwrap().ref_
+                );
 
                 let mut fixed_options = vec![];
                 for opt in options_orig.iter() {
@@ -253,8 +271,9 @@ impl FixIndicesImpl for CanonicalFunction {
                 }
             }
             CanonicalFunction::StreamWrite { options: options_orig, .. } => {
-                let ty = refs.as_ref().unwrap().ty();
-                let new_tid = ctx.lookup_actual_id_or_panic(ty);
+                let new_tid = ctx.lookup_actual_id_or_panic(
+                    &self.get_type_refs().first().unwrap().ref_
+                );
 
                 let mut fixed_options = vec![];
                 for opt in options_orig.iter() {
@@ -267,31 +286,39 @@ impl FixIndicesImpl for CanonicalFunction {
                 }
             }
             CanonicalFunction::StreamCancelRead { async_, .. } => {
-                let ty = refs.as_ref().unwrap().ty();
-                let new_tid = ctx.lookup_actual_id_or_panic(ty);
+                let new_tid = ctx.lookup_actual_id_or_panic(
+                    &self.get_type_refs().first().unwrap().ref_
+                );
+                
                 CanonicalFunction::StreamCancelRead {
                     async_: *async_,
                     ty: new_tid as u32,
                 }
             }
             CanonicalFunction::StreamCancelWrite { async_, .. } => {
-                let ty = refs.as_ref().unwrap().ty();
-                let new_tid = ctx.lookup_actual_id_or_panic(ty);
+                let new_tid = ctx.lookup_actual_id_or_panic(
+                    &self.get_type_refs().first().unwrap().ref_
+                );
+                
                 CanonicalFunction::StreamCancelWrite {
                     async_: *async_,
                     ty: new_tid as u32,
                 }
             }
             CanonicalFunction::FutureNew { .. } => {
-                let ty = refs.as_ref().unwrap().ty();
-                let new_tid = ctx.lookup_actual_id_or_panic(ty);
+                let new_tid = ctx.lookup_actual_id_or_panic(
+                    &self.get_type_refs().first().unwrap().ref_
+                );
+                
                 CanonicalFunction::FutureNew {
                     ty: new_tid as u32,
                 }
             }
             CanonicalFunction::FutureRead { options: options_orig, .. } => {
-                let ty = refs.as_ref().unwrap().ty();
-                let new_tid = ctx.lookup_actual_id_or_panic(ty);
+                let new_tid = ctx.lookup_actual_id_or_panic(
+                    &self.get_type_refs().first().unwrap().ref_
+                );
+                
 
                 let mut fixed_options = vec![];
                 for opt in options_orig.iter() {
@@ -303,8 +330,10 @@ impl FixIndicesImpl for CanonicalFunction {
                 }
             }
             CanonicalFunction::FutureWrite { options: options_orig, .. } => {
-                let ty = refs.as_ref().unwrap().ty();
-                let new_tid = ctx.lookup_actual_id_or_panic(ty);
+                let new_tid = ctx.lookup_actual_id_or_panic(
+                    &self.get_type_refs().first().unwrap().ref_
+                );
+                
 
                 let mut fixed_options = vec![];
                 for opt in options_orig.iter() {
@@ -316,16 +345,20 @@ impl FixIndicesImpl for CanonicalFunction {
                 }
             }
             CanonicalFunction::FutureCancelRead { async_, .. } => {
-                let ty = refs.as_ref().unwrap().ty();
-                let new_tid = ctx.lookup_actual_id_or_panic(ty);
+                let new_tid = ctx.lookup_actual_id_or_panic(
+                    &self.get_type_refs().first().unwrap().ref_
+                );
+                
                 CanonicalFunction::FutureCancelRead {
                     async_: *async_,
                     ty: new_tid as u32,
                 }
             }
             CanonicalFunction::FutureCancelWrite { async_, .. } => {
-                let ty = refs.as_ref().unwrap().ty();
-                let new_tid = ctx.lookup_actual_id_or_panic(ty);
+                let new_tid = ctx.lookup_actual_id_or_panic(
+                    &self.get_type_refs().first().unwrap().ref_
+                );
+                
                 CanonicalFunction::FutureCancelWrite {
                     async_: *async_,
                     ty: new_tid as u32,
@@ -350,56 +383,72 @@ impl FixIndicesImpl for CanonicalFunction {
                 }
             }
             CanonicalFunction::ThreadSpawnRef { .. } => {
-                let ty = refs.as_ref().unwrap().ty();
-                let new_tid = ctx.lookup_actual_id_or_panic(ty);
+                let new_tid = ctx.lookup_actual_id_or_panic(
+                    &self.get_type_refs().first().unwrap().ref_
+                );
+                
                 CanonicalFunction::ThreadSpawnRef {
                     func_ty_index: new_tid as u32,
                 }
             }
             CanonicalFunction::ThreadSpawnIndirect { .. } => {
-                let ty = refs.as_ref().unwrap().ty();
-                let table = refs.as_ref().unwrap().table();
-                let new_tid = ctx.lookup_actual_id_or_panic(ty);
-                let new_tbl_id = ctx.lookup_actual_id_or_panic(table);
+                let new_tid = ctx.lookup_actual_id_or_panic(
+                    &self.get_type_refs().first().unwrap().ref_
+                );
+                let new_tbl_id = ctx.lookup_actual_id_or_panic(
+                    &self.get_tbl_refs().first().unwrap().ref_
+                );
+                
                 CanonicalFunction::ThreadSpawnIndirect {
                     func_ty_index: new_tid as u32,
                     table_index: new_tbl_id as u32,
                 }
             }
             CanonicalFunction::ThreadNewIndirect { .. } => {
-                let ty = refs.as_ref().unwrap().ty();
-                let table = refs.as_ref().unwrap().table();
-                let new_tid = ctx.lookup_actual_id_or_panic(ty);
-                let new_tbl_id = ctx.lookup_actual_id_or_panic(table);
+                let new_tid = ctx.lookup_actual_id_or_panic(
+                    &self.get_type_refs().first().unwrap().ref_
+                );
+                let new_tbl_id = ctx.lookup_actual_id_or_panic(
+                    &self.get_tbl_refs().first().unwrap().ref_
+                );
+                
                 CanonicalFunction::ThreadNewIndirect {
                     func_ty_index: new_tid as u32,
                     table_index: new_tbl_id as u32,
                 }
             }
             CanonicalFunction::StreamDropReadable { .. } => {
-                let ty = refs.as_ref().unwrap().ty();
-                let new_tid = ctx.lookup_actual_id_or_panic(ty);
+                let new_tid = ctx.lookup_actual_id_or_panic(
+                    &self.get_type_refs().first().unwrap().ref_
+                );
+                
                 CanonicalFunction::StreamDropReadable {
                     ty: new_tid as u32,
                 }
             }
             CanonicalFunction::StreamDropWritable { .. } => {
-                let ty = refs.as_ref().unwrap().ty();
-                let new_tid = ctx.lookup_actual_id_or_panic(ty);
+                let new_tid = ctx.lookup_actual_id_or_panic(
+                    &self.get_type_refs().first().unwrap().ref_
+                );
+                
                 CanonicalFunction::StreamDropWritable {
                     ty: new_tid as u32,
                 }
             }
             CanonicalFunction::FutureDropReadable { .. } => {
-                let ty = refs.as_ref().unwrap().ty();
-                let new_tid = ctx.lookup_actual_id_or_panic(ty);
+                let new_tid = ctx.lookup_actual_id_or_panic(
+                    &self.get_type_refs().first().unwrap().ref_
+                );
+                
                 CanonicalFunction::FutureDropReadable {
                     ty: new_tid as u32,
                 }
             }
             CanonicalFunction::FutureDropWritable { .. } => {
-                let ty = refs.as_ref().unwrap().ty();
-                let new_tid = ctx.lookup_actual_id_or_panic(ty);
+                let new_tid = ctx.lookup_actual_id_or_panic(
+                    &self.get_type_refs().first().unwrap().ref_
+                );
+                
                 CanonicalFunction::FutureDropWritable {
                     ty: new_tid as u32,
                 }
@@ -432,9 +481,9 @@ impl FixIndicesImpl for Instance<'_> {
     fn fixme<'a>(&self, plan: &Option<SubItemPlan>, ctx: &mut EncodeCtx) -> Self {
         match self {
             Instance::Instantiate { args: args_orig, .. } => {
-                let refs = self.referenced_indices(Depth::default());
-                let module = refs.as_ref().unwrap().module();
-                let new_id = ctx.lookup_actual_id_or_panic(module);
+                let new_id = ctx.lookup_actual_id_or_panic(
+                    &self.get_module_refs().first().unwrap().ref_
+                );
 
                 let mut args = vec![];
                 for arg in args_orig.iter() {
@@ -460,14 +509,13 @@ impl sealed::Sealed for ComponentStartFunction {}
 #[rustfmt::skip]
 impl FixIndicesImpl for ComponentStartFunction {
     fn fixme<'a>(&self, _: &Option<SubItemPlan>, ctx: &mut EncodeCtx) -> Self {
-        let refs = self.referenced_indices(Depth::default());
-        let func = refs.as_ref().unwrap().func();
-        let new_fid = ctx.lookup_actual_id_or_panic(func);
+        let new_fid = ctx.lookup_actual_id_or_panic(
+            &self.get_func_ref().ref_
+        );
 
         let mut new_args = vec![];
-        for arg_refs in refs.as_ref().unwrap().others() {
-            let ty = arg_refs.as_ref().unwrap().ty();
-            let new_arg = ctx.lookup_actual_id_or_panic(ty);
+        for r in self.get_arg_refs().iter() {
+            let new_arg = ctx.lookup_actual_id_or_panic(&r.ref_);
             new_args.push(new_arg as u32)
         }
 
@@ -524,16 +572,16 @@ impl FixIndicesImpl for ComponentDefinedType<'_> {
                 err: err.as_ref().map(|err| err.fix(plan, ctx))
             },
             ComponentDefinedType::Own(_) => {
-                let refs = self.referenced_indices(Depth::default());
-                let ty = refs.as_ref().unwrap().ty();
-                let id = ctx.lookup_actual_id_or_panic(ty);
-                ComponentDefinedType::Own(id as u32)
+                let new_tid = ctx.lookup_actual_id_or_panic(
+                    &self.get_type_refs().first().unwrap().ref_
+                );
+                ComponentDefinedType::Own(new_tid as u32)
             },
             ComponentDefinedType::Borrow(_) => {
-                let refs = self.referenced_indices(Depth::default());
-                let ty = refs.as_ref().unwrap().ty();
-                let id = ctx.lookup_actual_id_or_panic(ty);
-                ComponentDefinedType::Borrow(id as u32)
+                let new_tid = ctx.lookup_actual_id_or_panic(
+                    &self.get_type_refs().first().unwrap().ref_
+                );
+                ComponentDefinedType::Borrow(new_tid as u32)
             },
             ComponentDefinedType::Future(ty) => ComponentDefinedType::Future(ty.as_ref().map(|ty| ty.fix(plan, ctx))),
             ComponentDefinedType::Stream(ty) => ComponentDefinedType::Stream(ty.as_ref().map(|ty| ty.fix(plan, ctx))),
@@ -561,9 +609,9 @@ impl FixIndicesImpl for VariantCase<'_> {
             name: self.name,
             ty: self.ty.map(|ty| ty.fix(plan, ctx)),
             refines: self.refines.map(|_| {
-                let refs = self.referenced_indices(Depth::default());
-                let ty = refs.as_ref().unwrap().misc();
-                ctx.lookup_actual_id_or_panic(ty) as u32
+                ctx.lookup_actual_id_or_panic(
+                    &self.get_type_refs().first().unwrap().ref_
+                ) as u32
             }),
         }
     }
@@ -595,10 +643,10 @@ impl FixIndicesImpl for SubType {
         Self {
             is_final: self.is_final,
             supertype_idx: if self.supertype_idx.is_some() {
-                let refs = self.referenced_indices(Depth::default());
-                let ty = refs.as_ref().unwrap().ty();
-                let new_id = ctx.lookup_actual_id_or_panic(ty);
-                Some(PackedIndex::from_module_index(new_id as u32).unwrap())
+                let new_tid = ctx.lookup_actual_id_or_panic(
+                    &self.get_type_refs().first().unwrap().ref_
+                );
+                Some(PackedIndex::from_module_index(new_tid as u32).unwrap())
             } else {
                 None
             },
@@ -629,10 +677,10 @@ impl FixIndicesImpl for CompositeInnerType {
             CompositeInnerType::Array(ty) => CompositeInnerType::Array(ArrayType(ty.0.fix(plan, ctx))),
             CompositeInnerType::Struct(s) => CompositeInnerType::Struct(s.fix(plan, ctx)),
             CompositeInnerType::Cont(_) => {
-                let refs = self.referenced_indices(Depth::default());
-                let ty = refs.as_ref().unwrap().ty();
-                let new_id = ctx.lookup_actual_id_or_panic(ty);
-                CompositeInnerType::Cont(ContType(PackedIndex::from_module_index(new_id as u32).unwrap()))
+                let new_tid = ctx.lookup_actual_id_or_panic(
+                    &self.get_type_refs().first().unwrap().ref_
+                );
+                CompositeInnerType::Cont(ContType(PackedIndex::from_module_index(new_tid as u32).unwrap()))
             },
         }
     }
@@ -729,17 +777,21 @@ impl sealed::Sealed for RefType {}
 #[rustfmt::skip]
 impl FixIndicesImpl for RefType {
     fn fixme<'a>(&self, _: &Option<SubItemPlan>, ctx: &mut EncodeCtx) -> Self {
-        let refs = self.referenced_indices(Depth::default());
-        if let Some(refs) = refs.as_ref() {
+        let refs = self.get_type_refs();
+        if !refs.is_empty() {
             let new_heap = match self.heap_type() {
                 HeapType::Concrete(_) => {
-                    let new = ctx.lookup_actual_id_or_panic(refs.ty());
-                    HeapType::Concrete(UnpackedIndex::Module(new as u32))
+                    let new_tid = ctx.lookup_actual_id_or_panic(
+                        &refs.first().unwrap().ref_
+                    );
+                    HeapType::Concrete(UnpackedIndex::Module(new_tid as u32))
                 }
 
                 HeapType::Exact(_) => {
-                    let new = ctx.lookup_actual_id_or_panic(refs.ty());
-                    HeapType::Exact(UnpackedIndex::Module(new as u32))
+                    let new_tid = ctx.lookup_actual_id_or_panic(
+                        &refs.first().unwrap().ref_
+                    );
+                    HeapType::Exact(UnpackedIndex::Module(new_tid as u32))
                 }
 
                 HeapType::Abstract { .. } => {
@@ -789,14 +841,14 @@ impl FixIndicesImpl for ModuleTypeDeclaration<'_> {
                 ModuleTypeDeclaration::Import(import.fix(plan, ctx))
             }
             ModuleTypeDeclaration::OuterAlias { kind, count, .. } => {
-                let refs = self.referenced_indices(Depth::default());
-                let misc = refs.as_ref().unwrap().misc();
-                let new_id = ctx.lookup_actual_id_or_panic(misc);
+                let new_tid = ctx.lookup_actual_id_or_panic(
+                    &self.get_type_refs().first().unwrap().ref_
+                );
 
                 ModuleTypeDeclaration::OuterAlias {
                     kind: *kind,
                     count: *count,
-                    index: new_id as u32,
+                    index: new_tid as u32,
                 }
             }
         }
@@ -843,10 +895,10 @@ impl sealed::Sealed for ComponentValType {}
 impl FixIndicesImpl for ComponentValType {
     fn fixme<'a>(&self, _: &Option<SubItemPlan>, ctx: &mut EncodeCtx) -> Self {
         if let ComponentValType::Type(_) = self {
-            let refs = self.referenced_indices(Depth::default());
-            let ty = refs.as_ref().unwrap().ty();
-            let new_id = ctx.lookup_actual_id_or_panic(ty);
-            ComponentValType::Type(new_id as u32)
+            let new_tid = ctx.lookup_actual_id_or_panic(
+                &self.get_type_refs().first().unwrap().ref_
+            );
+            ComponentValType::Type(new_tid as u32)
         } else {
             *self
         }
@@ -859,9 +911,10 @@ impl FixIndicesImpl for ComponentAlias<'_> {
     fn fixme<'a>(&self, _: &Option<SubItemPlan>, ctx: &mut EncodeCtx) -> Self {
         match self {
             ComponentAlias::InstanceExport { kind, name, .. } => {
-                let refs = self.referenced_indices(Depth::default());
-                let inst = refs.as_ref().unwrap().inst();
-                let new_id = ctx.lookup_actual_id_or_panic(inst);
+                let new_id = ctx.lookup_actual_id_or_panic(
+                    &self.get_item_ref().ref_
+                );
+                
                 Self::InstanceExport {
                     kind: *kind,
                     name,
@@ -869,9 +922,10 @@ impl FixIndicesImpl for ComponentAlias<'_> {
                 }
             }
             ComponentAlias::CoreInstanceExport { kind, name, .. } => {
-                let refs = self.referenced_indices(Depth::default());
-                let inst = refs.as_ref().unwrap().inst();
-                let new_id = ctx.lookup_actual_id_or_panic(inst);
+                let new_id = ctx.lookup_actual_id_or_panic(
+                    &self.get_item_ref().ref_
+                );
+                
                 Self::CoreInstanceExport {
                     kind: *kind,
                     name,
@@ -879,9 +933,9 @@ impl FixIndicesImpl for ComponentAlias<'_> {
                 }
             }
             ComponentAlias::Outer { kind, count, .. } => {
-                let refs = self.referenced_indices(Depth::default());
-                let misc = refs.as_ref().unwrap().misc();
-                let new_id = ctx.lookup_actual_id_or_panic(misc);
+                let new_id = ctx.lookup_actual_id_or_panic(
+                    &self.get_item_ref().ref_
+                );
 
                 Self::Outer {
                     kind: *kind,
@@ -897,29 +951,33 @@ impl sealed::Sealed for ComponentTypeRef {}
 #[rustfmt::skip]
 impl FixIndicesImpl for ComponentTypeRef {
     fn fixme<'a>(&self, plan: &Option<SubItemPlan>, ctx: &mut EncodeCtx) -> Self {
-        let refs = self.referenced_indices(Depth::default());
         match self {
             ComponentTypeRef::Module(_) => {
-                let ty = refs.as_ref().unwrap().ty();
-                let new_id = ctx.lookup_actual_id_or_panic(ty);
+                let new_id = ctx.lookup_actual_id_or_panic(
+                    &self.get_type_refs().first().unwrap().ref_
+                );
+                
                 ComponentTypeRef::Module(new_id as u32)
             }
             ComponentTypeRef::Value(ty) => {
                 ComponentTypeRef::Value(ty.fix(plan, ctx))
             }
             ComponentTypeRef::Func(_) => {
-                let ty = refs.as_ref().unwrap().ty();
-                let new_id = ctx.lookup_actual_id_or_panic(ty);
+                let new_id = ctx.lookup_actual_id_or_panic(
+                    &self.get_type_refs().first().unwrap().ref_
+                );
                 ComponentTypeRef::Func(new_id as u32)
             }
             ComponentTypeRef::Instance(_) => {
-                let ty = refs.as_ref().unwrap().ty();
-                let new_id = ctx.lookup_actual_id_or_panic(ty);
+                let new_id = ctx.lookup_actual_id_or_panic(
+                    &self.get_type_refs().first().unwrap().ref_
+                );
                 ComponentTypeRef::Instance(new_id as u32)
             }
             ComponentTypeRef::Component(_) => {
-                let ty = refs.as_ref().unwrap().ty();
-                let new_id = ctx.lookup_actual_id_or_panic(ty);
+                let new_id = ctx.lookup_actual_id_or_panic(
+                    &self.get_type_refs().first().unwrap().ref_
+                );
                 ComponentTypeRef::Component(new_id as u32)
             }
             ComponentTypeRef::Type(_) => *self // nothing to do
@@ -931,13 +989,14 @@ impl sealed::Sealed for CanonicalOption {}
 #[rustfmt::skip]
 impl FixIndicesImpl for CanonicalOption {
     fn fixme<'a>(&self, _: &Option<SubItemPlan>, ctx: &mut EncodeCtx) -> Self {
-        let refs = self.referenced_indices(Depth::default());
         match self {
             CanonicalOption::Realloc(_)
             | CanonicalOption::PostReturn(_)
             | CanonicalOption::Callback(_) => {
-                let func = refs.as_ref().unwrap().func();
-                let new_fid = ctx.lookup_actual_id_or_panic(func);
+                let new_fid = ctx.lookup_actual_id_or_panic(
+                    &self.get_func_refs().first().unwrap().ref_
+                );
+                
                 match self {
                     CanonicalOption::Realloc(_) => CanonicalOption::Realloc(new_fid as u32),
                     CanonicalOption::PostReturn(_) => CanonicalOption::PostReturn(new_fid as u32),
@@ -946,14 +1005,16 @@ impl FixIndicesImpl for CanonicalOption {
                 }
             }
             CanonicalOption::CoreType(_) => {
-                let ty = refs.as_ref().unwrap().ty();
-                let new_tid = ctx.lookup_actual_id_or_panic(ty);
+                let new_tid = ctx.lookup_actual_id_or_panic(
+                    &self.get_type_refs().first().unwrap().ref_
+                );
                 CanonicalOption::CoreType(new_tid as u32)
             }
 
             CanonicalOption::Memory(_) => {
-                let mem = refs.as_ref().unwrap().mem();
-                let new_mid = ctx.lookup_actual_id_or_panic(mem);
+                let new_mid = ctx.lookup_actual_id_or_panic(
+                    &self.get_mem_refs().first().unwrap().ref_
+                );
                 CanonicalOption::Memory(new_mid as u32)
             }
             CanonicalOption::UTF8
@@ -969,9 +1030,9 @@ impl sealed::Sealed for InstantiationArg<'_> {}
 #[rustfmt::skip]
 impl FixIndicesImpl for InstantiationArg<'_> {
     fn fixme<'a>(&self, _: &Option<SubItemPlan>, ctx: &mut EncodeCtx) -> Self {
-        let refs = self.referenced_indices(Depth::default());
-        let misc = refs.as_ref().unwrap().misc();
-        let new_id = ctx.lookup_actual_id_or_panic(misc);
+        let new_id = ctx.lookup_actual_id_or_panic(
+            &self.get_item_ref().ref_
+        );
         Self {
             name: self.name,
             kind: self.kind,
@@ -984,9 +1045,10 @@ impl sealed::Sealed for Export<'_> {}
 #[rustfmt::skip]
 impl FixIndicesImpl for Export<'_> {
     fn fixme<'a>(&self, _: &Option<SubItemPlan>, ctx: &mut EncodeCtx) -> Self {
-        let refs = self.referenced_indices(Depth::default());
-        let misc = refs.as_ref().unwrap().misc();
-        let new_id = ctx.lookup_actual_id_or_panic(misc);
+        let new_id = ctx.lookup_actual_id_or_panic(
+            &self.get_item_ref().ref_
+        );
+        
         Self {
             name: self.name,
             kind: self.kind,
@@ -1015,24 +1077,27 @@ impl sealed::Sealed for TypeRef {}
 #[rustfmt::skip]
 impl FixIndicesImpl for TypeRef {
     fn fixme<'a>(&self, _: &Option<SubItemPlan>, ctx: &mut EncodeCtx) -> Self {
-        let refs = self.referenced_indices(Depth::default());
         match self {
             TypeRef::Func(_) => {
-                let ty = refs.as_ref().unwrap().ty();
-                let new_id = ctx.lookup_actual_id_or_panic(ty);
+                let new_id = ctx.lookup_actual_id_or_panic(
+                    &self.get_type_refs().first().unwrap().ref_
+                );
+                
                 TypeRef::Func(new_id as u32)
             }
             TypeRef::Tag(TagType { kind, .. }) => {
-                let ty = refs.as_ref().unwrap().ty();
-                let new_id = ctx.lookup_actual_id_or_panic(ty);
+                let new_id = ctx.lookup_actual_id_or_panic(
+                    &self.get_type_refs().first().unwrap().ref_
+                );
                 TypeRef::Tag(TagType {
                     kind: *kind,
                     func_type_idx: new_id as u32,
                 })
             }
             TypeRef::FuncExact(_) => {
-                let ty = refs.as_ref().unwrap().ty();
-                let new_id = ctx.lookup_actual_id_or_panic(ty);
+                let new_id = ctx.lookup_actual_id_or_panic(
+                    &self.get_type_refs().first().unwrap().ref_
+                );
                 TypeRef::FuncExact(new_id as u32)
             }
             TypeRef::Table(_) | TypeRef::Memory(_) | TypeRef::Global(_) => *self

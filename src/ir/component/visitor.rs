@@ -16,6 +16,8 @@
 
 use wasmparser::{CanonicalFunction, ComponentAlias, ComponentExport, ComponentImport, ComponentInstance, ComponentStartFunction, ComponentType, CoreType, Instance};
 use crate::{Component, Module};
+use crate::ir::component::idx_spaces::Space;
+use crate::ir::component::refs::{IndexedRef, RefKind};
 use crate::ir::component::scopes::GetScopeKind;
 use crate::ir::component::section::ComponentSection;
 use crate::ir::component::visitor::internal::VisitCtxInner;
@@ -26,16 +28,54 @@ pub fn traverse_component<V: ComponentVisitor>(
     visitor: &mut V,
 ) {
     let mut ctx = VisitCtx::new(component);
-    traverse(component, visitor, &mut ctx);
+    traverse(component, None, visitor, &mut ctx);
+}
+
+/// A structured, read-only visitor over a [`Component`] tree.
+///
+/// All methods have default no-op implementations. Override only the
+/// callbacks you are interested in.
+///
+/// Traversal order is stable but not guaranteed to reflect the original
+/// parse order exactly. Consumers should not depend on ordering semantics
+/// beyond structured nesting (enter/exit pairing).
+pub trait ComponentVisitor {
+    /// The ID is None when we're visiting the ROOT component
+    fn enter_component(&mut self, _cx: &VisitCtx, _id: Option<u32>, _component: &Component) {}
+    /// The ID is None when we're visiting the ROOT component
+    fn exit_component(&mut self, _cx: &VisitCtx, _id: Option<u32>, _component: &Component) {}
+    fn visit_module(&mut self, _cx: &VisitCtx, _id: u32, _module: &Module) {}
+
+    // component-level items
+    fn visit_comp_type(&mut self, _cx: &VisitCtx, _id: u32, _comp_type: &ComponentType) {}
+    fn visit_comp_instance(&mut self, _cx: &VisitCtx, _id: u32, _instance: &ComponentInstance) {}
+
+    // the below items must RESOLVE IDs as they can be of several different variations
+    fn visit_canon(&mut self, _cx: &VisitCtx, _canon: &CanonicalFunction) {}
+    fn visit_alias(&mut self, _cx: &VisitCtx, _alias: &ComponentAlias) {}
+    fn visit_comp_import(&mut self, _cx: &VisitCtx, _import: &ComponentImport) {}
+    fn visit_comp_export(&mut self, _cx: &VisitCtx, _export: &ComponentExport) {}
+
+    // core wasm items
+    fn visit_core_type(&mut self, _cx: &VisitCtx, _id: u32, _ty: &CoreType) {}
+    fn visit_core_instance(&mut self, _cx: &VisitCtx, _id: u32, _inst: &Instance) {}
+    fn visit_custom_section(&mut self, _cx: &VisitCtx, _sect: &CustomSection) {}
+    fn visit_start_section(&mut self, _cx: &VisitCtx, _start: &ComponentStartFunction) {}
 }
 
 fn traverse<'a, V: ComponentVisitor>(
     component: &'a Component,
+    comp_idx: Option<usize>,
     visitor: &mut V,
     ctx: &mut VisitCtx,
 ) {
     ctx.inner.push_component(component);
-    visitor.enter_component(ctx, component);
+    let id = if let Some(idx) = comp_idx {
+        Some(ctx.inner.lookup_id_for(&Space::Comp, &ComponentSection::Component, idx))
+    } else {
+        None
+    };
+    visitor.enter_component(ctx, id, component);
 
     for (num, section) in component.sections.iter() {
         let start_idx = ctx.inner.visit_section(section, *num as usize);
@@ -47,7 +87,7 @@ fn traverse<'a, V: ComponentVisitor>(
                 for i in 0..*num {
                     let idx = start_idx + i as usize;
                     let subcomponent = &component.components[idx];
-                    traverse(subcomponent, visitor, ctx);
+                    traverse(subcomponent, Some(idx), visitor, ctx);
                 }
             }
             ComponentSection::Module => {
@@ -60,7 +100,7 @@ fn traverse<'a, V: ComponentVisitor>(
                     let item = &all[idx];
 
                     ctx.inner.maybe_enter_scope(item);
-                    visitor.visit_module(ctx, item);
+                    visitor.visit_module(ctx, ctx.inner.lookup_id_for(&Space::CoreModule, &ComponentSection::Module, idx), item);
                     ctx.inner.maybe_exit_scope(item);
                 }
             }
@@ -69,23 +109,26 @@ fn traverse<'a, V: ComponentVisitor>(
                 &component.component_types.items[start_idx..start_idx+ *num as usize],
                 ctx,
                 visitor,
-                |visitor, ctx, ty| {
-                    visitor.visit_comp_type(ctx, ty);
+                start_idx,
+                |visitor, ctx, idx, ty| {
+                    visitor.visit_comp_type(ctx, ctx.inner.lookup_id_for(&Space::CompType, &ComponentSection::ComponentType, idx), ty);
                 }
             ),
             ComponentSection::ComponentInstance => visit_vec(
                 &component.component_instance[start_idx..start_idx+ *num as usize],
                 ctx,
                 visitor,
-                |visitor, ctx, inst| {
-                    visitor.visit_comp_instance(ctx, inst);
+                start_idx,
+                |visitor, ctx, idx, inst| {
+                    visitor.visit_comp_instance(ctx, ctx.inner.lookup_id_for(&Space::CompInst, &ComponentSection::ComponentInstance, idx), inst);
                 }
             ),
             ComponentSection::Canon => visit_vec(
                 &component.canons.items[start_idx..start_idx+ *num as usize],
                 ctx,
                 visitor,
-                |visitor, ctx, canon| {
+                start_idx,
+                |visitor, ctx, _, canon| {
                     visitor.visit_canon(ctx, canon);
                 }
             ),
@@ -93,7 +136,8 @@ fn traverse<'a, V: ComponentVisitor>(
                 &component.alias.items[start_idx..start_idx+ *num as usize],
                 ctx,
                 visitor,
-                |visitor, ctx, alias| {
+                start_idx,
+                |visitor, ctx, _, alias| {
                     visitor.visit_alias(ctx, alias);
                 }
             ),
@@ -101,7 +145,8 @@ fn traverse<'a, V: ComponentVisitor>(
                 &component.imports[start_idx..start_idx+ *num as usize],
                 ctx,
                 visitor,
-                |visitor, ctx, imp| {
+                start_idx,
+                |visitor, ctx, _, imp| {
                     visitor.visit_comp_import(ctx, imp);
                 }
             ),
@@ -109,7 +154,8 @@ fn traverse<'a, V: ComponentVisitor>(
                 &component.exports[start_idx..start_idx+ *num as usize],
                 ctx,
                 visitor,
-                |visitor, ctx, exp| {
+                start_idx,
+                |visitor, ctx, _, exp| {
                     visitor.visit_comp_export(ctx, exp);
                 }
             ),
@@ -118,16 +164,18 @@ fn traverse<'a, V: ComponentVisitor>(
                 &component.core_types[start_idx..start_idx+ *num as usize],
                 ctx,
                 visitor,
-                |visitor, ctx, ty| {
-                    visitor.visit_core_type(ctx, ty);
+                start_idx,
+                |visitor, ctx, idx, ty| {
+                    visitor.visit_core_type(ctx, ctx.inner.lookup_id_for(&Space::CoreType, &ComponentSection::CoreType, idx), ty);
                 }
             ),
             ComponentSection::CoreInstance => visit_vec(
                 &component.instances[start_idx..start_idx+ *num as usize],
                 ctx,
                 visitor,
-                |visitor, ctx, inst| {
-                    visitor.visit_core_instance(ctx, inst);
+                start_idx,
+                |visitor, ctx, idx, inst| {
+                    visitor.visit_core_instance(ctx, ctx.inner.lookup_id_for(&Space::CoreInst, &ComponentSection::CoreInstance, idx), inst);
                 }
             ),
 
@@ -135,7 +183,8 @@ fn traverse<'a, V: ComponentVisitor>(
                 &component.custom_sections.custom_sections[start_idx..start_idx+ *num as usize],
                 ctx,
                 visitor,
-                |visitor, ctx, sect| {
+                start_idx,
+                |visitor, ctx, idx, sect| {
                     visitor.visit_custom_section(ctx, sect);
                 }
             ),
@@ -143,14 +192,15 @@ fn traverse<'a, V: ComponentVisitor>(
                 &component.start_section[start_idx..start_idx+ *num as usize],
                 ctx,
                 visitor,
-                |visitor, ctx, start| {
+                start_idx,
+                |visitor, ctx, idx, start| {
                     visitor.visit_start_section(ctx, start);
                 }
             ),
         }
     }
 
-    visitor.exit_component(ctx, component);
+    visitor.exit_component(ctx, id, component);
     ctx.inner.pop_component();
 }
 
@@ -158,11 +208,12 @@ fn visit_vec<'a, T: GetScopeKind>(
     slice: &'a [T],
     ctx: &mut VisitCtx,
     visitor: &mut dyn ComponentVisitor,
-    visit: fn(&mut dyn ComponentVisitor, &mut VisitCtx, &T)
+    start_idx: usize,
+    visit: fn(&mut dyn ComponentVisitor, &mut VisitCtx, usize, &T)
 ) {
-    for item in slice {
+    for (i, item) in slice.iter().enumerate() {
         ctx.inner.maybe_enter_scope(item);
-        visit(visitor, ctx, item);
+        visit(visitor, ctx, start_idx+ i, item);
         ctx.inner.maybe_exit_scope(item);
     }
 }
@@ -171,45 +222,18 @@ fn visit_boxed_vec<'a, T: GetScopeKind>(
     slice: &'a [Box<T>],
     ctx: &mut VisitCtx,
     visitor: &mut dyn ComponentVisitor,
-    visit: fn(&mut dyn ComponentVisitor, &mut VisitCtx, &T)
+    start_idx: usize,
+    visit: fn(&mut dyn ComponentVisitor, &mut VisitCtx, usize, &T)
 ) {
-    for item in slice {
+    for (i, item) in slice.iter().enumerate() {
         let item = item.as_ref();
 
         ctx.inner.maybe_enter_scope(item);
-        visit(visitor, ctx, item);
+        visit(visitor, ctx, start_idx+ i, item);
         ctx.inner.maybe_exit_scope(item);
     }
 }
 
-
-/// A structured, read-only visitor over a [`Component`] tree.
-///
-/// All methods have default no-op implementations. Override only the
-/// callbacks you are interested in.
-///
-/// Traversal order is stable but not guaranteed to reflect the original
-/// parse order exactly. Consumers should not depend on ordering semantics
-/// beyond structured nesting (enter/exit pairing).
-pub trait ComponentVisitor {
-    fn enter_component(&mut self, _cx: &VisitCtx, _component: &Component) {}
-    fn exit_component(&mut self, _cx: &VisitCtx, _component: &Component) {}
-    fn visit_module(&mut self, _cx: &VisitCtx, _module: &Module) {}
-
-    // component-level items
-    fn visit_comp_type(&mut self, _cx: &VisitCtx, _comp_type: &ComponentType) {}
-    fn visit_comp_instance(&mut self, _cx: &VisitCtx, _instance: &ComponentInstance) {}
-    fn visit_canon(&mut self, _cx: &VisitCtx, _instance: &CanonicalFunction) {}
-    fn visit_alias(&mut self, _cx: &VisitCtx, _instance: &ComponentAlias) {}
-    fn visit_comp_import(&mut self, _cx: &VisitCtx, _import: &ComponentImport) {}
-    fn visit_comp_export(&mut self, _cx: &VisitCtx, _import: &ComponentExport) {}
-
-    // core wasm items
-    fn visit_core_type(&mut self, _cx: &VisitCtx, _ty: &CoreType) {}
-    fn visit_core_instance(&mut self, _cx: &VisitCtx, _inst: &Instance) {}
-    fn visit_custom_section(&mut self, _cx: &VisitCtx, _sect: &CustomSection) {}
-    fn visit_start_section(&mut self, _cx: &VisitCtx, _start: &ComponentStartFunction) {}
-}
 /// Context provided during component traversal.
 ///
 /// `VisitCtx` allows resolution of references (such as type indices or
@@ -226,55 +250,49 @@ pub trait ComponentVisitor {
 ///
 /// All resolution operations are read-only and reflect the semantic
 /// structure of the component, not its internal storage layout.
-pub struct VisitCtx {
-    pub(crate) inner: VisitCtxInner,
+pub struct VisitCtx<'a> {
+    pub(crate) inner: VisitCtxInner<'a>,
 }
-impl VisitCtx {
-    pub(crate) fn new(component: &Component) -> Self {
+impl<'a> VisitCtx<'a> {
+    pub(crate) fn new(component: &'a Component<'a>) -> Self {
         Self {
             inner: VisitCtxInner::new(component),
         }
     }
-
-    // TODO: Create a lot of node resolution functions here
-    //       see examples below:
-    // /// Resolves a type reference relative to the current traversal position.
-    // ///
-    // /// Returns the resolved [`ComponentType`] if the reference is valid.
-    // pub fn resolve_type(
-    //     &self,
-    //     ty: &TypeRef,
-    // ) -> Option<&'a ComponentType> {
-    //     self.inner.resolve_type(ty)
-    // }
-    //
-    // /// Resolves an exported item from an instance by name.
-    // ///
-    // /// Returns the resolved item if found.
-    // pub fn resolve_instance_export(
-    //     &self,
-    //     instance: &'a Instance,
-    //     name: &str,
-    // ) -> Option<ResolvedItem<'a>> {
-    //     self.inner.resolve_instance_export(instance, name)
-    // }
-    //
-    // /// Returns the parent component if currently inside a nested component.
-    // pub fn parent_component(&self) -> Option<&'a Component> {
-    //     self.inner.parent_component()
-    // }
+    pub fn resolve(&self, ref_: &IndexedRef) -> ResolvedItem {
+        self.inner.resolve(ref_)
+    }
+    pub fn resolve_all(&self, refs: &Vec<RefKind>) -> Vec<ResolvedItem> {
+        self.inner.resolve_all(refs)
+    }
+    pub fn lookup_comp_inst_name(&self, id: u32) -> Option<String> {
+        self.inner.lookup_comp_inst_name(id)
+    }
 }
 
 /// A resolved component item.
 ///
 /// This represents the semantic target of a reference after index
 /// resolution.
-pub enum ResolvedItem {
-    // TODO
-    // Component(&'a Component),
-    // Module(&'a Module),
-    // Type(&'a ComponentType),
-    // Instance(&'a Instance),
+pub enum ResolvedItem<'a, 'b> {
+    Component(u32, &'a Component<'b>),      // (ID, ir-node)
+    Module(u32, &'a Module<'b>),
+
+    Func(u32, &'a CanonicalFunction),
+    CompType(u32, &'a ComponentType<'b>),
+    CompInst(u32, &'a ComponentInstance<'b>),
+    CoreInst(u32, &'a Instance<'b>),
+    CoreType(u32, &'a CoreType<'b>),
+
+    Alias(&'a ComponentAlias<'b>),
+    Import(&'a ComponentImport<'b>),
+    Export(&'a ComponentExport<'b>),
+
+    // Value(&'a Module),
+    // Memory(&'a Module),
+    // Table(&'a Module),
+    // Global(&'a Module),
+    // Tag(&'a Module),
 }
 
 pub(crate) mod internal {
@@ -303,29 +321,34 @@ pub(crate) mod internal {
     //! without exposing internal identity mechanisms publicly.
 
     use crate::Component;
-    use crate::ir::component::idx_spaces::{Depth, IndexedRef, ScopeId, SpaceSubtype, StoreHandle};
-    use crate::ir::component::scopes::{GetScopeKind, RegistryHandle};
+    use crate::ir::component::idx_spaces::{ScopeId, Space, SpaceSubtype, StoreHandle};
+    use crate::ir::component::refs::{Depth, IndexedRef, RefKind};
+    use crate::ir::component::scopes::{build_component_store, ComponentStore, GetScopeKind, RegistryHandle};
     use crate::ir::component::section::ComponentSection;
+    use crate::ir::component::visitor::ResolvedItem;
     use crate::ir::id::ComponentId;
 
-    pub struct VisitCtxInner {
+    pub struct VisitCtxInner<'a> {
         pub(crate) registry: RegistryHandle,
         pub(crate) component_stack: Vec<ComponentId>, // may not need
         pub(crate) scope_stack: ScopeStack,
         pub(crate) store: StoreHandle,
+        pub(crate) comp_store: ComponentStore<'a>,
     }
 
     // =======================================
     // =========== SCOPE INTERNALS ===========
     // =======================================
-    
-    impl VisitCtxInner {
-        pub fn new(root: &Component) -> Self {
+
+    impl<'a> VisitCtxInner<'a> {
+        pub fn new(root: &'a Component<'a>) -> Self {
+            let comp_store = build_component_store(root);
             Self {
                 registry: root.scope_registry.clone(),
                 component_stack: Vec::new(),
                 scope_stack: ScopeStack::new(root.space_id),
                 store: root.index_store.clone(),
+                comp_store
             }
         }
 
@@ -380,31 +403,43 @@ pub(crate) mod internal {
             let exited_from = self.scope_stack.exit_space();
             debug_assert_eq!(scope_id, exited_from);
         }
+
+        fn comp_at(&self, depth: Depth) -> &ComponentId {
+            self.component_stack
+                .get(self.component_stack.len() - depth.val() as usize - 1)
+                .unwrap_or_else(|| {
+                    panic!(
+                        "couldn't find component at depth {}; this is the current component stack: {:?}",
+                        depth.val(),
+                        self.component_stack
+                    )
+                })
+        }
     }
 
     // ===============================================
     // =========== ID RESOLUTION INTERNALS ===========
     // ===============================================
 
-    impl VisitCtxInner {
-        fn lookup_actual_id_or_panic(&self, r: &IndexedRef) -> usize {
+    impl VisitCtxInner<'_> {
+        pub(crate) fn lookup_id_for(&self, space: &Space, section: &ComponentSection, vec_idx: usize) -> u32 {
+            let scope_id = self.scope_stack.curr_space_id();
+            self.store
+                .borrow()
+                .scopes
+                .get(&scope_id)
+                .unwrap()
+                .lookup_assumed_id(space, section, vec_idx) as u32
+        }
+
+        fn index_from_assumed_id(&self, r: &IndexedRef) -> (SpaceSubtype, usize, Option<usize>) {
             let scope_id = self.scope_stack.space_at_depth(&r.depth);
             self.store
                 .borrow()
                 .scopes
                 .get(&scope_id)
                 .unwrap()
-                .lookup_actual_id_or_panic(r)
-        }
-
-        fn index_from_assumed_id(&mut self, r: &IndexedRef) -> (SpaceSubtype, usize, Option<usize>) {
-            let scope_id = self.scope_stack.space_at_depth(&r.depth);
-            self.store
-                .borrow_mut()
-                .scopes
-                .get_mut(&scope_id)
-                .unwrap()
-                .index_from_assumed_id(r)
+                .index_from_assumed_id_no_cache(r)
         }
     }
 
@@ -412,35 +447,77 @@ pub(crate) mod internal {
     // =========== NODE RESOLUTION INTERNALS ===========
     // =================================================
 
-    impl VisitCtxInner {
-        // TODO: Write resolution helpers here (see below for examples)
-        // pub(crate) fn resolve_type(
-        //     &self,
-        //     ty: &TypeRef,
-        // ) -> Option<&ComponentType> {
-        //     let scope = self.scope_stack.last()?;
-        //     self.registry.resolve_type(scope, ty)
-        // }
-        //
-        // pub(crate) fn resolve_instance_export(
-        //     &self,
-        //     instance: &'a Instance,
-        //     name: &str,
-        // ) -> Option<ResolvedItem<'a>> {
-        //     let scope = self.scope_stack.last()?;
-        //     self.registry.resolve_instance_export(scope, instance, name)
-        // }
-        //
-        // pub(crate) fn parent_component(&self) -> Option<&'a Component> {
-        //     if self.component_stack.len() < 2 {
-        //         return None;
-        //     }
-        //
-        //     let parent_id = self.component_stack[self.component_stack.len() - 2];
-        //     self.registry.component_by_id(parent_id)
-        // }
-    }
+    impl VisitCtxInner<'_> {
+        pub fn lookup_comp_inst_name(&self, id: u32) -> Option<String> {
+            todo!()
+        }
 
+        pub fn resolve_all(&self, refs: &Vec<RefKind>) -> Vec<ResolvedItem> {
+            let mut items = vec![];
+            for r in refs.iter() {
+                items.push(self.resolve(&r.ref_));
+            }
+
+            items
+        }
+
+        pub fn resolve(&self, r: &IndexedRef) -> ResolvedItem {
+            let (vec, idx, subidx) = self.index_from_assumed_id(r);
+            if r.space != Space::CoreType {
+                assert!(
+                    subidx.is_none(),
+                    "only core types (with rec groups) should ever have subvec indices!"
+                );
+            }
+
+            let comp_id = self.comp_at(r.depth);
+            let referenced_comp = self.comp_store.get(comp_id);
+
+            let space = r.space;
+            match vec {
+                SpaceSubtype::Main => match space {
+                    Space::Comp => ResolvedItem::Component(
+                        r.index,
+                        &referenced_comp.components[idx]
+                    ),
+                    Space::CompType => ResolvedItem::CompType(
+                        r.index,
+                        &referenced_comp.component_types.items[idx]
+                    ),
+                    Space::CompInst => ResolvedItem::CompInst(
+                        r.index,
+                        &referenced_comp.component_instance[idx]
+                    ),
+                    Space::CoreInst => ResolvedItem::CoreInst(
+                        r.index,
+                        &referenced_comp.instances[idx]
+                    ),
+                    Space::CoreModule => ResolvedItem::Module(
+                        r.index,
+                        &referenced_comp.modules[idx]
+                    ),
+                    Space::CoreType => ResolvedItem::CoreType(
+                        r.index,
+                        &referenced_comp.core_types[idx]
+                    ),
+                    Space::CompFunc | Space::CoreFunc => ResolvedItem::Func(
+                        r.index,
+                        &referenced_comp.canons.items[idx]
+                    ),
+                    Space::CompVal
+                    | Space::CoreMemory
+                    | Space::CoreTable
+                    | Space::CoreGlobal
+                    | Space::CoreTag => unreachable!(
+                        "This spaces don't exist in a main vector on the component IR: {vec:?}"
+                    ),
+                },
+                SpaceSubtype::Export => ResolvedItem::Export(&referenced_comp.exports[idx]),
+                SpaceSubtype::Import => ResolvedItem::Import(&referenced_comp.imports[idx]),
+                SpaceSubtype::Alias => ResolvedItem::Alias(&referenced_comp.alias.items[idx])
+            }
+        }
+    }
 
     #[derive(Clone)]
     pub(crate) struct ScopeStack {
@@ -480,7 +557,4 @@ pub(crate) mod internal {
             self.stack.pop().unwrap()
         }
     }
-
-
 }
-
