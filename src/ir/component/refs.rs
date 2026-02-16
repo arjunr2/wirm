@@ -3,53 +3,93 @@ use crate::ir::component::idx_spaces::{IndexSpaceOf, Space};
 use crate::ir::types::CustomSection;
 use crate::Module;
 
-/// To unify how I look up the referenced indices inside an IR node
+/// A trait for extracting all referenced indices from an IR node.
+///
+/// This provides a unified way to retrieve all semantic references
+/// contained within a node, regardless of their specific role.
+///
+/// Implementations typically delegate to one or more of the
+/// `Get*Refs` traits depending on the node's structure.
+///
+/// The `depth` parameter specifies the base depth at which
+/// references should be interpreted.
 pub trait ReferencedIndices {
+    /// Returns all referenced indices contained within this node.
+    ///
+    /// The returned [`RefKind`] values include both:
+    ///
+    /// - The referenced [`IndexedRef`]
+    /// - The semantic role of the reference
     fn referenced_indices(&self, depth: Depth) -> Vec<RefKind>;
 }
+/// Extracts references to `components` from a node.
 pub trait GetCompRefs {
     fn get_comp_refs(&self) -> Vec<RefKind>;
 }
+/// Extracts references to `modules` from a node.
 pub trait GetModuleRefs {
     fn get_module_refs(&self) -> Vec<RefKind>;
 }
+/// Extracts references to component OR core `types` from a node.
 pub trait GetTypeRefs {
     fn get_type_refs(&self) -> Vec<RefKind>;
 }
+/// Extracts references to component OR core `functions` from a node.
 pub trait GetFuncRefs {
     fn get_func_refs(&self) -> Vec<RefKind>;
 }
+/// Extracts the single reference to a component OR core `function` the node has.
 pub trait GetFuncRef {
     fn get_func_ref(&self) -> RefKind;
 }
+/// Extracts references to `memories` from a node.
 pub trait GetMemRefs {
     fn get_mem_refs(&self) -> Vec<RefKind>;
 }
+/// Extracts references to `tables` from a node.
 pub trait GetTableRefs {
     fn get_tbl_refs(&self) -> Vec<RefKind>;
 }
+/// Extracts references to any `item` from a node.
 pub trait GetItemRefs {
     fn get_item_refs(&self) -> Vec<RefKind>;
 }
+/// Extracts the single reference to an `item` that the node has.
 pub trait GetItemRef {
     fn get_item_ref(&self) -> RefKind;
 }
+/// Extracts references to `parameters` from a node.
 pub trait GetParamRefs {
     fn get_param_refs(&self) -> Vec<RefKind>;
 }
+/// Extracts references to `results` from a node.
 pub trait GetResultRefs {
     fn get_result_refs(&self) -> Vec<RefKind>;
 }
+/// Extracts references to `arguments` from a node.
 pub trait GetArgRefs {
     fn get_arg_refs(&self) -> Vec<RefKind>;
 }
+/// Extracts references to `descriptors` from a node.
 pub trait GetDescriptorRefs {
     fn get_descriptor_refs(&self) -> Vec<RefKind>;
 }
+/// Extracts references to `describes` from a node.
 pub trait GetDescribesRefs {
     fn get_describes_refs(&self) -> Vec<RefKind>;
 }
 
+/// Describes the semantic role of a referenced index.
+///
+/// This distinguishes *how* a referenced item is used within a node.
+/// For example, a function index may be referenced as:
+///
+/// - A declaration
+/// - A parameter
+/// - A result
+/// - A descriptor
+///
+/// The role is orthogonal to the index space itself.
 pub enum RefRole {
     Comp,
     Module,
@@ -62,16 +102,21 @@ pub enum RefRole {
     Global,
     Tag,
 
-    // more specialized for certain nodes
+    /// A declaration at the given position.
     Decl(usize),
-    Param(usize),       // the idx
-    Result(usize),      // the idx
-    Arg(usize),         // the idx
+    /// A parameter at the given index.
+    Param(usize),
+    /// A result at the given index.
+    Result(usize),
+    /// An argument at the given index.
+    Arg(usize),
+    /// A `descriptor` reference.
     Descriptor,
+    /// A `describes` reference.
     Describes,
 }
 impl RefRole {
-    pub fn role_of(space: &Space) -> Self {
+    pub(crate) fn role_of(space: &Space) -> Self {
         match space {
             Space::Comp => Self::Comp,
             Space::CoreModule => Self::Module,
@@ -90,43 +135,52 @@ impl RefRole {
     }
 }
 
+/// A single referenced index annotated with its semantic role.
+///
+/// This is the fundamental unit returned by `Get*Refs` and
+/// `ReferencedIndices`.
+///
+/// A `RefKind` combines:
+///
+/// - The raw [`IndexedRef`] (depth + space + index)
+/// - The semantic [`RefRole`] describing how it is used
 pub struct RefKind {
     pub role: RefRole,
     pub ref_: IndexedRef,
 }
 impl RefKind {
-    pub fn new(ref_: IndexedRef) -> Self {
+    pub(crate) fn new(ref_: IndexedRef) -> Self {
         let role = RefRole::role_of(&ref_.space);
         Self {
             role,
             ref_
         }
     }
-    pub fn decl(idx: usize, ref_: IndexedRef) -> Self {
+    pub(crate) fn decl(idx: usize, ref_: IndexedRef) -> Self {
         Self {
             role: RefRole::Decl (idx),
             ref_
         }
     }
-    pub fn param(idx: usize, ref_: IndexedRef) -> Self {
+    pub(crate) fn param(idx: usize, ref_: IndexedRef) -> Self {
         Self {
             role: RefRole::Param (idx),
             ref_
         }
     }
-    pub fn result(idx: usize, ref_: IndexedRef) -> Self {
+    pub(crate) fn result(idx: usize, ref_: IndexedRef) -> Self {
         Self {
             role: RefRole::Result (idx),
             ref_
         }
     }
-    pub fn descriptor(ref_: IndexedRef) -> Self {
+    pub(crate) fn descriptor(ref_: IndexedRef) -> Self {
         Self {
             role: RefRole::Descriptor,
             ref_
         }
     }
-    pub fn describes(ref_: IndexedRef) -> Self {
+    pub(crate) fn describes(ref_: IndexedRef) -> Self {
         Self {
             role: RefRole::Descriptor,
             ref_
@@ -155,17 +209,34 @@ impl Depth {
         self.0 += depth as i32;
         self
     }
+    pub fn parent() -> Self {
+        Self(1)
+    }
 }
 
-/// A single referenced index with semantic metadata
+/// A raw indexed reference into a specific index space.
+///
+/// This represents an unresolved reference that must be interpreted
+/// relative to a [`VisitCtx`].
+///
+/// Fields:
+///
+/// - `depth` → Which scope the reference should be resolved in
+/// - `space` → The index namespace (component, module, type, etc.)
+/// - `index` → The numeric index within that namespace
+///
+/// Resolution is performed via [`VisitCtx::resolve`].
 #[derive(Copy, Clone, Debug)]
 pub struct IndexedRef {
-    /// The depth of the index space scope to look this up in
-    /// If positive, it's one level ABOVE the current scope (outer)
-    /// If negative, it's one level DEEPER the current scope (inner)
-    /// If zero, it's the current scope
+    /// The depth of the index space scope to look this up in.
+    ///
+    /// - `0` → current scope
+    /// - Positive → outer scope(s)
+    /// - Negative → inner scope(s)
     pub depth: Depth,
+    /// The index namespace this reference belongs to.
     pub space: Space,
+    /// The numeric index within the specified namespace.
     pub index: u32,
 }
 
