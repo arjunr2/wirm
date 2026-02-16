@@ -26,15 +26,11 @@ use crate::ir::id::{
 use crate::ir::module::module_globals::Global;
 use crate::ir::module::Module;
 use crate::ir::types::{CustomSection, CustomSections};
-use crate::ir::wrappers::add_to_namemap;
 use crate::ir::AppendOnlyVec;
 use std::cell::RefCell;
+use std::collections::{BTreeMap, HashMap};
 use std::rc::Rc;
-use wasmparser::{
-    CanonicalFunction, ComponentAlias, ComponentExport, ComponentFuncType, ComponentImport,
-    ComponentInstance, ComponentStartFunction, ComponentType, CoreType, Encoding, Instance,
-    InstanceTypeDeclaration, Parser, Payload,
-};
+use wasmparser::{CanonicalFunction, ComponentAlias, ComponentExport, ComponentFuncType, ComponentImport, ComponentInstance, ComponentStartFunction, ComponentType, CoreType, Encoding, Instance, InstanceTypeDeclaration, NameMap, Parser, Payload};
 use crate::ir::component::refs::{Depth, ReferencedIndices};
 
 mod alias;
@@ -92,19 +88,19 @@ pub struct Component<'a> {
 
     // Names
     pub(crate) component_name: Option<String>,
-    pub(crate) core_func_names: wasm_encoder::NameMap,
-    pub(crate) global_names: wasm_encoder::NameMap,
-    pub(crate) memory_names: wasm_encoder::NameMap,
-    pub(crate) tag_names: wasm_encoder::NameMap,
-    pub(crate) table_names: wasm_encoder::NameMap,
-    pub(crate) module_names: wasm_encoder::NameMap,
-    pub(crate) core_instances_names: wasm_encoder::NameMap,
-    pub(crate) core_type_names: wasm_encoder::NameMap,
-    pub(crate) type_names: wasm_encoder::NameMap,
-    pub(crate) instance_names: wasm_encoder::NameMap,
-    pub(crate) components_names: wasm_encoder::NameMap,
-    pub(crate) func_names: wasm_encoder::NameMap,
-    pub(crate) value_names: wasm_encoder::NameMap,
+    pub(crate) core_func_names: Names,
+    pub(crate) global_names: Names,
+    pub(crate) memory_names: Names,
+    pub(crate) tag_names: Names,
+    pub(crate) table_names: Names,
+    pub(crate) module_names: Names,
+    pub(crate) core_instances_names: Names,
+    pub(crate) core_type_names: Names,
+    pub(crate) type_names: Names,
+    pub(crate) instance_names: Names,
+    pub(crate) components_names: Names,
+    pub(crate) func_names: Names,
+    pub(crate) value_names: Names,
 }
 
 impl<'a> Component<'a> {
@@ -350,19 +346,19 @@ impl<'a> Component<'a> {
 
         // Names
         let mut component_name: Option<String> = None;
-        let mut core_func_names = wasm_encoder::NameMap::new();
-        let mut global_names = wasm_encoder::NameMap::new();
-        let mut tag_names = wasm_encoder::NameMap::new();
-        let mut memory_names = wasm_encoder::NameMap::new();
-        let mut table_names = wasm_encoder::NameMap::new();
-        let mut module_names = wasm_encoder::NameMap::new();
-        let mut core_instance_names = wasm_encoder::NameMap::new();
-        let mut instance_names = wasm_encoder::NameMap::new();
-        let mut components_names = wasm_encoder::NameMap::new();
-        let mut func_names = wasm_encoder::NameMap::new();
-        let mut value_names = wasm_encoder::NameMap::new();
-        let mut core_type_names = wasm_encoder::NameMap::new();
-        let mut type_names = wasm_encoder::NameMap::new();
+        let mut core_func_names = Names::default();
+        let mut global_names = Names::default();
+        let mut tag_names = Names::default();
+        let mut memory_names = Names::default();
+        let mut table_names = Names::default();
+        let mut module_names = Names::default();
+        let mut core_instances_names = Names::default();
+        let mut instance_names = Names::default();
+        let mut components_names = Names::default();
+        let mut func_names = Names::default();
+        let mut value_names = Names::default();
+        let mut core_type_names = Names::default();
+        let mut type_names = Names::default();
 
         for payload in parser.parse_all(wasm) {
             let payload = payload?;
@@ -641,43 +637,43 @@ impl<'a> Component<'a> {
                                         component_name = Some(name.parse().unwrap())
                                     }
                                     wasmparser::ComponentName::CoreFuncs(names) => {
-                                        add_to_namemap(&mut core_func_names, names);
+                                        core_func_names.add_all(names);
                                     }
                                     wasmparser::ComponentName::CoreGlobals(names) => {
-                                        add_to_namemap(&mut global_names, names);
+                                        global_names.add_all(names);
                                     }
                                     wasmparser::ComponentName::CoreTables(names) => {
-                                        add_to_namemap(&mut table_names, names);
+                                        table_names.add_all(names);
                                     }
                                     wasmparser::ComponentName::CoreModules(names) => {
-                                        add_to_namemap(&mut module_names, names);
+                                        module_names.add_all(names);
                                     }
                                     wasmparser::ComponentName::CoreInstances(names) => {
-                                        add_to_namemap(&mut core_instance_names, names);
+                                        core_instances_names.add_all(names);
                                     }
                                     wasmparser::ComponentName::CoreTypes(names) => {
-                                        add_to_namemap(&mut core_type_names, names);
+                                        core_type_names.add_all(names);
                                     }
                                     wasmparser::ComponentName::Types(names) => {
-                                        add_to_namemap(&mut type_names, names);
+                                        type_names.add_all(names);
                                     }
                                     wasmparser::ComponentName::Instances(names) => {
-                                        add_to_namemap(&mut instance_names, names);
+                                        instance_names.add_all(names);
                                     }
                                     wasmparser::ComponentName::Components(names) => {
-                                        add_to_namemap(&mut components_names, names);
+                                        components_names.add_all(names);
                                     }
                                     wasmparser::ComponentName::Funcs(names) => {
-                                        add_to_namemap(&mut func_names, names);
+                                        func_names.add_all(names);
                                     }
                                     wasmparser::ComponentName::Values(names) => {
-                                        add_to_namemap(&mut value_names, names);
+                                        value_names.add_all(names);
                                     }
                                     wasmparser::ComponentName::CoreMemories(names) => {
-                                        add_to_namemap(&mut memory_names, names);
+                                        memory_names.add_all(names);
                                     }
                                     wasmparser::ComponentName::CoreTags(names) => {
-                                        add_to_namemap(&mut tag_names, names);
+                                        tag_names.add_all(names);
                                     }
                                     wasmparser::ComponentName::Unknown { .. } => {}
                                 }
@@ -746,7 +742,7 @@ impl<'a> Component<'a> {
             tag_names,
             table_names,
             module_names,
-            core_instances_names: core_instance_names,
+            core_instances_names,
             core_type_names,
             type_names,
             instance_names,
@@ -921,5 +917,25 @@ impl<'a> Component<'a> {
         self.modules[*module_idx as usize]
             .functions
             .get_local_fid_by_name(name)
+    }
+}
+
+#[derive(Debug, Default)]
+pub struct Names {
+    // Maintains keys in sorted order (need to encode in order of the index)
+    pub(crate) names: BTreeMap<u32, String>,
+}
+impl Names {
+    pub fn get(&self, id: u32) -> Option<&str> {
+        self.names.get(&id).map(|s| s.as_str())
+    }
+    pub(crate) fn add_all(&mut self, names: NameMap) {
+        for name in names {
+            let naming = name.unwrap();
+            self.add(naming.index, naming.name);
+        }
+    }
+    fn add(&mut self, id: u32, name: &str) {
+        self.names.insert(id, name.to_string());
     }
 }

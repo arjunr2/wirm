@@ -4,16 +4,13 @@ use crate::encode::component::EncodeCtx;
 use crate::ir::types::CustomSection;
 use crate::{Component, Module};
 use wasm_encoder::reencode::{Reencode, ReencodeComponent, RoundtripReencoder};
-use wasm_encoder::{
-    Alias, ComponentAliasSection, ComponentCoreTypeEncoder, ComponentDefinedTypeEncoder,
-    ComponentFuncTypeEncoder, ComponentTypeEncoder, ComponentTypeSection, CoreTypeEncoder,
-    CoreTypeSection, InstanceType, ModuleArg, ModuleSection, NestedComponentSection,
-};
+use wasm_encoder::{Alias, ComponentAliasSection, ComponentCoreTypeEncoder, ComponentDefinedTypeEncoder, ComponentFuncTypeEncoder, ComponentTypeEncoder, ComponentTypeSection, CoreTypeEncoder, CoreTypeSection, InstanceType, ModuleArg, ModuleSection, NameMap, NestedComponentSection};
 use wasmparser::{
     CanonicalFunction, ComponentAlias, ComponentDefinedType, ComponentExport, ComponentFuncType,
     ComponentImport, ComponentInstance, ComponentStartFunction, ComponentType,
     ComponentTypeDeclaration, CoreType, Instance, InstanceTypeDeclaration, RecGroup, SubType,
 };
+use crate::ir::component::Names;
 
 /// # PHASE 3 #
 /// Encodes all items in the plan into the output buffer.
@@ -159,24 +156,33 @@ pub(crate) fn encode_internal<'a>(
 
     // TODO -- does the order here matter for names in the map?
     //         might need to fix indices here!
-    name_sec.core_funcs(&comp.core_func_names);
-    name_sec.core_tables(&comp.table_names);
-    name_sec.core_memories(&comp.memory_names);
-    name_sec.core_tags(&comp.tag_names);
-    name_sec.core_globals(&comp.global_names);
-    name_sec.core_types(&comp.core_type_names);
-    name_sec.core_modules(&comp.module_names);
-    name_sec.core_instances(&comp.core_instances_names);
-    name_sec.funcs(&comp.func_names);
-    name_sec.values(&comp.value_names);
-    name_sec.types(&comp.type_names);
-    name_sec.components(&comp.components_names);
-    name_sec.instances(&comp.instance_names);
+    name_sec.core_funcs(&encode_name_section(&comp.core_func_names));
+    name_sec.core_tables(&encode_name_section(&comp.table_names));
+    name_sec.core_memories(&encode_name_section(&comp.memory_names));
+    name_sec.core_tags(&encode_name_section(&comp.tag_names));
+    name_sec.core_globals(&encode_name_section(&comp.global_names));
+    name_sec.core_types(&encode_name_section(&comp.core_type_names));
+    name_sec.core_modules(&encode_name_section(&comp.module_names));
+    name_sec.core_instances(&encode_name_section(&comp.core_instances_names));
+    name_sec.funcs(&encode_name_section(&comp.func_names));
+    name_sec.values(&encode_name_section(&comp.value_names));
+    name_sec.types(&encode_name_section(&comp.type_names));
+    name_sec.components(&encode_name_section(&comp.components_names));
+    name_sec.instances(&encode_name_section(&comp.instance_names));
 
     // Add the name section back to the component
     component.section(&name_sec);
 
     component
+}
+
+fn encode_name_section(names: &Names) -> NameMap {
+    let mut enc_names = NameMap::default();
+
+    for (idx, name) in names.names.iter() {
+        enc_names.append(*idx, name)
+    }
+    enc_names
 }
 
 fn encode_module_section(module: &Module, component: &mut wasm_encoder::Component) {
