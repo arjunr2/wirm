@@ -6,8 +6,9 @@ use crate::error::Error;
 use crate::ir::component::alias::Aliases;
 use crate::ir::component::canons::Canons;
 use crate::ir::component::idx_spaces::{
-    IndexSpaceOf, IndexStore, Space, ScopeId, StoreHandle,
+    IndexSpaceOf, IndexStore, ScopeId, Space, SpaceSubtype, StoreHandle,
 };
+use crate::ir::component::refs::{GetItemRef, GetTypeRefs};
 use crate::ir::component::scopes::{IndexScopeRegistry, RegistryHandle};
 use crate::ir::component::section::{
     get_sections_for_comp_ty, get_sections_for_core_ty_and_assign_top_level_ids,
@@ -28,19 +29,22 @@ use crate::ir::module::Module;
 use crate::ir::types::{CustomSection, CustomSections};
 use crate::ir::AppendOnlyVec;
 use std::cell::RefCell;
-use std::collections::{BTreeMap, HashMap};
+use std::collections::BTreeMap;
 use std::rc::Rc;
-use wasmparser::{CanonicalFunction, ComponentAlias, ComponentExport, ComponentFuncType, ComponentImport, ComponentInstance, ComponentStartFunction, ComponentType, CoreType, Encoding, Instance, InstanceTypeDeclaration, NameMap, Parser, Payload};
-use crate::ir::component::refs::{Depth, ReferencedIndices};
+use wasmparser::{
+    CanonicalFunction, ComponentAlias, ComponentExport, ComponentFuncType, ComponentImport,
+    ComponentInstance, ComponentStartFunction, ComponentType, CoreType, Encoding, Instance,
+    InstanceTypeDeclaration, NameMap, Parser, Payload,
+};
 
 mod alias;
 mod canons;
 pub(crate) mod idx_spaces;
+pub mod refs;
 pub(crate) mod scopes;
 pub(crate) mod section;
 mod types;
 pub mod visitor;
-pub mod refs;
 
 #[derive(Debug)]
 /// Intermediate Representation of a wasm component.
@@ -821,43 +825,25 @@ impl<'a> Component<'a> {
     ) -> Option<&ComponentType<'a>> {
         let mut store = self.index_store.borrow_mut();
         if let Some(export) = self.exports.get(*export_id as usize) {
-            let refs = export.referenced_indices(Depth::default());
-            // I probably want to do like .func-ref() or something
-            todo!()
-            // if let Some(refs) = export.referenced_indices(Depth::default()) {
-            //     let list = refs.as_list();
-            //     debug_assert_eq!(1, list.len());
-            //
-            //     let (vec, f_idx, subidx) =
-            //         store.index_from_assumed_id_no_cache(&self.space_id, &list[0]);
-            //     debug_assert!(subidx.is_none(), "a lift function shouldn't reference anything with a subvec space (like a recgroup)");
-            //     let func = match vec {
-            //         SpaceSubtype::Export | SpaceSubtype::Import => {
-            //             unreachable!()
-            //         }
-            //         SpaceSubtype::Alias => {
-            //             self.alias.items[f_idx].referenced_indices(Depth::default())
-            //         }
-            //         SpaceSubtype::Main => {
-            //             self.canons.items[f_idx].referenced_indices(Depth::default())
-            //         }
-            //     };
-            //     if let Some(func_refs) = func {
-            //         let (ty, t_idx, subidx) =
-            //             store.index_from_assumed_id(&self.space_id, func_refs.ty());
-            //         debug_assert!(subidx.is_none(), "a lift function shouldn't reference anything with a subvec space (like a recgroup)");
-            //         if !matches!(ty, SpaceSubtype::Main) {
-            //             panic!("Should've been an main space!")
-            //         }
-            //
-            //         let res = self.component_types.items.get(t_idx);
-            //         res.map(|v| &**v)
-            //     } else {
-            //         None
-            //     }
-            // } else {
-            //     None
-            // }
+            let func_ref = export.get_item_ref();
+            let (vec, f_idx, subidx) =
+                store.index_from_assumed_id_no_cache(&self.space_id, &func_ref.ref_);
+            debug_assert!(subidx.is_none(), "a lift function shouldn't reference anything with a subvec space (like a recgroup)");
+            let ty = match vec {
+                SpaceSubtype::Export | SpaceSubtype::Import => {
+                    unreachable!()
+                }
+                SpaceSubtype::Alias => self.alias.items[f_idx].get_item_ref(),
+                SpaceSubtype::Main => *self.canons.items[f_idx].get_type_refs().first().unwrap(),
+            };
+            let (ty, t_idx, subidx) = store.index_from_assumed_id(&self.space_id, &ty.ref_);
+            debug_assert!(subidx.is_none(), "a lift function shouldn't reference anything with a subvec space (like a recgroup)");
+            if !matches!(ty, SpaceSubtype::Main) {
+                panic!("Should've been an main space!")
+            }
+
+            let res = self.component_types.items.get(t_idx);
+            res.map(|v| &**v)
         } else {
             None
         }

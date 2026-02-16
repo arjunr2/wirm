@@ -1,7 +1,14 @@
-use wasmparser::{CanonicalFunction, CanonicalOption, ComponentAlias, ComponentDefinedType, ComponentExport, ComponentFuncType, ComponentImport, ComponentInstance, ComponentInstantiationArg, ComponentStartFunction, ComponentType, ComponentTypeDeclaration, ComponentTypeRef, ComponentValType, CompositeInnerType, CompositeType, ContType, CoreType, Export, FieldType, Instance, InstanceTypeDeclaration, InstantiationArg, ModuleTypeDeclaration, RecGroup, RefType, StorageType, SubType, TagType, TypeBounds, TypeRef, ValType, VariantCase};
 use crate::ir::component::idx_spaces::{IndexSpaceOf, Space};
 use crate::ir::types::CustomSection;
 use crate::Module;
+use wasmparser::{
+    CanonicalFunction, CanonicalOption, ComponentAlias, ComponentDefinedType, ComponentExport,
+    ComponentFuncType, ComponentImport, ComponentInstance, ComponentInstantiationArg,
+    ComponentStartFunction, ComponentType, ComponentTypeDeclaration, ComponentTypeRef,
+    ComponentValType, CompositeInnerType, CompositeType, ContType, CoreType, Export, FieldType,
+    Instance, InstanceTypeDeclaration, InstantiationArg, ModuleTypeDeclaration, RecGroup, RefType,
+    StorageType, SubType, TagType, TypeBounds, TypeRef, ValType, VariantCase,
+};
 
 /// A trait for extracting all referenced indices from an IR node.
 ///
@@ -90,6 +97,7 @@ pub trait GetDescribesRefs {
 /// - A descriptor
 ///
 /// The role is orthogonal to the index space itself.
+#[derive(Clone, Copy)]
 pub enum RefRole {
     Comp,
     Module,
@@ -120,12 +128,9 @@ impl RefRole {
         match space {
             Space::Comp => Self::Comp,
             Space::CoreModule => Self::Module,
-            Space::CompInst
-            | Space::CoreInst => Self::Inst,
-            Space::CompFunc
-            | Space::CoreFunc => Self::Func,
-            Space::CompType
-            | Space::CoreType => Self::Type,
+            Space::CompInst | Space::CoreInst => Self::Inst,
+            Space::CompFunc | Space::CoreFunc => Self::Func,
+            Space::CompType | Space::CoreType => Self::Type,
             Space::CompVal => Self::Val,
             Space::CoreMemory => Self::Mem,
             Space::CoreTable => Self::Table,
@@ -144,6 +149,7 @@ impl RefRole {
 ///
 /// - The raw [`IndexedRef`] (depth + space + index)
 /// - The semantic [`RefRole`] describing how it is used
+#[derive(Clone, Copy)]
 pub struct RefKind {
     pub role: RefRole,
     pub ref_: IndexedRef,
@@ -151,39 +157,36 @@ pub struct RefKind {
 impl RefKind {
     pub(crate) fn new(ref_: IndexedRef) -> Self {
         let role = RefRole::role_of(&ref_.space);
-        Self {
-            role,
-            ref_
-        }
+        Self { role, ref_ }
     }
     pub(crate) fn decl(idx: usize, ref_: IndexedRef) -> Self {
         Self {
-            role: RefRole::Decl (idx),
-            ref_
+            role: RefRole::Decl(idx),
+            ref_,
         }
     }
     pub(crate) fn param(idx: usize, ref_: IndexedRef) -> Self {
         Self {
-            role: RefRole::Param (idx),
-            ref_
+            role: RefRole::Param(idx),
+            ref_,
         }
     }
     pub(crate) fn result(idx: usize, ref_: IndexedRef) -> Self {
         Self {
-            role: RefRole::Result (idx),
-            ref_
+            role: RefRole::Result(idx),
+            ref_,
         }
     }
     pub(crate) fn descriptor(ref_: IndexedRef) -> Self {
         Self {
             role: RefRole::Descriptor,
-            ref_
+            ref_,
         }
     }
     pub(crate) fn describes(ref_: IndexedRef) -> Self {
         Self {
             role: RefRole::Descriptor,
-            ref_
+            ref_,
         }
     }
 }
@@ -262,15 +265,19 @@ impl GetTypeRefs for ComponentType<'_> {
         let mut refs = vec![];
         match self {
             ComponentType::Defined(ty) => refs.extend(ty.get_type_refs()),
-            ComponentType::Func(_) => {},
-            ComponentType::Component(tys) => for (idx, ty) in tys.iter().enumerate() {
-                for ty_ref in ty.get_type_refs() {
-                    refs.push(RefKind::decl(idx, ty_ref.ref_));
+            ComponentType::Func(_) => {}
+            ComponentType::Component(tys) => {
+                for (idx, ty) in tys.iter().enumerate() {
+                    for ty_ref in ty.get_type_refs() {
+                        refs.push(RefKind::decl(idx, ty_ref.ref_));
+                    }
                 }
             }
-            ComponentType::Instance(tys) => for (idx, ty) in tys.iter().enumerate() {
-                for ty_ref in ty.get_type_refs() {
-                    refs.push(RefKind::decl(idx, ty_ref.ref_));
+            ComponentType::Instance(tys) => {
+                for (idx, ty) in tys.iter().enumerate() {
+                    for ty_ref in ty.get_type_refs() {
+                        refs.push(RefKind::decl(idx, ty_ref.ref_));
+                    }
                 }
             }
             ComponentType::Resource { rep, .. } => refs.extend(rep.get_type_refs()),
@@ -281,7 +288,7 @@ impl GetTypeRefs for ComponentType<'_> {
 impl GetFuncRefs for ComponentType<'_> {
     fn get_func_refs(&self) -> Vec<RefKind> {
         match self {
-            Self::Resource {dtor, ..} => {
+            Self::Resource { dtor, .. } => {
                 if let Some(func) = dtor.map(|id| IndexedRef {
                     depth: Depth::default(),
                     space: Space::CoreFunc,
@@ -308,7 +315,7 @@ impl GetParamRefs for ComponentType<'_> {
             ComponentType::Defined(_)
             | ComponentType::Component(_)
             | ComponentType::Instance(_)
-            | ComponentType::Resource { .. } => vec![]
+            | ComponentType::Resource { .. } => vec![],
         }
     }
 }
@@ -319,7 +326,7 @@ impl GetResultRefs for ComponentType<'_> {
             ComponentType::Defined(_)
             | ComponentType::Component(_)
             | ComponentType::Instance(_)
-            | ComponentType::Resource { .. } => vec![]
+            | ComponentType::Resource { .. } => vec![],
         }
     }
 }
@@ -365,9 +372,11 @@ impl GetTypeRefs for ComponentDefinedType<'_> {
     fn get_type_refs(&self) -> Vec<RefKind> {
         let mut refs = vec![];
         match self {
-            ComponentDefinedType::Record(records) => for (_, ty) in records.iter() {
-                refs.extend(ty.get_type_refs());
-            },
+            ComponentDefinedType::Record(records) => {
+                for (_, ty) in records.iter() {
+                    refs.extend(ty.get_type_refs());
+                }
+            }
             ComponentDefinedType::Variant(variants) => {
                 // Explanation of variants.refines:
                 // This case `refines` (is a subtype/specialization of) another case in the same variant.
@@ -387,22 +396,23 @@ impl GetTypeRefs for ComponentDefinedType<'_> {
             ComponentDefinedType::List(ty)
             | ComponentDefinedType::FixedSizeList(ty, _)
             | ComponentDefinedType::Option(ty) => refs.extend(ty.get_type_refs()),
-            ComponentDefinedType::Tuple(tys) => for ty in tys.iter() {
-                refs.extend(ty.get_type_refs());
-            },
+            ComponentDefinedType::Tuple(tys) => {
+                for ty in tys.iter() {
+                    refs.extend(ty.get_type_refs());
+                }
+            }
             ComponentDefinedType::Result { ok, err } => {
                 ok.map(|ty| refs.extend(ty.get_type_refs()));
                 err.map(|ty| refs.extend(ty.get_type_refs()));
             }
-            ComponentDefinedType::Own(ty) | ComponentDefinedType::Borrow(ty) => refs.push(
-                RefKind::new(IndexedRef {
+            ComponentDefinedType::Own(ty) | ComponentDefinedType::Borrow(ty) => {
+                refs.push(RefKind::new(IndexedRef {
                     depth: Depth::default(),
                     space: Space::CompType,
                     index: *ty,
-                })
-            ),
-            ComponentDefinedType::Future(ty)
-            | ComponentDefinedType::Stream(ty) => {
+                }))
+            }
+            ComponentDefinedType::Future(ty) | ComponentDefinedType::Stream(ty) => {
                 ty.map(|ty| refs.extend(ty.get_type_refs()));
             }
             ComponentDefinedType::Map(key_ty, val_ty) => {
@@ -411,7 +421,7 @@ impl GetTypeRefs for ComponentDefinedType<'_> {
             }
             ComponentDefinedType::Primitive(_)
             | ComponentDefinedType::Enum(_)
-            | ComponentDefinedType::Flags(_) => {},
+            | ComponentDefinedType::Flags(_) => {}
         }
         refs
     }
@@ -437,7 +447,7 @@ impl GetFuncRefs for ComponentTypeDeclaration<'_> {
             ComponentTypeDeclaration::CoreType(_)
             | ComponentTypeDeclaration::Alias(_)
             | ComponentTypeDeclaration::Export { .. }
-            | ComponentTypeDeclaration::Import(_) => vec![]
+            | ComponentTypeDeclaration::Import(_) => vec![],
         }
     }
 }
@@ -448,7 +458,7 @@ impl GetTypeRefs for ComponentTypeDeclaration<'_> {
             ComponentTypeDeclaration::Type(ty) => ty.get_type_refs(),
             ComponentTypeDeclaration::Export { ty, .. } => ty.get_type_refs(),
             ComponentTypeDeclaration::Import(import) => import.get_type_refs(),
-            ComponentTypeDeclaration::Alias(_) => vec![]
+            ComponentTypeDeclaration::Alias(_) => vec![],
         }
     }
 }
@@ -460,7 +470,7 @@ impl GetParamRefs for ComponentTypeDeclaration<'_> {
             ComponentTypeDeclaration::CoreType(_)
             | ComponentTypeDeclaration::Alias(_)
             | ComponentTypeDeclaration::Export { .. }
-            | ComponentTypeDeclaration::Import(_) => vec![]
+            | ComponentTypeDeclaration::Import(_) => vec![],
         }
     }
 }
@@ -471,7 +481,7 @@ impl GetResultRefs for ComponentTypeDeclaration<'_> {
             ComponentTypeDeclaration::CoreType(_)
             | ComponentTypeDeclaration::Alias(_)
             | ComponentTypeDeclaration::Export { .. }
-            | ComponentTypeDeclaration::Import(_) => vec![]
+            | ComponentTypeDeclaration::Import(_) => vec![],
         }
     }
 }
@@ -482,7 +492,7 @@ impl GetItemRefs for ComponentTypeDeclaration<'_> {
             ComponentTypeDeclaration::CoreType(_)
             | ComponentTypeDeclaration::Type(_)
             | ComponentTypeDeclaration::Export { .. }
-            | ComponentTypeDeclaration::Import(_) => vec![]
+            | ComponentTypeDeclaration::Import(_) => vec![],
         }
     }
 }
@@ -505,7 +515,7 @@ impl GetFuncRefs for InstanceTypeDeclaration<'_> {
             InstanceTypeDeclaration::Type(ty) => ty.get_func_refs(),
             InstanceTypeDeclaration::CoreType(_)
             | InstanceTypeDeclaration::Alias(_)
-            | InstanceTypeDeclaration::Export { .. } => vec![]
+            | InstanceTypeDeclaration::Export { .. } => vec![],
         }
     }
 }
@@ -515,7 +525,7 @@ impl GetTypeRefs for InstanceTypeDeclaration<'_> {
             InstanceTypeDeclaration::CoreType(ty) => ty.get_type_refs(),
             InstanceTypeDeclaration::Type(ty) => ty.get_type_refs(),
             InstanceTypeDeclaration::Export { ty, .. } => ty.get_type_refs(),
-            InstanceTypeDeclaration::Alias(_) => vec![]
+            InstanceTypeDeclaration::Alias(_) => vec![],
         }
     }
 }
@@ -525,7 +535,7 @@ impl GetParamRefs for InstanceTypeDeclaration<'_> {
             InstanceTypeDeclaration::Type(ty) => ty.get_param_refs(),
             InstanceTypeDeclaration::CoreType(_)
             | InstanceTypeDeclaration::Alias(_)
-            | InstanceTypeDeclaration::Export { .. } => vec![]
+            | InstanceTypeDeclaration::Export { .. } => vec![],
         }
     }
 }
@@ -535,7 +545,7 @@ impl GetResultRefs for InstanceTypeDeclaration<'_> {
             InstanceTypeDeclaration::Type(ty) => ty.get_result_refs(),
             InstanceTypeDeclaration::CoreType(_)
             | InstanceTypeDeclaration::Alias(_)
-            | InstanceTypeDeclaration::Export { .. } => vec![]
+            | InstanceTypeDeclaration::Export { .. } => vec![],
         }
     }
 }
@@ -545,7 +555,7 @@ impl GetItemRefs for InstanceTypeDeclaration<'_> {
             InstanceTypeDeclaration::Alias(ty) => vec![ty.get_item_ref()],
             InstanceTypeDeclaration::CoreType(_)
             | InstanceTypeDeclaration::Type(_)
-            | InstanceTypeDeclaration::Export { .. } => vec![]
+            | InstanceTypeDeclaration::Export { .. } => vec![],
         }
     }
 }
@@ -596,13 +606,13 @@ impl ReferencedIndices for SubType {
 impl GetTypeRefs for SubType {
     fn get_type_refs(&self) -> Vec<RefKind> {
         let mut refs = vec![];
-        self.supertype_idx.map(|packed|
+        if let Some(packed) = self.supertype_idx {
             refs.push(RefKind::new(IndexedRef {
                 depth: Depth::default(),
                 space: Space::CoreType,
                 index: packed.unpack().as_module_index().unwrap(),
             }))
-        );
+        }
 
         refs.extend(self.composite_type.get_type_refs());
 
@@ -625,18 +635,20 @@ impl GetTypeRefs for CompositeType {
         let mut refs = vec![];
         refs.extend(self.inner.get_type_refs());
 
-        self.descriptor_idx.map(|descriptor| refs.push(
-            RefKind::descriptor(IndexedRef {
+        if let Some(descriptor) = self.descriptor_idx {
+            refs.push(RefKind::descriptor(IndexedRef {
                 depth: Depth::default(),
                 space: Space::CompType,
                 index: descriptor.unpack().as_module_index().unwrap(),
-            })));
-        self.describes_idx.map(|describes| refs.push(
-            RefKind::describes(IndexedRef {
+            }))
+        }
+        if let Some(describes) = self.describes_idx {
+            refs.push(RefKind::describes(IndexedRef {
                 depth: Depth::default(),
                 space: Space::CompType,
                 index: describes.unpack().as_module_index().unwrap(),
-            })));
+            }))
+        }
 
         refs
     }
@@ -667,8 +679,10 @@ impl GetTypeRefs for CompositeInnerType {
         let mut refs = vec![];
         match self {
             CompositeInnerType::Array(a) => refs.extend(a.0.get_type_refs()),
-            CompositeInnerType::Struct(s) => for ty in s.fields.iter() {
-                refs.extend(ty.get_type_refs());
+            CompositeInnerType::Struct(s) => {
+                for ty in s.fields.iter() {
+                    refs.extend(ty.get_type_refs());
+                }
             }
             CompositeInnerType::Cont(ContType(ty)) => refs.push(RefKind::new(IndexedRef {
                 depth: Depth::default(),
@@ -748,15 +762,13 @@ impl ReferencedIndices for ModuleTypeDeclaration<'_> {
             ModuleTypeDeclaration::Type(group) => group.referenced_indices(depth),
             ModuleTypeDeclaration::Export { ty, .. } => ty.referenced_indices(depth),
             ModuleTypeDeclaration::Import(i) => i.ty.referenced_indices(depth),
-            ModuleTypeDeclaration::OuterAlias { kind, count, index } => vec![
-                RefKind::new(
-                    IndexedRef {
-                        depth: depth.outer_at(*count),
-                        space: kind.index_space_of(),
-                        index: *index,
-                    }
-                )
-            ]
+            ModuleTypeDeclaration::OuterAlias { kind, count, index } => {
+                vec![RefKind::new(IndexedRef {
+                    depth: depth.outer_at(*count),
+                    space: kind.index_space_of(),
+                    index: *index,
+                })]
+            }
         }
     }
 }
@@ -766,15 +778,13 @@ impl GetTypeRefs for ModuleTypeDeclaration<'_> {
             ModuleTypeDeclaration::Type(group) => group.get_type_refs(),
             ModuleTypeDeclaration::Export { ty, .. } => ty.get_type_refs(),
             ModuleTypeDeclaration::Import(i) => i.ty.get_type_refs(),
-            ModuleTypeDeclaration::OuterAlias { kind, count, index } => vec![
-                RefKind::new(
-                    IndexedRef {
-                        depth: Depth(*count as i32),
-                        space: kind.index_space_of(),
-                        index: *index,
-                    }
-                )
-            ]
+            ModuleTypeDeclaration::OuterAlias { kind, count, index } => {
+                vec![RefKind::new(IndexedRef {
+                    depth: Depth(*count as i32),
+                    space: kind.index_space_of(),
+                    index: *index,
+                })]
+            }
         }
     }
 }
@@ -787,13 +797,17 @@ impl ReferencedIndices for VariantCase<'_> {
 impl GetTypeRefs for VariantCase<'_> {
     fn get_type_refs(&self) -> Vec<RefKind> {
         let mut refs = vec![];
-        self.ty.map(|ty| refs.extend(ty.get_type_refs()));
+        if let Some(ty) = self.ty {
+            refs.extend(ty.get_type_refs())
+        }
 
-        self.refines.map(|index| refs.push(RefKind::new(IndexedRef {
-            depth: Depth::default(),
-            space: Space::CompType,
-            index,
-        })));
+        if let Some(index) = self.refines {
+            refs.push(RefKind::new(IndexedRef {
+                depth: Depth::default(),
+                space: Space::CompType,
+                index,
+            }))
+        }
 
         refs
     }
@@ -858,7 +872,8 @@ impl GetFuncRefs for CanonicalFunction {
         match self {
             CanonicalFunction::Lift {
                 core_func_index,
-                options, ..
+                options,
+                ..
             } => {
                 refs.push(RefKind::new(IndexedRef {
                     depth: Depth::default(),
@@ -885,20 +900,24 @@ impl GetFuncRefs for CanonicalFunction {
                 }
             }
 
-            CanonicalFunction::ThreadSpawnRef { func_ty_index } => refs.push(RefKind::new(IndexedRef {
-                depth: Depth::default(),
-                space: Space::CompFunc,
-                index: *func_ty_index,
-            })),
+            CanonicalFunction::ThreadSpawnRef { func_ty_index } => {
+                refs.push(RefKind::new(IndexedRef {
+                    depth: Depth::default(),
+                    space: Space::CompFunc,
+                    index: *func_ty_index,
+                }))
+            }
             CanonicalFunction::TaskReturn { options, .. }
             | CanonicalFunction::StreamRead { options, .. }
             | CanonicalFunction::StreamWrite { options, .. }
             | CanonicalFunction::FutureRead { options, .. }
             | CanonicalFunction::FutureWrite { options, .. }
             | CanonicalFunction::ErrorContextNew { options, .. }
-            | CanonicalFunction::ErrorContextDebugMessage { options, .. } => for opt in options.iter() {
-                refs.extend(opt.get_func_refs());
-            },
+            | CanonicalFunction::ErrorContextDebugMessage { options, .. } => {
+                for opt in options.iter() {
+                    refs.extend(opt.get_func_refs());
+                }
+            }
             CanonicalFunction::ResourceNew { .. }
             | CanonicalFunction::ResourceDrop { .. }
             | CanonicalFunction::ResourceDropAsync { .. }
@@ -945,7 +964,8 @@ impl GetTypeRefs for CanonicalFunction {
         match self {
             CanonicalFunction::Lift {
                 type_index,
-                options, ..
+                options,
+                ..
             } => {
                 refs.push(RefKind::new(IndexedRef {
                     depth: Depth::default(),
@@ -957,10 +977,10 @@ impl GetTypeRefs for CanonicalFunction {
                     refs.extend(opt.get_type_refs());
                 }
             }
-            CanonicalFunction::Lower {
-                options, ..
-            } => for opt in options.iter() {
-                refs.extend(opt.get_type_refs());
+            CanonicalFunction::Lower { options, .. } => {
+                for opt in options.iter() {
+                    refs.extend(opt.get_type_refs());
+                }
             }
             CanonicalFunction::ResourceNew { resource }
             | CanonicalFunction::ResourceDrop { resource }
@@ -970,12 +990,14 @@ impl GetTypeRefs for CanonicalFunction {
                 space: Space::CompType,
                 index: *resource,
             })),
-            CanonicalFunction::ThreadSpawnIndirect { func_ty_index, ..}
-            | CanonicalFunction::ThreadNewIndirect { func_ty_index, .. } => refs.push(RefKind::new(IndexedRef {
-                depth: Depth::default(),
-                space: Space::CoreType,
-                index: *func_ty_index,
-            })),
+            CanonicalFunction::ThreadSpawnIndirect { func_ty_index, .. }
+            | CanonicalFunction::ThreadNewIndirect { func_ty_index, .. } => {
+                refs.push(RefKind::new(IndexedRef {
+                    depth: Depth::default(),
+                    space: Space::CoreType,
+                    index: *func_ty_index,
+                }))
+            }
             CanonicalFunction::TaskReturn { result, options } => {
                 result.map(|ty| {
                     refs.extend(ty.get_type_refs());
@@ -994,11 +1016,13 @@ impl GetTypeRefs for CanonicalFunction {
             | CanonicalFunction::FutureDropReadable { ty }
             | CanonicalFunction::FutureDropWritable { ty }
             | CanonicalFunction::FutureCancelRead { ty, .. }
-            | CanonicalFunction::FutureCancelWrite { ty, .. } => refs.push(RefKind::new(IndexedRef {
-                depth: Depth::default(),
-                space: Space::CompType,
-                index: *ty,
-            })),
+            | CanonicalFunction::FutureCancelWrite { ty, .. } => {
+                refs.push(RefKind::new(IndexedRef {
+                    depth: Depth::default(),
+                    space: Space::CompType,
+                    index: *ty,
+                }))
+            }
             CanonicalFunction::StreamRead { ty, options }
             | CanonicalFunction::StreamWrite { ty, options }
             | CanonicalFunction::FutureRead { ty, options }
@@ -1014,9 +1038,11 @@ impl GetTypeRefs for CanonicalFunction {
                 }
             }
             CanonicalFunction::ErrorContextNew { options }
-            | CanonicalFunction::ErrorContextDebugMessage { options } => for opt in options.iter() {
-                refs.extend(opt.get_type_refs());
-            },
+            | CanonicalFunction::ErrorContextDebugMessage { options } => {
+                for opt in options.iter() {
+                    refs.extend(opt.get_type_refs());
+                }
+            }
             CanonicalFunction::ThreadSpawnRef { .. }
             | CanonicalFunction::ThreadAvailableParallelism
             | CanonicalFunction::BackpressureInc
@@ -1047,12 +1073,12 @@ impl GetMemRefs for CanonicalFunction {
     fn get_mem_refs(&self) -> Vec<RefKind> {
         let mut refs = vec![];
         match self {
-            CanonicalFunction::Lift { options, ..}
-            | CanonicalFunction::Lower { options, ..}
+            CanonicalFunction::Lift { options, .. }
+            | CanonicalFunction::Lower { options, .. }
             | CanonicalFunction::TaskReturn { options, .. }
-            | CanonicalFunction::StreamRead { options , .. }
-            | CanonicalFunction::StreamWrite { options , .. }
-            | CanonicalFunction::FutureRead { options , .. }
+            | CanonicalFunction::StreamRead { options, .. }
+            | CanonicalFunction::StreamWrite { options, .. }
+            | CanonicalFunction::FutureRead { options, .. }
             | CanonicalFunction::FutureWrite { options, .. }
             | CanonicalFunction::ErrorContextNew { options }
             | CanonicalFunction::ErrorContextDebugMessage { options } => {
@@ -1061,11 +1087,13 @@ impl GetMemRefs for CanonicalFunction {
                 }
             }
             CanonicalFunction::WaitableSetWait { memory, .. }
-            | CanonicalFunction::WaitableSetPoll { memory, .. } => refs.push(RefKind::new(IndexedRef {
-                depth: Depth::default(),
-                space: Space::CoreMemory,
-                index: *memory,
-            })),
+            | CanonicalFunction::WaitableSetPoll { memory, .. } => {
+                refs.push(RefKind::new(IndexedRef {
+                    depth: Depth::default(),
+                    space: Space::CoreMemory,
+                    index: *memory,
+                }))
+            }
             CanonicalFunction::ResourceNew { .. }
             | CanonicalFunction::ResourceDrop { .. }
             | CanonicalFunction::ResourceDropAsync { .. }
@@ -1109,12 +1137,14 @@ impl GetTableRefs for CanonicalFunction {
     fn get_tbl_refs(&self) -> Vec<RefKind> {
         let mut refs = vec![];
         match self {
-            CanonicalFunction::ThreadSpawnIndirect { table_index, ..}
-            | CanonicalFunction::ThreadNewIndirect { table_index, ..} => refs.push(RefKind::new(IndexedRef {
-                depth: Depth::default(),
-                space: Space::CoreTable,
-                index: *table_index,
-            })),
+            CanonicalFunction::ThreadSpawnIndirect { table_index, .. }
+            | CanonicalFunction::ThreadNewIndirect { table_index, .. } => {
+                refs.push(RefKind::new(IndexedRef {
+                    depth: Depth::default(),
+                    space: Space::CoreTable,
+                    index: *table_index,
+                }))
+            }
             CanonicalFunction::Lift { .. }
             | CanonicalFunction::Lower { .. }
             | CanonicalFunction::ResourceNew { .. }
@@ -1190,7 +1220,7 @@ impl GetTypeRefs for CanonicalOption {
             | CanonicalOption::PostReturn(_)
             | CanonicalOption::Async
             | CanonicalOption::Callback(_)
-            | CanonicalOption::Gc => vec![]
+            | CanonicalOption::Gc => vec![],
         }
     }
 }
@@ -1346,7 +1376,9 @@ impl ReferencedIndices for ComponentExport<'_> {
 impl GetTypeRefs for ComponentExport<'_> {
     fn get_type_refs(&self) -> Vec<RefKind> {
         let mut refs = vec![];
-        self.ty.map(|ty| refs.extend(ty.get_type_refs()));
+        if let Some(ty) = self.ty {
+            refs.extend(ty.get_type_refs())
+        }
 
         refs
     }
@@ -1408,7 +1440,7 @@ impl GetModuleRefs for Instance<'_> {
                 space: Space::CoreModule,
                 index: *module_index,
             })],
-            Instance::FromExports(_) => vec![]
+            Instance::FromExports(_) => vec![],
         }
     }
 }
@@ -1443,17 +1475,16 @@ impl GetTypeRefs for TypeRef {
         match self {
             TypeRef::Func(ty)
             | TypeRef::Tag(TagType {
-                               kind: _,
-                               func_type_idx: ty,
-                           }) => vec![RefKind::new(IndexedRef {
+                kind: _,
+                func_type_idx: ty,
+            }) => vec![RefKind::new(IndexedRef {
                 depth: Depth::default(),
                 space: Space::CoreType,
                 index: *ty,
             })],
-            TypeRef::Table(_)
-            | TypeRef::Memory(_)
-            | TypeRef::Global(_)
-            | TypeRef::FuncExact(_) => vec![]
+            TypeRef::Table(_) | TypeRef::Memory(_) | TypeRef::Global(_) | TypeRef::FuncExact(_) => {
+                vec![]
+            }
         }
     }
 }
@@ -1506,7 +1537,7 @@ impl GetCompRefs for ComponentInstance<'_> {
                     space: Space::Comp, // verified in alias.wast
                     index: *component_index,
                 }));
-            },
+            }
             ComponentInstance::FromExports(_) => {}
         }
         refs
@@ -1516,9 +1547,7 @@ impl GetItemRefs for ComponentInstance<'_> {
     fn get_item_refs(&self) -> Vec<RefKind> {
         let mut refs = vec![];
         match self {
-            ComponentInstance::Instantiate {
-                args, ..
-            } => {
+            ComponentInstance::Instantiate { args, .. } => {
                 // Recursively include indices from args
                 for arg in args.iter() {
                     refs.push(arg.get_item_ref());
@@ -1563,11 +1592,14 @@ impl GetArgRefs for ComponentStartFunction {
     fn get_arg_refs(&self) -> Vec<RefKind> {
         let mut refs = vec![];
         for (idx, v) in self.arguments.iter().enumerate() {
-            refs.push(RefKind::result(idx, IndexedRef {
-                depth: Depth::default(),
-                space: Space::CompVal,
-                index: *v,
-            }));
+            refs.push(RefKind::result(
+                idx,
+                IndexedRef {
+                    depth: Depth::default(),
+                    space: Space::CompVal,
+                    index: *v,
+                },
+            ));
         }
         refs
     }

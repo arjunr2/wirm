@@ -2,6 +2,10 @@
 
 use crate::encode::component::collect::SubItemPlan;
 use crate::encode::component::EncodeCtx;
+use crate::ir::component::refs::{
+    GetArgRefs, GetCompRefs, GetFuncRef, GetFuncRefs, GetItemRef, GetMemRefs, GetModuleRefs,
+    GetTableRefs, GetTypeRefs,
+};
 use crate::ir::component::scopes::GetScopeKind;
 use crate::ir::types::CustomSection;
 use wasmparser::{
@@ -13,7 +17,6 @@ use wasmparser::{
     InstantiationArg, ModuleTypeDeclaration, PackedIndex, PrimitiveValType, RecGroup, RefType,
     StorageType, StructType, SubType, TagType, TypeRef, UnpackedIndex, ValType, VariantCase,
 };
-use crate::ir::component::refs::{GetArgRefs, GetCompRefs, GetFuncRef, GetFuncRefs, GetItemRef, GetItemRefs, GetMemRefs, GetModuleRefs, GetTableRefs, GetTypeRefs, ReferencedIndices};
 
 mod sealed {
     pub trait Sealed {}
@@ -157,7 +160,7 @@ impl FixIndicesImpl for CanonicalFunction {
                 let new_tid = ctx.lookup_actual_id_or_panic(
                     &self.get_type_refs().first().unwrap().ref_
                 );
-                
+
                 let mut fixed_options = vec![];
                 for opt in options_orig.iter() {
                     fixed_options.push(opt.fix(plan, ctx));
@@ -177,7 +180,7 @@ impl FixIndicesImpl for CanonicalFunction {
                 for opt in options_orig.iter() {
                     fixed_options.push(opt.fix(plan, ctx));
                 }
-                
+
                 CanonicalFunction::Lower {
                     func_index: new_fid as u32,
                     options: fixed_options.into_boxed_slice()
@@ -187,28 +190,28 @@ impl FixIndicesImpl for CanonicalFunction {
                 let new_tid = ctx.lookup_actual_id_or_panic(
                     &self.get_type_refs().first().unwrap().ref_
                 );
-                
+
                 CanonicalFunction::ResourceNew { resource: new_tid as u32}
             }
             CanonicalFunction::ResourceDrop { .. } => {
                 let new_tid = ctx.lookup_actual_id_or_panic(
                     &self.get_type_refs().first().unwrap().ref_
                 );
-                
+
                 CanonicalFunction::ResourceDrop { resource: new_tid as u32}
             }
             CanonicalFunction::ResourceRep { .. } => {
                 let new_tid = ctx.lookup_actual_id_or_panic(
                     &self.get_type_refs().first().unwrap().ref_
                 );
-                
+
                 CanonicalFunction::ResourceRep { resource: new_tid as u32}
             }
             CanonicalFunction::ResourceDropAsync { .. } => {
                 let new_tid = ctx.lookup_actual_id_or_panic(
                     &self.get_type_refs().first().unwrap().ref_
                 );
-                
+
                 CanonicalFunction::ResourceDropAsync { resource: new_tid as u32}
             }
             CanonicalFunction::TaskReturn {
@@ -230,7 +233,7 @@ impl FixIndicesImpl for CanonicalFunction {
                 let new_mid = ctx.lookup_actual_id_or_panic(
                     &self.get_mem_refs().first().unwrap().ref_
                 );
-                
+
                 CanonicalFunction::WaitableSetWait {
                     cancellable: *cancellable,
                     memory: new_mid as u32,
@@ -240,7 +243,7 @@ impl FixIndicesImpl for CanonicalFunction {
                 let new_mid = ctx.lookup_actual_id_or_panic(
                     &self.get_mem_refs().first().unwrap().ref_
                 );
-                
+
                 CanonicalFunction::WaitableSetPoll {
                     cancellable: *cancellable,
                     memory: new_mid as u32,
@@ -250,7 +253,7 @@ impl FixIndicesImpl for CanonicalFunction {
                 let new_tid = ctx.lookup_actual_id_or_panic(
                     &self.get_type_refs().first().unwrap().ref_
                 );
-                
+
                 CanonicalFunction::StreamNew {
                     ty: new_tid as u32,
                 }
@@ -289,7 +292,7 @@ impl FixIndicesImpl for CanonicalFunction {
                 let new_tid = ctx.lookup_actual_id_or_panic(
                     &self.get_type_refs().first().unwrap().ref_
                 );
-                
+
                 CanonicalFunction::StreamCancelRead {
                     async_: *async_,
                     ty: new_tid as u32,
@@ -299,7 +302,7 @@ impl FixIndicesImpl for CanonicalFunction {
                 let new_tid = ctx.lookup_actual_id_or_panic(
                     &self.get_type_refs().first().unwrap().ref_
                 );
-                
+
                 CanonicalFunction::StreamCancelWrite {
                     async_: *async_,
                     ty: new_tid as u32,
@@ -309,7 +312,7 @@ impl FixIndicesImpl for CanonicalFunction {
                 let new_tid = ctx.lookup_actual_id_or_panic(
                     &self.get_type_refs().first().unwrap().ref_
                 );
-                
+
                 CanonicalFunction::FutureNew {
                     ty: new_tid as u32,
                 }
@@ -318,7 +321,7 @@ impl FixIndicesImpl for CanonicalFunction {
                 let new_tid = ctx.lookup_actual_id_or_panic(
                     &self.get_type_refs().first().unwrap().ref_
                 );
-                
+
 
                 let mut fixed_options = vec![];
                 for opt in options_orig.iter() {
@@ -333,7 +336,7 @@ impl FixIndicesImpl for CanonicalFunction {
                 let new_tid = ctx.lookup_actual_id_or_panic(
                     &self.get_type_refs().first().unwrap().ref_
                 );
-                
+
 
                 let mut fixed_options = vec![];
                 for opt in options_orig.iter() {
@@ -348,7 +351,7 @@ impl FixIndicesImpl for CanonicalFunction {
                 let new_tid = ctx.lookup_actual_id_or_panic(
                     &self.get_type_refs().first().unwrap().ref_
                 );
-                
+
                 CanonicalFunction::FutureCancelRead {
                     async_: *async_,
                     ty: new_tid as u32,
@@ -358,7 +361,7 @@ impl FixIndicesImpl for CanonicalFunction {
                 let new_tid = ctx.lookup_actual_id_or_panic(
                     &self.get_type_refs().first().unwrap().ref_
                 );
-                
+
                 CanonicalFunction::FutureCancelWrite {
                     async_: *async_,
                     ty: new_tid as u32,
@@ -386,7 +389,7 @@ impl FixIndicesImpl for CanonicalFunction {
                 let new_tid = ctx.lookup_actual_id_or_panic(
                     &self.get_type_refs().first().unwrap().ref_
                 );
-                
+
                 CanonicalFunction::ThreadSpawnRef {
                     func_ty_index: new_tid as u32,
                 }
@@ -398,7 +401,7 @@ impl FixIndicesImpl for CanonicalFunction {
                 let new_tbl_id = ctx.lookup_actual_id_or_panic(
                     &self.get_tbl_refs().first().unwrap().ref_
                 );
-                
+
                 CanonicalFunction::ThreadSpawnIndirect {
                     func_ty_index: new_tid as u32,
                     table_index: new_tbl_id as u32,
@@ -411,7 +414,7 @@ impl FixIndicesImpl for CanonicalFunction {
                 let new_tbl_id = ctx.lookup_actual_id_or_panic(
                     &self.get_tbl_refs().first().unwrap().ref_
                 );
-                
+
                 CanonicalFunction::ThreadNewIndirect {
                     func_ty_index: new_tid as u32,
                     table_index: new_tbl_id as u32,
@@ -421,7 +424,7 @@ impl FixIndicesImpl for CanonicalFunction {
                 let new_tid = ctx.lookup_actual_id_or_panic(
                     &self.get_type_refs().first().unwrap().ref_
                 );
-                
+
                 CanonicalFunction::StreamDropReadable {
                     ty: new_tid as u32,
                 }
@@ -430,7 +433,7 @@ impl FixIndicesImpl for CanonicalFunction {
                 let new_tid = ctx.lookup_actual_id_or_panic(
                     &self.get_type_refs().first().unwrap().ref_
                 );
-                
+
                 CanonicalFunction::StreamDropWritable {
                     ty: new_tid as u32,
                 }
@@ -439,7 +442,7 @@ impl FixIndicesImpl for CanonicalFunction {
                 let new_tid = ctx.lookup_actual_id_or_panic(
                     &self.get_type_refs().first().unwrap().ref_
                 );
-                
+
                 CanonicalFunction::FutureDropReadable {
                     ty: new_tid as u32,
                 }
@@ -448,7 +451,7 @@ impl FixIndicesImpl for CanonicalFunction {
                 let new_tid = ctx.lookup_actual_id_or_panic(
                     &self.get_type_refs().first().unwrap().ref_
                 );
-                
+
                 CanonicalFunction::FutureDropWritable {
                     ty: new_tid as u32,
                 }
@@ -841,9 +844,8 @@ impl FixIndicesImpl for ModuleTypeDeclaration<'_> {
                 ModuleTypeDeclaration::Import(import.fix(plan, ctx))
             }
             ModuleTypeDeclaration::OuterAlias { kind, count, .. } => {
-                let new_tid = ctx.lookup_actual_id_or_panic(
-                    &self.get_type_refs().first().unwrap().ref_
-                );
+                let new_tid =
+                    ctx.lookup_actual_id_or_panic(&self.get_type_refs().first().unwrap().ref_);
 
                 ModuleTypeDeclaration::OuterAlias {
                     kind: *kind,
@@ -914,7 +916,7 @@ impl FixIndicesImpl for ComponentAlias<'_> {
                 let new_id = ctx.lookup_actual_id_or_panic(
                     &self.get_item_ref().ref_
                 );
-                
+
                 Self::InstanceExport {
                     kind: *kind,
                     name,
@@ -925,7 +927,7 @@ impl FixIndicesImpl for ComponentAlias<'_> {
                 let new_id = ctx.lookup_actual_id_or_panic(
                     &self.get_item_ref().ref_
                 );
-                
+
                 Self::CoreInstanceExport {
                     kind: *kind,
                     name,
@@ -956,7 +958,7 @@ impl FixIndicesImpl for ComponentTypeRef {
                 let new_id = ctx.lookup_actual_id_or_panic(
                     &self.get_type_refs().first().unwrap().ref_
                 );
-                
+
                 ComponentTypeRef::Module(new_id as u32)
             }
             ComponentTypeRef::Value(ty) => {
@@ -996,7 +998,7 @@ impl FixIndicesImpl for CanonicalOption {
                 let new_fid = ctx.lookup_actual_id_or_panic(
                     &self.get_func_refs().first().unwrap().ref_
                 );
-                
+
                 match self {
                     CanonicalOption::Realloc(_) => CanonicalOption::Realloc(new_fid as u32),
                     CanonicalOption::PostReturn(_) => CanonicalOption::PostReturn(new_fid as u32),
@@ -1048,7 +1050,7 @@ impl FixIndicesImpl for Export<'_> {
         let new_id = ctx.lookup_actual_id_or_panic(
             &self.get_item_ref().ref_
         );
-        
+
         Self {
             name: self.name,
             kind: self.kind,
@@ -1082,7 +1084,7 @@ impl FixIndicesImpl for TypeRef {
                 let new_id = ctx.lookup_actual_id_or_panic(
                     &self.get_type_refs().first().unwrap().ref_
                 );
-                
+
                 TypeRef::Func(new_id as u32)
             }
             TypeRef::Tag(TagType { kind, .. }) => {

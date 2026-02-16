@@ -1,3 +1,4 @@
+use crate::ir::component::refs::IndexedRef;
 use crate::ir::component::section::ComponentSection;
 use crate::{Component, Module};
 use std::cell::RefCell;
@@ -5,15 +6,11 @@ use std::collections::HashMap;
 use std::fmt::Debug;
 use std::rc::Rc;
 use wasmparser::{
-    CanonicalFunction, ComponentAlias, ComponentExport,
-    ComponentExternalKind, ComponentImport, ComponentInstance,
-    ComponentOuterAliasKind, ComponentType,
-    ComponentTypeDeclaration, ComponentTypeRef, 
-    CoreType, ExternalKind, Import, Instance,
-    InstanceTypeDeclaration, InstantiationArgKind, ModuleTypeDeclaration,
-    OuterAliasKind, RecGroup, SubType, TypeRef, 
+    CanonicalFunction, ComponentAlias, ComponentExport, ComponentExternalKind, ComponentImport,
+    ComponentInstance, ComponentOuterAliasKind, ComponentType, ComponentTypeDeclaration,
+    ComponentTypeRef, CoreType, ExternalKind, Import, Instance, InstanceTypeDeclaration,
+    InstantiationArgKind, ModuleTypeDeclaration, OuterAliasKind, RecGroup, SubType, TypeRef,
 };
-use crate::ir::component::refs::IndexedRef;
 
 pub(crate) type ScopeId = usize;
 
@@ -764,15 +761,6 @@ pub enum Space {
     CoreTable,
     CoreGlobal,
     CoreTag,
-}
-
-pub trait NameOf {
-    fn name_of(&self) -> String;
-}
-impl NameOf for ComponentExport<'_> {
-    fn name_of(&self) -> String {
-        self.name.0.to_string()
-    }
 }
 
 // Trait for centralizing index space mapping

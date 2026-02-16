@@ -1,16 +1,20 @@
 use crate::encode::component::collect::{ComponentItem, ComponentPlan, SubItemPlan};
 use crate::encode::component::fix_indices::FixIndices;
 use crate::encode::component::EncodeCtx;
+use crate::ir::component::Names;
 use crate::ir::types::CustomSection;
 use crate::{Component, Module};
 use wasm_encoder::reencode::{Reencode, ReencodeComponent, RoundtripReencoder};
-use wasm_encoder::{Alias, ComponentAliasSection, ComponentCoreTypeEncoder, ComponentDefinedTypeEncoder, ComponentFuncTypeEncoder, ComponentTypeEncoder, ComponentTypeSection, CoreTypeEncoder, CoreTypeSection, InstanceType, ModuleArg, ModuleSection, NameMap, NestedComponentSection};
+use wasm_encoder::{
+    Alias, ComponentAliasSection, ComponentCoreTypeEncoder, ComponentDefinedTypeEncoder,
+    ComponentFuncTypeEncoder, ComponentTypeEncoder, ComponentTypeSection, CoreTypeEncoder,
+    CoreTypeSection, InstanceType, ModuleArg, ModuleSection, NameMap, NestedComponentSection,
+};
 use wasmparser::{
     CanonicalFunction, ComponentAlias, ComponentDefinedType, ComponentExport, ComponentFuncType,
     ComponentImport, ComponentInstance, ComponentStartFunction, ComponentType,
     ComponentTypeDeclaration, CoreType, Instance, InstanceTypeDeclaration, RecGroup, SubType,
 };
-use crate::ir::component::Names;
 
 /// # PHASE 3 #
 /// Encodes all items in the plan into the output buffer.

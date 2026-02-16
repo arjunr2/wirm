@@ -23,13 +23,6 @@ pub fn namemap_parser2encoder(namemap: wasmparser::NameMap) -> wasm_encoder::Nam
     names
 }
 
-pub fn add_to_namemap(namemap: &mut wasm_encoder::NameMap, names: wasmparser::NameMap) {
-    for name in names {
-        let naming = name.unwrap();
-        namemap.append(naming.index, naming.name);
-    }
-}
-
 pub(crate) fn refers_to_func(op: &Operator) -> bool {
     matches!(
         op,

@@ -14,14 +14,17 @@
 //! Internal index-space and scope mechanics are intentionally not exposed.
 //! Consumers interact only with semantic resolution APIs.
 
-use wasmparser::{CanonicalFunction, ComponentAlias, ComponentExport, ComponentImport, ComponentInstance, ComponentStartFunction, ComponentType, CoreType, Instance};
-use crate::{Component, Module};
 use crate::ir::component::idx_spaces::{IndexSpaceOf, Space};
 use crate::ir::component::refs::{IndexedRef, RefKind};
 use crate::ir::component::scopes::GetScopeKind;
 use crate::ir::component::section::ComponentSection;
 use crate::ir::component::visitor::internal::VisitCtxInner;
 use crate::ir::types::CustomSection;
+use crate::{Component, Module};
+use wasmparser::{
+    CanonicalFunction, ComponentAlias, ComponentExport, ComponentImport, ComponentInstance,
+    ComponentStartFunction, ComponentType, CoreType, Instance,
+};
 
 /// Traverses a [`Component`] using the provided [`ComponentVisitor`].
 ///
@@ -48,10 +51,7 @@ use crate::ir::types::CustomSection;
 /// - Visualization tooling
 ///
 /// This API is not intended for mutation or transformation of the component.
-pub fn traverse_component<V: ComponentVisitor>(
-    component: &Component,
-    visitor: &mut V,
-) {
+pub fn traverse_component<V: ComponentVisitor>(component: &Component, visitor: &mut V) {
     let mut ctx = VisitCtx::new(component);
     traverse(component, true, None, visitor, &mut ctx);
 }
@@ -112,7 +112,14 @@ pub trait ComponentVisitor {
     /// Invoked for canonical functions.
     ///
     /// The `kind` parameter indicates the resolved namespace of this item.
-    fn visit_canon(&mut self, _cx: &VisitCtx, _kind: ItemKind, _id: u32, _canon: &CanonicalFunction) {}
+    fn visit_canon(
+        &mut self,
+        _cx: &VisitCtx,
+        _kind: ItemKind,
+        _id: u32,
+        _canon: &CanonicalFunction,
+    ) {
+    }
     /// Invoked for component aliases.
     ///
     /// The `kind` parameter indicates the resolved target namespace
@@ -122,11 +129,25 @@ pub trait ComponentVisitor {
     ///
     /// The `kind` parameter identifies the imported item category
     /// (e.g. type, function, instance).
-    fn visit_comp_import(&mut self, _cx: &VisitCtx, _kind: ItemKind, _id: u32, _import: &ComponentImport) {}
+    fn visit_comp_import(
+        &mut self,
+        _cx: &VisitCtx,
+        _kind: ItemKind,
+        _id: u32,
+        _import: &ComponentImport,
+    ) {
+    }
     /// Invoked for component exports.
     ///
     /// The `kind` parameter identifies the exported item category.
-    fn visit_comp_export(&mut self, _cx: &VisitCtx, _kind: ItemKind, _id: u32, _export: &ComponentExport) {}
+    fn visit_comp_export(
+        &mut self,
+        _cx: &VisitCtx,
+        _kind: ItemKind,
+        _id: u32,
+        _export: &ComponentExport,
+    ) {
+    }
 
     // ------------------------
     // Core WebAssembly items
@@ -150,8 +171,8 @@ pub trait ComponentVisitor {
     fn visit_start_section(&mut self, _cx: &VisitCtx, _start: &ComponentStartFunction) {}
 }
 
-fn traverse<'a, V: ComponentVisitor>(
-    component: &'a Component,
+fn traverse<V: ComponentVisitor>(
+    component: &Component,
     is_root: bool,
     comp_idx: Option<usize>,
     visitor: &mut V,
@@ -159,7 +180,10 @@ fn traverse<'a, V: ComponentVisitor>(
 ) {
     ctx.inner.push_component(component);
     let id = if let Some(idx) = comp_idx {
-        Some(ctx.inner.lookup_id_for(&Space::Comp, &ComponentSection::Component, idx))
+        Some(
+            ctx.inner
+                .lookup_id_for(&Space::Comp, &ComponentSection::Component, idx),
+        )
     } else {
         None
     };
@@ -188,107 +212,165 @@ fn traverse<'a, V: ComponentVisitor>(
                     let item = &all[idx];
 
                     ctx.inner.maybe_enter_scope(item);
-                    visitor.visit_module(ctx, ctx.inner.lookup_id_for(&Space::CoreModule, &ComponentSection::Module, idx), item);
+                    visitor.visit_module(
+                        ctx,
+                        ctx.inner
+                            .lookup_id_for(&Space::CoreModule, &ComponentSection::Module, idx),
+                        item,
+                    );
                     ctx.inner.maybe_exit_scope(item);
                 }
             }
 
             ComponentSection::ComponentType => visit_boxed_vec(
-                &component.component_types.items[start_idx..start_idx+ *num as usize],
+                &component.component_types.items[start_idx..start_idx + *num as usize],
                 ctx,
                 visitor,
                 start_idx,
                 |visitor, ctx, idx, ty| {
-                    visitor.visit_comp_type(ctx, ctx.inner.lookup_id_for(&Space::CompType, &ComponentSection::ComponentType, idx), ty);
-                }
+                    visitor.visit_comp_type(
+                        ctx,
+                        ctx.inner.lookup_id_for(
+                            &Space::CompType,
+                            &ComponentSection::ComponentType,
+                            idx,
+                        ),
+                        ty,
+                    );
+                },
             ),
             ComponentSection::ComponentInstance => visit_vec(
-                &component.component_instance[start_idx..start_idx+ *num as usize],
+                &component.component_instance[start_idx..start_idx + *num as usize],
                 ctx,
                 visitor,
                 start_idx,
                 |visitor, ctx, idx, inst| {
-                    visitor.visit_comp_instance(ctx, ctx.inner.lookup_id_for(&Space::CompInst, &ComponentSection::ComponentInstance, idx), inst);
-                }
+                    visitor.visit_comp_instance(
+                        ctx,
+                        ctx.inner.lookup_id_for(
+                            &Space::CompInst,
+                            &ComponentSection::ComponentInstance,
+                            idx,
+                        ),
+                        inst,
+                    );
+                },
             ),
             ComponentSection::Canon => visit_vec(
-                &component.canons.items[start_idx..start_idx+ *num as usize],
+                &component.canons.items[start_idx..start_idx + *num as usize],
                 ctx,
                 visitor,
                 start_idx,
                 |visitor, ctx, idx, canon| {
                     let space = canon.index_space_of();
-                    visitor.visit_canon(ctx, space.into(), ctx.inner.lookup_id_for(&space, &ComponentSection::Canon, idx), canon);
-                }
+                    visitor.visit_canon(
+                        ctx,
+                        space.into(),
+                        ctx.inner
+                            .lookup_id_for(&space, &ComponentSection::Canon, idx),
+                        canon,
+                    );
+                },
             ),
             ComponentSection::Alias => visit_vec(
-                &component.alias.items[start_idx..start_idx+ *num as usize],
+                &component.alias.items[start_idx..start_idx + *num as usize],
                 ctx,
                 visitor,
                 start_idx,
                 |visitor, ctx, idx, alias| {
                     let space = alias.index_space_of();
-                    visitor.visit_alias(ctx, space.into(), ctx.inner.lookup_id_for(&space, &ComponentSection::Alias, idx), alias);
+                    visitor.visit_alias(
+                        ctx,
+                        space.into(),
+                        ctx.inner
+                            .lookup_id_for(&space, &ComponentSection::Alias, idx),
+                        alias,
+                    );
                     // visitor.visit_alias(ctx, alias);
-                }
+                },
             ),
             ComponentSection::ComponentImport => visit_vec(
-                &component.imports[start_idx..start_idx+ *num as usize],
+                &component.imports[start_idx..start_idx + *num as usize],
                 ctx,
                 visitor,
                 start_idx,
                 |visitor, ctx, idx, imp| {
                     let space = imp.index_space_of();
-                    visitor.visit_comp_import(ctx, space.into(), ctx.inner.lookup_id_for(&space, &ComponentSection::ComponentImport, idx), imp);
-                }
+                    visitor.visit_comp_import(
+                        ctx,
+                        space.into(),
+                        ctx.inner
+                            .lookup_id_for(&space, &ComponentSection::ComponentImport, idx),
+                        imp,
+                    );
+                },
             ),
             ComponentSection::ComponentExport => visit_vec(
-                &component.exports[start_idx..start_idx+ *num as usize],
+                &component.exports[start_idx..start_idx + *num as usize],
                 ctx,
                 visitor,
                 start_idx,
                 |visitor, ctx, idx, exp| {
                     let space = exp.index_space_of();
-                    visitor.visit_comp_export(ctx, space.into(), ctx.inner.lookup_id_for(&space, &ComponentSection::ComponentExport, idx), exp);
-                }
+                    visitor.visit_comp_export(
+                        ctx,
+                        space.into(),
+                        ctx.inner
+                            .lookup_id_for(&space, &ComponentSection::ComponentExport, idx),
+                        exp,
+                    );
+                },
             ),
 
             ComponentSection::CoreType => visit_boxed_vec(
-                &component.core_types[start_idx..start_idx+ *num as usize],
+                &component.core_types[start_idx..start_idx + *num as usize],
                 ctx,
                 visitor,
                 start_idx,
                 |visitor, ctx, idx, ty| {
-                    visitor.visit_core_type(ctx, ctx.inner.lookup_id_for(&Space::CoreType, &ComponentSection::CoreType, idx), ty);
-                }
+                    visitor.visit_core_type(
+                        ctx,
+                        ctx.inner
+                            .lookup_id_for(&Space::CoreType, &ComponentSection::CoreType, idx),
+                        ty,
+                    );
+                },
             ),
             ComponentSection::CoreInstance => visit_vec(
-                &component.instances[start_idx..start_idx+ *num as usize],
+                &component.instances[start_idx..start_idx + *num as usize],
                 ctx,
                 visitor,
                 start_idx,
                 |visitor, ctx, idx, inst| {
-                    visitor.visit_core_instance(ctx, ctx.inner.lookup_id_for(&Space::CoreInst, &ComponentSection::CoreInstance, idx), inst);
-                }
+                    visitor.visit_core_instance(
+                        ctx,
+                        ctx.inner.lookup_id_for(
+                            &Space::CoreInst,
+                            &ComponentSection::CoreInstance,
+                            idx,
+                        ),
+                        inst,
+                    );
+                },
             ),
 
             ComponentSection::CustomSection => visit_vec(
-                &component.custom_sections.custom_sections[start_idx..start_idx+ *num as usize],
+                &component.custom_sections.custom_sections[start_idx..start_idx + *num as usize],
                 ctx,
                 visitor,
                 start_idx,
-                |visitor, ctx, idx, sect| {
+                |visitor, ctx, _, sect| {
                     visitor.visit_custom_section(ctx, sect);
-                }
+                },
             ),
             ComponentSection::ComponentStartSection => visit_vec(
-                &component.start_section[start_idx..start_idx+ *num as usize],
+                &component.start_section[start_idx..start_idx + *num as usize],
                 ctx,
                 visitor,
                 start_idx,
-                |visitor, ctx, idx, start| {
+                |visitor, ctx, _, start| {
                     visitor.visit_start_section(ctx, start);
-                }
+                },
             ),
         }
     }
@@ -304,11 +386,11 @@ fn visit_vec<'a, T: GetScopeKind>(
     ctx: &mut VisitCtx,
     visitor: &mut dyn ComponentVisitor,
     start_idx: usize,
-    visit: fn(&mut dyn ComponentVisitor, &mut VisitCtx, usize, &T)
+    visit: fn(&mut dyn ComponentVisitor, &mut VisitCtx, usize, &T),
 ) {
     for (i, item) in slice.iter().enumerate() {
         ctx.inner.maybe_enter_scope(item);
-        visit(visitor, ctx, start_idx+ i, item);
+        visit(visitor, ctx, start_idx + i, item);
         ctx.inner.maybe_exit_scope(item);
     }
 }
@@ -318,13 +400,13 @@ fn visit_boxed_vec<'a, T: GetScopeKind>(
     ctx: &mut VisitCtx,
     visitor: &mut dyn ComponentVisitor,
     start_idx: usize,
-    visit: fn(&mut dyn ComponentVisitor, &mut VisitCtx, usize, &T)
+    visit: fn(&mut dyn ComponentVisitor, &mut VisitCtx, usize, &T),
 ) {
     for (i, item) in slice.iter().enumerate() {
         let item = item.as_ref();
 
         ctx.inner.maybe_enter_scope(item);
-        visit(visitor, ctx, start_idx+ i, item);
+        visit(visitor, ctx, start_idx + i, item);
         ctx.inner.maybe_exit_scope(item);
     }
 }
@@ -342,7 +424,7 @@ pub enum ItemKind {
     CoreMemory,
     CoreTable,
     CoreGlobal,
-    CoreTag
+    CoreTag,
 }
 impl From<Space> for ItemKind {
     fn from(space: Space) -> Self {
@@ -401,14 +483,14 @@ impl<'a> VisitCtx<'a> {
     ///
     /// The returned [`ResolvedItem`] represents the semantic target
     /// referenced by the index.
-    pub fn resolve(&self, ref_: &IndexedRef) -> ResolvedItem {
+    pub fn resolve(&self, ref_: &IndexedRef) -> ResolvedItem<'_, '_> {
         self.inner.resolve(ref_)
     }
     /// Resolves a collection of [`RefKind`] values into their semantic targets.
     ///
     /// This is a convenience helper for bulk resolution when a node exposes
     /// multiple referenced indices.
-    pub fn resolve_all(&self, refs: &Vec<RefKind>) -> Vec<ResolvedItem> {
+    pub fn resolve_all(&self, refs: &[RefKind]) -> Vec<ResolvedItem<'_, '_>> {
         self.inner.resolve_all(refs)
     }
     /// Looks up the name (if any) of a component instance by its ID.
@@ -426,7 +508,7 @@ impl<'a> VisitCtx<'a> {
 /// This represents the semantic target of a reference after index
 /// resolution.
 pub enum ResolvedItem<'a, 'b> {
-    Component(u32, &'a Component<'b>),      // (ID, ir-node)
+    Component(u32, &'a Component<'b>), // (ID, ir-node)
     Module(u32, &'a Module<'b>),
 
     Func(u32, &'a CanonicalFunction),
@@ -435,10 +517,9 @@ pub enum ResolvedItem<'a, 'b> {
     CoreInst(u32, &'a Instance<'b>),
     CoreType(u32, &'a CoreType<'b>),
 
-    Alias(&'a ComponentAlias<'b>),
-    Import(&'a ComponentImport<'b>),
-    Export(&'a ComponentExport<'b>),
-
+    Alias(u32, &'a ComponentAlias<'b>),
+    Import(u32, &'a ComponentImport<'b>),
+    Export(u32, &'a ComponentExport<'b>),
     // Value(&'a Module),
     // Memory(&'a Module),
     // Table(&'a Module),
@@ -471,13 +552,15 @@ pub(crate) mod internal {
     //! These guarantees allow resolution to rely on structural identity
     //! without exposing internal identity mechanisms publicly.
 
-    use crate::Component;
     use crate::ir::component::idx_spaces::{ScopeId, Space, SpaceSubtype, StoreHandle};
     use crate::ir::component::refs::{Depth, IndexedRef, RefKind};
-    use crate::ir::component::scopes::{build_component_store, ComponentStore, GetScopeKind, RegistryHandle};
+    use crate::ir::component::scopes::{
+        build_component_store, ComponentStore, GetScopeKind, RegistryHandle,
+    };
     use crate::ir::component::section::ComponentSection;
     use crate::ir::component::visitor::ResolvedItem;
     use crate::ir::id::ComponentId;
+    use crate::Component;
 
     pub struct VisitCtxInner<'a> {
         pub(crate) registry: RegistryHandle,
@@ -501,7 +584,7 @@ pub(crate) mod internal {
                 scope_stack: ScopeStack::new(),
                 node_has_nested_scope: Vec::new(),
                 store: root.index_store.clone(),
-                comp_store
+                comp_store,
             }
         }
 
@@ -526,7 +609,7 @@ pub(crate) mod internal {
             let id = self.component_stack.pop().unwrap();
             self.exit_comp_scope(id);
         }
-        pub fn curr_component(&self) -> &Component {
+        pub fn curr_component(&self) -> &Component<'_> {
             let id = self.comp_at(Depth::default());
             self.comp_store.get(id)
         }
@@ -557,7 +640,8 @@ pub(crate) mod internal {
             let Some(scope_id) = self.registry.borrow().scope_of_comp(comp_id) else {
                 panic!("no scope found for component {:?}", comp_id);
             };
-            self.node_has_nested_scope.push(!self.scope_stack.stack.is_empty());
+            self.node_has_nested_scope
+                .push(!self.scope_stack.stack.is_empty());
             self.scope_stack.enter_space(scope_id);
         }
 
@@ -587,7 +671,12 @@ pub(crate) mod internal {
     // ===============================================
 
     impl VisitCtxInner<'_> {
-        pub(crate) fn lookup_id_for(&self, space: &Space, section: &ComponentSection, vec_idx: usize) -> u32 {
+        pub(crate) fn lookup_id_for(
+            &self,
+            space: &Space,
+            section: &ComponentSection,
+            vec_idx: usize,
+        ) -> u32 {
             let nested = self.node_has_nested_scope.last().unwrap_or(&false);
             let scope_id = if *nested {
                 self.scope_stack.space_at_depth(&Depth::parent())
@@ -622,7 +711,7 @@ pub(crate) mod internal {
             self.curr_component().instance_names.get(id)
         }
 
-        pub fn resolve_all(&self, refs: &Vec<RefKind>) -> Vec<ResolvedItem> {
+        pub fn resolve_all(&self, refs: &[RefKind]) -> Vec<ResolvedItem<'_, '_>> {
             let mut items = vec![];
             for r in refs.iter() {
                 items.push(self.resolve(&r.ref_));
@@ -631,7 +720,7 @@ pub(crate) mod internal {
             items
         }
 
-        pub fn resolve(&self, r: &IndexedRef) -> ResolvedItem {
+        pub fn resolve(&self, r: &IndexedRef) -> ResolvedItem<'_, '_> {
             let (vec, idx, subidx) = self.index_from_assumed_id(r);
             if r.space != Space::CoreType {
                 assert!(
@@ -646,34 +735,27 @@ pub(crate) mod internal {
             let space = r.space;
             match vec {
                 SpaceSubtype::Main => match space {
-                    Space::Comp => ResolvedItem::Component(
-                        r.index,
-                        &referenced_comp.components[idx]
-                    ),
-                    Space::CompType => ResolvedItem::CompType(
-                        r.index,
-                        &referenced_comp.component_types.items[idx]
-                    ),
-                    Space::CompInst => ResolvedItem::CompInst(
-                        r.index,
-                        &referenced_comp.component_instance[idx]
-                    ),
-                    Space::CoreInst => ResolvedItem::CoreInst(
-                        r.index,
-                        &referenced_comp.instances[idx]
-                    ),
-                    Space::CoreModule => ResolvedItem::Module(
-                        r.index,
-                        &referenced_comp.modules[idx]
-                    ),
-                    Space::CoreType => ResolvedItem::CoreType(
-                        r.index,
-                        &referenced_comp.core_types[idx]
-                    ),
-                    Space::CompFunc | Space::CoreFunc => ResolvedItem::Func(
-                        r.index,
-                        &referenced_comp.canons.items[idx]
-                    ),
+                    Space::Comp => {
+                        ResolvedItem::Component(r.index, &referenced_comp.components[idx])
+                    }
+                    Space::CompType => {
+                        ResolvedItem::CompType(r.index, &referenced_comp.component_types.items[idx])
+                    }
+                    Space::CompInst => {
+                        ResolvedItem::CompInst(r.index, &referenced_comp.component_instance[idx])
+                    }
+                    Space::CoreInst => {
+                        ResolvedItem::CoreInst(r.index, &referenced_comp.instances[idx])
+                    }
+                    Space::CoreModule => {
+                        ResolvedItem::Module(r.index, &referenced_comp.modules[idx])
+                    }
+                    Space::CoreType => {
+                        ResolvedItem::CoreType(r.index, &referenced_comp.core_types[idx])
+                    }
+                    Space::CompFunc | Space::CoreFunc => {
+                        ResolvedItem::Func(r.index, &referenced_comp.canons.items[idx])
+                    }
                     Space::CompVal
                     | Space::CoreMemory
                     | Space::CoreTable
@@ -682,9 +764,15 @@ pub(crate) mod internal {
                         "This spaces don't exist in a main vector on the component IR: {vec:?}"
                     ),
                 },
-                SpaceSubtype::Export => ResolvedItem::Export(&referenced_comp.exports[idx]),
-                SpaceSubtype::Import => ResolvedItem::Import(&referenced_comp.imports[idx]),
-                SpaceSubtype::Alias => ResolvedItem::Alias(&referenced_comp.alias.items[idx])
+                SpaceSubtype::Export => {
+                    ResolvedItem::Export(r.index, &referenced_comp.exports[idx])
+                }
+                SpaceSubtype::Import => {
+                    ResolvedItem::Import(r.index, &referenced_comp.imports[idx])
+                }
+                SpaceSubtype::Alias => {
+                    ResolvedItem::Alias(r.index, &referenced_comp.alias.items[idx])
+                }
             }
         }
     }
@@ -695,9 +783,7 @@ pub(crate) mod internal {
     }
     impl ScopeStack {
         fn new() -> Self {
-            Self {
-                stack: vec![],
-            }
+            Self { stack: vec![] }
         }
         fn curr_space_id(&self) -> ScopeId {
             self.stack.last().cloned().unwrap()
