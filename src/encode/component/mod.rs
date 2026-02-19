@@ -146,6 +146,10 @@ mod fix_indices;
 pub fn encode(comp: &Component) -> Vec<u8> {
     // Phase 1: Collect
     let mut ctx = EncodeCtx::new(comp);
+    {
+        let mut store = ctx.store.borrow_mut();
+        store.reset();
+    }
     let mut plan = comp.collect_root(&mut ctx);
 
     // Phase 2: Assign indices
@@ -158,6 +162,12 @@ pub fn encode(comp: &Component) -> Vec<u8> {
     // Phase 3: Encode (pass in the root-level component's plan, assigned indices, and original->new index map)
     debug_assert_eq!(1, ctx.space_stack.stack.len());
     let bytes = encode_internal(comp, &plan, &mut ctx);
+
+    // Reset the index stores for any future visits!
+    {
+        let mut store = ctx.store.borrow_mut();
+        store.reset();
+    }
     bytes.finish()
 }
 

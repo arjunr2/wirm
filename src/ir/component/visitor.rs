@@ -558,7 +558,7 @@ pub(crate) mod internal {
         build_component_store, ComponentStore, GetScopeKind, RegistryHandle,
     };
     use crate::ir::component::section::ComponentSection;
-    use crate::ir::component::visitor::ResolvedItem;
+    use crate::ir::component::visitor::{ResolvedItem, SectionTracker};
     use crate::ir::id::ComponentId;
     use crate::Component;
 
@@ -569,6 +569,7 @@ pub(crate) mod internal {
         pub(crate) node_has_nested_scope: Vec<bool>,
         pub(crate) store: StoreHandle,
         pub(crate) comp_store: ComponentStore<'a>,
+        section_tracker_stack: Vec<SectionTracker>,
     }
 
     // =======================================
@@ -581,6 +582,7 @@ pub(crate) mod internal {
             Self {
                 registry: root.scope_registry.clone(),
                 component_stack: Vec::new(),
+                section_tracker_stack: Vec::new(),
                 scope_stack: ScopeStack::new(),
                 node_has_nested_scope: Vec::new(),
                 store: root.index_store.clone(),
@@ -589,24 +591,30 @@ pub(crate) mod internal {
         }
 
         pub fn visit_section(&mut self, section: &ComponentSection, num: usize) -> usize {
-            let mut store = self.store.borrow_mut();
-            let indices = {
-                store
-                    .scopes
-                    .get_mut(&self.scope_stack.curr_space_id())
-                    .unwrap()
-            };
-            indices.visit_section(section, num)
+            self.section_tracker_stack
+                .last_mut()
+                .unwrap()
+                .visit_section(section, num)
+            // let mut store = self.store.borrow_mut();
+            // let indices = {
+            //     store
+            //         .scopes
+            //         .get_mut(&self.scope_stack.curr_space_id())
+            //         .unwrap()
+            // };
+            // indices.visit_section(section, num)
         }
 
         pub fn push_component(&mut self, component: &Component) {
             let id = component.id;
             self.component_stack.push(id);
+            self.section_tracker_stack.push(SectionTracker::default());
             self.enter_comp_scope(id);
         }
 
         pub fn pop_component(&mut self) {
             let id = self.component_stack.pop().unwrap();
+            self.section_tracker_stack.pop();
             self.exit_comp_scope(id);
         }
         pub fn curr_component(&self) -> &Component<'_> {
@@ -812,5 +820,52 @@ pub(crate) mod internal {
             );
             self.stack.pop().unwrap()
         }
+    }
+}
+
+// General trackers for indices of item vectors (used to track where i've been during visitation)
+#[derive(Default)]
+struct SectionTracker {
+    last_processed_module: usize,
+    last_processed_alias: usize,
+    last_processed_core_ty: usize,
+    last_processed_comp_ty: usize,
+    last_processed_imp: usize,
+    last_processed_exp: usize,
+    last_processed_core_inst: usize,
+    last_processed_comp_inst: usize,
+    last_processed_canon: usize,
+    last_processed_component: usize,
+    last_processed_start: usize,
+    last_processed_custom: usize,
+}
+impl SectionTracker {
+    /// This function is used while traversing the component. This means that we
+    /// should already know the space ID associated with the component section
+    /// (if in visiting this next session we enter some inner index space).
+    ///
+    /// So, we use the associated space ID to return the inner index space. The
+    /// calling function should use this return value to then context switch into
+    /// this new index space. When we've finished visiting the section, swap back
+    /// to the returned index space's `parent` (a field on the space).
+    pub fn visit_section(&mut self, section: &ComponentSection, num: usize) -> usize {
+        let tracker = match section {
+            ComponentSection::Component => &mut self.last_processed_component,
+            ComponentSection::Module => &mut self.last_processed_module,
+            ComponentSection::Alias => &mut self.last_processed_alias,
+            ComponentSection::CoreType => &mut self.last_processed_core_ty,
+            ComponentSection::ComponentType => &mut self.last_processed_comp_ty,
+            ComponentSection::ComponentImport => &mut self.last_processed_imp,
+            ComponentSection::ComponentExport => &mut self.last_processed_exp,
+            ComponentSection::CoreInstance => &mut self.last_processed_core_inst,
+            ComponentSection::ComponentInstance => &mut self.last_processed_comp_inst,
+            ComponentSection::Canon => &mut self.last_processed_canon,
+            ComponentSection::CustomSection => &mut self.last_processed_custom,
+            ComponentSection::ComponentStartSection => &mut self.last_processed_start,
+        };
+
+        let curr = *tracker;
+        *tracker += num;
+        curr
     }
 }

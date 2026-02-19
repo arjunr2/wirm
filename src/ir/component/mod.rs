@@ -109,7 +109,7 @@ pub struct Component<'a> {
 
 impl<'a> Component<'a> {
     /// Emit the Component into a wasm binary file.
-    pub fn emit_wasm(&mut self, file_name: &str) -> Result<(), std::io::Error> {
+    pub fn emit_wasm(&self, file_name: &str) -> Result<(), std::io::Error> {
         let wasm = self.encode();
         std::fs::write(file_name, wasm)?;
         Ok(())

@@ -37,6 +37,12 @@ impl IndexStore {
             scope.reset_ids();
         }
     }
+    /// Fully reset the trackers in all scopes.
+    pub fn reset(&mut self) {
+        for scope in self.scopes.values_mut() {
+            scope.reset_all();
+        }
+    }
     /// Lookup where to find an item in the component IR based on its assumed ID
     /// (the ID given to the item at parse and IR-injection time). This is done WITHOUT
     /// caching the found result, which is helpful when performing an operation when the
@@ -395,7 +401,7 @@ impl IndexScope {
         );
     }
 
-    /// This function is used while encoding the component. This means that we
+    /// This function is used while traversing the component. This means that we
     /// should already know the space ID associated with the component section
     /// (if in visiting this next session we enter some inner index space).
     ///
@@ -404,6 +410,7 @@ impl IndexScope {
     /// this new index space. When we've finished visiting the section, swap back
     /// to the returned index space's `parent` (a field on the space).
     pub fn visit_section(&mut self, section: &ComponentSection, num: usize) -> usize {
+        // TODO: Move to using the SectionTracker
         let tracker = match section {
             ComponentSection::Component => &mut self.last_processed_component,
             ComponentSection::Module => &mut self.last_processed_module,
@@ -440,6 +447,25 @@ impl IndexScope {
         self.core_memory.reset_ids();
         self.core_global.reset_ids();
         self.core_tag.reset_ids();
+    }
+    fn reset_last_processed(&mut self) {
+        self.last_processed_module = 0;
+        self.last_processed_alias = 0;
+        self.last_processed_core_ty = 0;
+        self.last_processed_comp_ty = 0;
+        self.last_processed_imp = 0;
+        self.last_processed_exp = 0;
+        self.last_processed_core_inst = 0;
+        self.last_processed_comp_inst = 0;
+        self.last_processed_canon = 0;
+        self.last_processed_component = 0;
+        self.last_processed_start = 0;
+        self.last_processed_custom = 0;
+    }
+
+    pub fn reset_all(&mut self) {
+        self.reset_ids();
+        self.reset_last_processed();
     }
 
     // ===================
