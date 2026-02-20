@@ -7,7 +7,7 @@ mod assign;
 mod collect;
 pub(crate) mod encode;
 mod fix_indices;
-mod collect_new;
+// mod collect_new;
 
 /// Encode this component into its binary WebAssembly representation.
 ///

@@ -7,7 +7,7 @@ use crate::ir::id::ComponentId;
 use crate::ir::types::CustomSection;
 use crate::ir::AppendOnlyVec;
 use crate::{assert_registered, Component, Module};
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::fmt::Debug;
 use wasmparser::{
     CanonicalFunction, ComponentAlias, ComponentExport, ComponentImport, ComponentInstance,
@@ -484,7 +484,8 @@ fn collect_deps<'a, T: ReferencedIndices + 'a>(
                 | Space::CoreMemory
                 | Space::CoreTable
                 | Space::CoreGlobal
-                | Space::CoreTag => unreachable!(
+                | Space::CoreTag
+                | Space::NA => unreachable!(
                     "This spaces don't exist in a main vector on the component IR: {vec:?}"
                 ),
             },

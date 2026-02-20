@@ -136,6 +136,7 @@ impl RefRole {
             Space::CoreTable => Self::Table,
             Space::CoreGlobal => Self::Global,
             Space::CoreTag => Self::Tag,
+            Space::NA => unreachable!()
         }
     }
 }

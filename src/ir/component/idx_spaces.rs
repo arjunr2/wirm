@@ -5,12 +5,8 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::fmt::Debug;
 use std::rc::Rc;
-use wasmparser::{
-    CanonicalFunction, ComponentAlias, ComponentExport, ComponentExternalKind, ComponentImport,
-    ComponentInstance, ComponentOuterAliasKind, ComponentType, ComponentTypeDeclaration,
-    ComponentTypeRef, CoreType, ExternalKind, Import, Instance, InstanceTypeDeclaration,
-    InstantiationArgKind, ModuleTypeDeclaration, OuterAliasKind, RecGroup, SubType, TypeRef,
-};
+use wasmparser::{CanonicalFunction, ComponentAlias, ComponentExport, ComponentExternalKind, ComponentImport, ComponentInstance, ComponentOuterAliasKind, ComponentStartFunction, ComponentType, ComponentTypeDeclaration, ComponentTypeRef, CoreType, ExternalKind, Import, Instance, InstanceTypeDeclaration, InstantiationArgKind, ModuleTypeDeclaration, OuterAliasKind, RecGroup, SubType, TypeRef};
+use crate::ir::types::CustomSection;
 
 pub(crate) type ScopeId = usize;
 
@@ -487,6 +483,7 @@ impl IndexScope {
             Space::CoreTable => &mut self.core_table,
             Space::CoreGlobal => &mut self.core_global,
             Space::CoreTag => &mut self.core_tag,
+            Space::NA => return None,
         };
         Some(s)
     }
@@ -506,6 +503,7 @@ impl IndexScope {
             Space::CoreTable => &self.core_table,
             Space::CoreGlobal => &self.core_global,
             Space::CoreTag => &self.core_tag,
+            Space::NA => return None,
         };
         Some(s)
     }
@@ -787,11 +785,26 @@ pub enum Space {
     CoreTable,
     CoreGlobal,
     CoreTag,
+
+    // isn't part of an index space
+    NA
 }
 
 // Trait for centralizing index space mapping
 pub trait IndexSpaceOf {
     fn index_space_of(&self) -> Space;
+}
+
+impl IndexSpaceOf for CustomSection<'_> {
+    fn index_space_of(&self) -> Space {
+        Space::NA
+    }
+}
+
+impl IndexSpaceOf for ComponentStartFunction {
+    fn index_space_of(&self) -> Space {
+        Space::NA
+    }
 }
 
 impl IndexSpaceOf for ComponentTypeRef {

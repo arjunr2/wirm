@@ -14,17 +14,18 @@
 //! Internal index-space and scope mechanics are intentionally not exposed.
 //! Consumers interact only with semantic resolution APIs.
 
+
 use crate::ir::component::idx_spaces::{IndexSpaceOf, Space};
 use crate::ir::component::refs::{IndexedRef, RefKind};
 use crate::ir::component::scopes::GetScopeKind;
 use crate::ir::component::section::ComponentSection;
-use crate::ir::component::visitor::internal::VisitCtxInner;
 use crate::ir::types::CustomSection;
 use crate::{Component, Module};
 use wasmparser::{
     CanonicalFunction, ComponentAlias, ComponentExport, ComponentImport, ComponentInstance,
     ComponentStartFunction, ComponentType, CoreType, Instance,
 };
+use crate::ir::component::visitor_old::internal::VisitCtxInner;
 
 /// Traverses a [`Component`] using the provided [`ComponentVisitor`].
 ///
@@ -450,6 +451,7 @@ impl From<Space> for ItemKind {
             Space::CoreTable => Self::CoreTable,
             Space::CoreGlobal => Self::CoreGlobal,
             Space::CoreTag => Self::CoreTag,
+            Space::NA => unreachable!()
         }
     }
 }
@@ -568,7 +570,7 @@ pub(crate) mod internal {
         build_component_store, ComponentStore, GetScopeKind, RegistryHandle,
     };
     use crate::ir::component::section::ComponentSection;
-    use crate::ir::component::visitor::{ResolvedItem, SectionTracker};
+    use crate::ir::component::visitor_old::{ResolvedItem, SectionTracker};
     use crate::ir::id::ComponentId;
     use crate::Component;
 
@@ -618,7 +620,6 @@ pub(crate) mod internal {
         pub fn push_component(&mut self, component: &Component) {
             let id = component.id;
             self.component_stack.push(id);
-            self.section_tracker_stack.push(SectionTracker::default());
             self.enter_comp_scope(id);
         }
 
@@ -798,7 +799,8 @@ pub(crate) mod internal {
                     | Space::CoreMemory
                     | Space::CoreTable
                     | Space::CoreGlobal
-                    | Space::CoreTag => unreachable!(
+                    | Space::CoreTag
+                    | Space::NA => unreachable!(
                         "This spaces don't exist in a main vector on the component IR: {vec:?}"
                     ),
                 },
