@@ -1,6 +1,7 @@
 use wasmparser::{CanonicalFunction, ComponentAlias, ComponentExport, ComponentImport, ComponentInstance, ComponentStartFunction, ComponentType, CoreType, Instance};
 use crate::{Component, Module};
-use crate::encode::component::collect::{CollectCtx, ComponentPlan};
+use crate::encode::component::collect::{CollectCtx, ComponentItem, ComponentPlan};
+use crate::ir::component::section::ComponentSection;
 use crate::ir::component::visitor::{ItemKind, VisitCtx};
 use crate::ir::component::visitor_internal::{traverse_component, HackableVisitor};
 use crate::ir::types::CustomSection;
@@ -29,8 +30,8 @@ impl<'a> HackableVisitor<'a> for Collector<'a> {
     // fn exit_root_component(&mut self, _ctx: &mut VisitCtx<'a>, _component: &Component<'a>) {
     //     todo!()
     // }
-    fn enter_component(&mut self, _cx: &mut VisitCtx<'a>, _id: u32, _component: &Component<'a>) {
-        todo!()
+    fn enter_component(&mut self, cx: &mut VisitCtx<'a>, _id: u32, component: &Component<'a>) {
+        let idx = cx.curr_item.1.unwrap();
     }
     fn exit_component(&mut self, _ctx: &mut VisitCtx<'a>, _id: u32, _component: &Component<'a>) {
         todo!()

@@ -44,11 +44,11 @@ impl Component<'_> {
 impl<'a> Collect<'a> for Component<'a> {
     fn collect(&'a self, idx: usize, collect_ctx: &mut CollectCtx<'a>, ctx: &mut VisitCtx) {
         let ptr = self as *const _;
-        if collect_ctx.seen.components.contains_key(&ptr) {
+        if collect_ctx.seen.components.contains(&ptr) {
             return;
         }
         // assign a temporary index during collection
-        collect_ctx.seen.components.insert(ptr, idx);
+        collect_ctx.seen.components.insert(ptr);
 
 
         // Collect dependencies first (in the order of the sections)
@@ -210,7 +210,7 @@ fn collect_section<'a, N: GetScopeKind + ReferencedIndices + 'a>(
         return;
     }
     // assign a temporary index during collection
-    collect_ctx.seen.insert(r, idx);
+    collect_ctx.seen.insert(r);
 
     // Collect dependencies first
     ctx.inner.maybe_enter_scope(node);
@@ -237,7 +237,7 @@ impl<'a> Collect<'a> for ComponentType<'a> {
             return;
         }
         // assign a temporary index during collection
-        collect_ctx.seen.insert(r, idx);
+        collect_ctx.seen.insert(r);
 
         let subitem_order = self.collect_subitem(idx, collect_ctx, ctx);
         collect_ctx.curr_plan_mut().items.push(ComponentItem::new_comp_type(self as *const _, idx, subitem_order));
@@ -372,7 +372,7 @@ impl<'a> Collect<'a> for Box<CoreType<'a>> {
             return;
         }
         // assign a temporary index during collection
-        collect_ctx.seen.insert(r, idx);
+        collect_ctx.seen.insert(r);
 
         let subitem_order = self.collect_subitem(idx, collect_ctx, ctx);
         collect_ctx.curr_plan_mut().items.push(ComponentItem::new_core_type(ptr, idx, subitem_order));
@@ -765,53 +765,51 @@ impl<'a> TrackedItem<'a> {
 
 #[derive(Default)]
 pub(crate) struct Seen<'a> {
-    /// Points to a TEMPORARY ID -- this is just for bookkeeping, not the final ID
-    /// The final ID is assigned during the "Assign" phase.
-    components: HashMap<*const Component<'a>, usize>,
-    modules: HashMap<*const Module<'a>, usize>,
-    comp_types: HashMap<*const ComponentType<'a>, usize>,
-    comp_instances: HashMap<*const ComponentInstance<'a>, usize>,
-    canon_funcs: HashMap<*const CanonicalFunction, usize>,
+    pub(crate) components: HashSet<*const Component<'a>>,
+    modules: HashSet<*const Module<'a>>,
+    comp_types: HashSet<*const ComponentType<'a>>,
+    comp_instances: HashSet<*const ComponentInstance<'a>>,
+    canon_funcs: HashSet<*const CanonicalFunction>,
 
-    aliases: HashMap<*const ComponentAlias<'a>, usize>,
-    imports: HashMap<*const ComponentImport<'a>, usize>,
-    exports: HashMap<*const ComponentExport<'a>, usize>,
+    aliases: HashSet<*const ComponentAlias<'a>>,
+    imports: HashSet<*const ComponentImport<'a>>,
+    exports: HashSet<*const ComponentExport<'a>>,
 
-    core_types: HashMap<*const CoreType<'a>, usize>,
-    instances: HashMap<*const Instance<'a>, usize>,
+    core_types: HashSet<*const CoreType<'a>>,
+    instances: HashSet<*const Instance<'a>>,
 
-    start: HashMap<*const ComponentStartFunction, usize>,
-    custom_sections: HashMap<*const CustomSection<'a>, usize>,
+    start: HashSet<*const ComponentStartFunction>,
+    custom_sections: HashSet<*const CustomSection<'a>>
 }
 impl<'a> Seen<'a> {
     pub fn contains_key(&self, ty: &TrackedItem) -> bool {
         match ty {
-            TrackedItem::Module(node) => self.modules.contains_key(node),
-            TrackedItem::CompType(node) => self.comp_types.contains_key(node),
-            TrackedItem::CompInst(node) => self.comp_instances.contains_key(node),
-            TrackedItem::CanonicalFunc(node) => self.canon_funcs.contains_key(node),
-            TrackedItem::Alias(node) => self.aliases.contains_key(node),
-            TrackedItem::Import(node) => self.imports.contains_key(node),
-            TrackedItem::Export(node) => self.exports.contains_key(node),
-            TrackedItem::CoreType(node) => self.core_types.contains_key(node),
-            TrackedItem::Inst(node) => self.instances.contains_key(node),
-            TrackedItem::Start(node) => self.start.contains_key(node),
-            TrackedItem::CustomSection(node) => self.custom_sections.contains_key(node),
+            TrackedItem::Module(node) => self.modules.contains(node),
+            TrackedItem::CompType(node) => self.comp_types.contains(node),
+            TrackedItem::CompInst(node) => self.comp_instances.contains(node),
+            TrackedItem::CanonicalFunc(node) => self.canon_funcs.contains(node),
+            TrackedItem::Alias(node) => self.aliases.contains(node),
+            TrackedItem::Import(node) => self.imports.contains(node),
+            TrackedItem::Export(node) => self.exports.contains(node),
+            TrackedItem::CoreType(node) => self.core_types.contains(node),
+            TrackedItem::Inst(node) => self.instances.contains(node),
+            TrackedItem::Start(node) => self.start.contains(node),
+            TrackedItem::CustomSection(node) => self.custom_sections.contains(node),
         }
     }
-    pub fn insert(&mut self, ty: TrackedItem<'a>, idx: usize) -> Option<usize> {
+    pub fn insert(&mut self, ty: TrackedItem<'a>) -> bool {
         match ty {
-            TrackedItem::Module(node) => self.modules.insert(node, idx),
-            TrackedItem::CompType(node) => self.comp_types.insert(node, idx),
-            TrackedItem::CompInst(node) => self.comp_instances.insert(node, idx),
-            TrackedItem::CanonicalFunc(node) => self.canon_funcs.insert(node, idx),
-            TrackedItem::Alias(node) => self.aliases.insert(node, idx),
-            TrackedItem::Import(node) => self.imports.insert(node, idx),
-            TrackedItem::Export(node) => self.exports.insert(node, idx),
-            TrackedItem::CoreType(node) => self.core_types.insert(node, idx),
-            TrackedItem::Inst(node) => self.instances.insert(node, idx),
-            TrackedItem::Start(node) => self.start.insert(node, idx),
-            TrackedItem::CustomSection(node) => self.custom_sections.insert(node, idx),
+            TrackedItem::Module(node) => self.modules.insert(node),
+            TrackedItem::CompType(node) => self.comp_types.insert(node),
+            TrackedItem::CompInst(node) => self.comp_instances.insert(node),
+            TrackedItem::CanonicalFunc(node) => self.canon_funcs.insert(node),
+            TrackedItem::Alias(node) => self.aliases.insert(node),
+            TrackedItem::Import(node) => self.imports.insert(node),
+            TrackedItem::Export(node) => self.exports.insert(node),
+            TrackedItem::CoreType(node) => self.core_types.insert(node),
+            TrackedItem::Inst(node) => self.instances.insert(node),
+            TrackedItem::Start(node) => self.start.insert(node),
+            TrackedItem::CustomSection(node) => self.custom_sections.insert(node),
         }
     }
 }
