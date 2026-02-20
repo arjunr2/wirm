@@ -52,7 +52,7 @@ use crate::ir::component::visitor::{ItemKind, VisitCtx};
 /// This API is not intended for mutation or transformation of the component.
 pub fn traverse_component<'a, V: HackableVisitor<'a>>(component: &'a Component<'a>, visitor: &mut V) {
     let mut ctx = VisitCtx::new(component);
-    traverse(component, true, None, visitor, &mut ctx);
+    traverse(component, None, visitor, &mut ctx);
 }
 
 /// A structured, read-only visitor over a [`Component`] tree.
@@ -80,18 +80,25 @@ pub fn traverse_component<'a, V: HackableVisitor<'a>>(component: &'a Component<'
 /// This visitor is strictly read-only. Implementations must not mutate
 /// the underlying component structure.
 pub trait HackableVisitor<'a> {
-    /// Invoked when entering a component.
-    ///
-    /// The `id` will be:
-    /// - `None` for the root component
-    /// - `Some(id)` for nested components
+    /// Invoked when entering the root (outermost) component.
+    /// Note that `enter_component` will NOT be called for root!
+    /// This allows special consideration for the root without having
+    /// to wrap the `id` parameter of `enter_component` with Option
+    /// (root components have no IDs)
     ///
     /// This is the earliest hook available for a component.
-    fn enter_component(&mut self, _cx: &mut VisitCtx<'a>, _id: Option<u32>, _component: &Component<'a>) {}
-    /// Invoked after all items within a component have been visited.
+    fn enter_root_component(&mut self, _cx: &mut VisitCtx<'a>, _component: &Component<'a>) {}
+    /// Invoked after all items within the root component have been visited.
+    ///
+    /// Always paired with a prior `enter_root_component` call.
+    fn exit_root_component(&mut self, _cx: &mut VisitCtx<'a>, _component: &Component<'a>) {}
+
+    /// Invoked when entering an inner component of the root.
+    fn enter_component(&mut self, _cx: &mut VisitCtx<'a>, _id: u32, _component: &Component<'a>) {}
+    /// Invoked after all items within an inner component have been visited.
     ///
     /// Always paired with a prior `enter_component` call.
-    fn exit_component(&mut self, _cx: &mut VisitCtx<'a>, _id: Option<u32>, _component: &Component<'a>) {}
+    fn exit_component(&mut self, _cx: &mut VisitCtx<'a>, _id: u32, _component: &Component<'a>) {}
     /// Invoked for each core WebAssembly module defined in the component.
     fn visit_module(&mut self, _cx: &mut VisitCtx<'a>, _id: u32, _module: &Module<'a>) {}
 
@@ -172,13 +179,12 @@ pub trait HackableVisitor<'a> {
 
 fn traverse<'a, V: HackableVisitor<'a>>(
     component: &'a Component<'a>,
-    is_root: bool,
     comp_idx: Option<usize>,
     visitor: &mut V,
     ctx: &mut VisitCtx<'a>,
 ) {
     ctx.inner.push_component(component);
-    let id = if let Some(idx) = comp_idx {
+    let comp_id = if let Some(idx) = comp_idx {
         Some(
             ctx.inner
                 .lookup_id_for(&Space::Comp, &ComponentSection::Component, idx),
@@ -186,7 +192,11 @@ fn traverse<'a, V: HackableVisitor<'a>>(
     } else {
         None
     };
-    visitor.enter_component(ctx, id, component);
+    if let Some(id) = comp_id {
+        visitor.enter_component(ctx, id, component);
+    } else {
+        visitor.enter_root_component(ctx, component);
+    }
 
     for (num, section) in component.sections.iter() {
         let start_idx = ctx.inner.visit_section(section, *num as usize);
@@ -198,7 +208,7 @@ fn traverse<'a, V: HackableVisitor<'a>>(
                 for i in 0..*num {
                     let idx = start_idx + i as usize;
                     let subcomponent = &component.components[idx];
-                    traverse(subcomponent, false, Some(idx), visitor, ctx);
+                    traverse(subcomponent, Some(idx), visitor, ctx);
                 }
             }
             ComponentSection::Module => {
@@ -374,9 +384,11 @@ fn traverse<'a, V: HackableVisitor<'a>>(
         }
     }
 
-    visitor.exit_component(ctx, id, component);
-    if !is_root {
+    if let Some(id) = comp_id {
+        visitor.exit_component(ctx, id, component);
         ctx.inner.pop_component();
+    } else {
+        visitor.exit_root_component(ctx, component);
     }
 }
 

@@ -823,7 +823,7 @@ pub struct CollectCtx<'a> {
     pub(crate) comp_store: ComponentStore<'a>,
 }
 impl<'a> CollectCtx<'a> {
-    fn new(comp: &'a Component<'a>) -> Self {
+    pub fn new(comp: &'a Component<'a>) -> Self {
         let comp_store = build_component_store(comp);
         Self {
             plan_stack: vec![ComponentPlan::default()],
@@ -849,7 +849,7 @@ impl<'a> CollectCtx<'a> {
     fn push_plan(&mut self) {
         self.plan_stack.push(ComponentPlan::default());
     }
-    fn pop_plan(&mut self) -> Option<ComponentPlan<'a>> {
+    pub fn pop_plan(&mut self) -> Option<ComponentPlan<'a>> {
         self.plan_stack.pop()
     }
 }
