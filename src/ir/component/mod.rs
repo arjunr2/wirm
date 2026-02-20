@@ -45,6 +45,7 @@ pub(crate) mod scopes;
 pub(crate) mod section;
 mod types;
 pub mod visitor;
+pub(crate) mod visitor_internal;
 
 #[derive(Debug)]
 /// Intermediate Representation of a wasm component.

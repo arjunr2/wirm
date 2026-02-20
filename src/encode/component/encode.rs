@@ -1,6 +1,5 @@
 use crate::encode::component::collect::{ComponentItem, ComponentPlan, SubItemPlan};
 use crate::encode::component::fix_indices::FixIndices;
-use crate::encode::component::EncodeCtx;
 use crate::ir::component::Names;
 use crate::ir::types::CustomSection;
 use crate::{Component, Module};
@@ -15,6 +14,7 @@ use wasmparser::{
     ComponentImport, ComponentInstance, ComponentStartFunction, ComponentType,
     ComponentTypeDeclaration, CoreType, Instance, InstanceTypeDeclaration, RecGroup, SubType,
 };
+use crate::ir::component::visitor::VisitCtx;
 
 /// # PHASE 3 #
 /// Encodes all items in the plan into the output buffer.
@@ -71,7 +71,7 @@ use wasmparser::{
 pub(crate) fn encode_internal<'a>(
     comp: &Component,
     plan: &ComponentPlan<'a>,
-    ctx: &mut EncodeCtx,
+    ctx: &mut VisitCtx,
 ) -> wasm_encoder::Component {
     let mut component = wasm_encoder::Component::new();
     let mut reencode = RoundtripReencoder;
@@ -84,11 +84,11 @@ pub(crate) fn encode_internal<'a>(
                 ..
             } => unsafe {
                 let subcomp: &Component = &**node;
-                ctx.enter_comp_scope(subcomp.id);
+                ctx.inner.enter_comp_scope(subcomp.id);
                 component.section(&NestedComponentSection(&encode_internal(
                     subcomp, subplan, ctx,
                 )));
-                ctx.exit_comp_scope(subcomp.id);
+                ctx.inner.exit_comp_scope(subcomp.id);
             },
             ComponentItem::Module { node, .. } => unsafe {
                 let t: &Module = &**node;
@@ -197,9 +197,9 @@ fn encode_comp_ty_section(
     plan: &Option<SubItemPlan>,
     component: &mut wasm_encoder::Component,
     reencode: &mut RoundtripReencoder,
-    ctx: &mut EncodeCtx,
+    ctx: &mut VisitCtx,
 ) {
-    ctx.maybe_enter_scope(comp_ty);
+    ctx.inner.maybe_enter_scope(comp_ty);
     let mut section = ComponentTypeSection::new();
 
     match comp_ty {
@@ -229,7 +229,7 @@ fn encode_comp_ty_section(
     }
 
     component.section(&section);
-    ctx.maybe_exit_scope(comp_ty);
+    ctx.inner.maybe_exit_scope(comp_ty);
 }
 fn encode_comp_inst_section(
     comp_inst: &ComponentInstance,
@@ -519,9 +519,9 @@ fn encode_core_ty_section(
     plan: &Option<SubItemPlan>,
     component: &mut wasm_encoder::Component,
     reencode: &mut RoundtripReencoder,
-    ctx: &mut EncodeCtx,
+    ctx: &mut VisitCtx,
 ) {
-    ctx.maybe_enter_scope(core_ty);
+    ctx.inner.maybe_enter_scope(core_ty);
     let mut type_section = CoreTypeSection::new();
     match core_ty {
         CoreType::Rec(group) => {
@@ -532,7 +532,7 @@ fn encode_core_ty_section(
         }
     }
     component.section(&type_section);
-    ctx.maybe_exit_scope(core_ty);
+    ctx.inner.maybe_exit_scope(core_ty);
 }
 fn encode_inst_section(
     inst: &Instance,
@@ -659,9 +659,9 @@ fn encode_comp_ty_decl(
     new_comp_ty: &mut wasm_encoder::ComponentType,
     component: &mut wasm_encoder::Component,
     reencode: &mut RoundtripReencoder,
-    ctx: &mut EncodeCtx,
+    ctx: &mut VisitCtx,
 ) {
-    ctx.maybe_enter_scope(ty);
+    ctx.inner.maybe_enter_scope(ty);
     match ty {
         ComponentTypeDeclaration::CoreType(core_ty) => {
             encode_core_ty_in_comp_ty(core_ty, subitem_plan, new_comp_ty, reencode, ctx)
@@ -694,7 +694,7 @@ fn encode_comp_ty_decl(
             new_comp_ty.import(imp.name.0, ty);
         }
     }
-    ctx.maybe_exit_scope(ty);
+    ctx.inner.maybe_exit_scope(ty);
 }
 fn encode_alias_in_comp_ty(
     alias: &ComponentAlias,
@@ -708,7 +708,7 @@ fn encode_rec_group_in_core_ty(
     group: &RecGroup,
     enc: &mut CoreTypeSection,
     reencode: &mut RoundtripReencoder,
-    ctx: &mut EncodeCtx,
+    ctx: &mut VisitCtx,
 ) {
     let types = into_wasm_encoder_recgroup(group, reencode, ctx);
 
@@ -727,9 +727,9 @@ fn encode_core_ty_in_comp_ty(
     subitem_plan: &Option<SubItemPlan>,
     comp_ty: &mut wasm_encoder::ComponentType,
     reencode: &mut RoundtripReencoder,
-    ctx: &mut EncodeCtx,
+    ctx: &mut VisitCtx,
 ) {
-    ctx.maybe_enter_scope(core_ty);
+    ctx.inner.maybe_enter_scope(core_ty);
     match core_ty {
         CoreType::Rec(recgroup) => {
             for sub in recgroup.types() {
@@ -740,7 +740,7 @@ fn encode_core_ty_in_comp_ty(
             encode_module_type_decls(subitem_plan, decls, comp_ty.core_type(), reencode, ctx)
         }
     }
-    ctx.maybe_exit_scope(core_ty);
+    ctx.inner.maybe_exit_scope(core_ty);
 }
 
 fn encode_inst_ty_decl(
@@ -749,9 +749,9 @@ fn encode_inst_ty_decl(
     ity: &mut InstanceType,
     component: &mut wasm_encoder::Component,
     reencode: &mut RoundtripReencoder,
-    ctx: &mut EncodeCtx,
+    ctx: &mut VisitCtx,
 ) {
-    ctx.maybe_enter_scope(inst);
+    ctx.inner.maybe_enter_scope(inst);
     match inst {
         InstanceTypeDeclaration::CoreType(core_ty) => {
             encode_core_ty_in_inst_ty(core_ty, subitem_plan, ity, reencode, ctx)
@@ -808,16 +808,16 @@ fn encode_inst_ty_decl(
             );
         }
     }
-    ctx.maybe_exit_scope(inst);
+    ctx.inner.maybe_exit_scope(inst);
 }
 fn encode_core_ty_in_inst_ty(
     core_ty: &CoreType,
     subitem_plan: &Option<SubItemPlan>,
     inst_ty: &mut InstanceType,
     reencode: &mut RoundtripReencoder,
-    ctx: &mut EncodeCtx,
+    ctx: &mut VisitCtx,
 ) {
-    ctx.maybe_enter_scope(core_ty);
+    ctx.inner.maybe_enter_scope(core_ty);
     match core_ty {
         CoreType::Rec(recgroup) => {
             for sub in recgroup.types() {
@@ -828,7 +828,7 @@ fn encode_core_ty_in_inst_ty(
             encode_module_type_decls(subitem_plan, decls, inst_ty.core_type(), reencode, ctx)
         }
     }
-    ctx.maybe_exit_scope(core_ty);
+    ctx.inner.maybe_exit_scope(core_ty);
 }
 
 fn encode_comp_ty(
@@ -837,9 +837,9 @@ fn encode_comp_ty(
     enc: ComponentTypeEncoder,
     component: &mut wasm_encoder::Component,
     reencode: &mut RoundtripReencoder,
-    ctx: &mut EncodeCtx,
+    ctx: &mut VisitCtx,
 ) {
-    ctx.maybe_enter_scope(ty);
+    ctx.inner.maybe_enter_scope(ty);
     match ty {
         ComponentType::Defined(comp_ty) => {
             encode_comp_defined_ty(comp_ty, enc.defined_type(), reencode)
@@ -873,7 +873,7 @@ fn encode_comp_ty(
             enc.resource(reencode.val_type(*rep).unwrap(), *dtor);
         }
     }
-    ctx.maybe_exit_scope(ty);
+    ctx.inner.maybe_exit_scope(ty);
 }
 
 fn into_wasm_encoder_alias<'a>(
@@ -915,9 +915,9 @@ fn into_wasm_encoder_alias<'a>(
 pub fn into_wasm_encoder_recgroup(
     group: &RecGroup,
     reencode: &mut RoundtripReencoder,
-    ctx: &mut EncodeCtx,
+    ctx: &mut VisitCtx,
 ) -> Vec<wasm_encoder::SubType> {
-    ctx.maybe_enter_scope(group);
+    ctx.inner.maybe_enter_scope(group);
 
     let subtypes = group
         .types()
@@ -929,7 +929,7 @@ pub fn into_wasm_encoder_recgroup(
         })
         .collect::<Vec<_>>();
 
-    ctx.maybe_exit_scope(group);
+    ctx.inner.maybe_exit_scope(group);
     subtypes
 }
 
@@ -938,14 +938,14 @@ pub fn encode_module_type_decls(
     decls: &[wasmparser::ModuleTypeDeclaration],
     enc: ComponentCoreTypeEncoder,
     reencode: &mut RoundtripReencoder,
-    ctx: &mut EncodeCtx,
+    ctx: &mut VisitCtx,
 ) {
     let mut mty = wasm_encoder::ModuleType::new();
     for (idx, subplan) in subitem_plan.as_ref().unwrap().order().iter() {
         assert!(subplan.is_none());
 
         let decl = &decls[*idx];
-        ctx.maybe_enter_scope(decl);
+        ctx.inner.maybe_enter_scope(decl);
         match decl {
             wasmparser::ModuleTypeDeclaration::Type(recgroup) => {
                 let types = into_wasm_encoder_recgroup(recgroup, reencode, ctx);
@@ -977,7 +977,7 @@ pub fn encode_module_type_decls(
                 );
             }
         }
-        ctx.maybe_exit_scope(decl);
+        ctx.inner.maybe_exit_scope(decl);
     }
     enc.module(&mty);
 }

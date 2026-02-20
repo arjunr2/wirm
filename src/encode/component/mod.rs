@@ -1,10 +1,7 @@
 use crate::encode::component::assign::assign_indices;
 use crate::encode::component::encode::encode_internal;
-use crate::ir::component::idx_spaces::{ScopeId, SpaceSubtype, StoreHandle};
-use crate::ir::component::refs::{Depth, IndexedRef};
-use crate::ir::component::scopes::{GetScopeKind, RegistryHandle};
-use crate::ir::id::ComponentId;
 use crate::Component;
+use crate::ir::component::visitor::VisitCtx;
 
 mod assign;
 mod collect;
@@ -145,128 +142,28 @@ mod fix_indices;
 /// These conditions indicate an internal bug or invalid IR construction.
 pub fn encode(comp: &Component) -> Vec<u8> {
     // Phase 1: Collect
-    let mut ctx = EncodeCtx::new(comp);
+    let mut ctx = VisitCtx::new(comp);
     {
-        let mut store = ctx.store.borrow_mut();
+        let mut store = ctx.inner.store.borrow_mut();
         store.reset();
     }
     let mut plan = comp.collect_root(&mut ctx);
 
     // Phase 2: Assign indices
     {
-        let mut store = ctx.store.borrow_mut();
+        let mut store = ctx.inner.store.borrow_mut();
         store.reset_indices();
     }
     assign_indices(&mut plan, &mut ctx);
 
     // Phase 3: Encode (pass in the root-level component's plan, assigned indices, and original->new index map)
-    debug_assert_eq!(1, ctx.space_stack.stack.len());
+    debug_assert_eq!(1, ctx.inner.scope_stack.stack.len());
     let bytes = encode_internal(comp, &plan, &mut ctx);
 
     // Reset the index stores for any future visits!
     {
-        let mut store = ctx.store.borrow_mut();
+        let mut store = ctx.inner.store.borrow_mut();
         store.reset();
     }
     bytes.finish()
-}
-
-#[derive(Clone)]
-pub(crate) struct SpaceStack {
-    pub(crate) stack: Vec<ScopeId>,
-}
-impl SpaceStack {
-    fn new(outermost_id: ScopeId) -> Self {
-        Self {
-            stack: vec![outermost_id],
-        }
-    }
-    fn curr_space_id(&self) -> ScopeId {
-        self.stack.last().cloned().unwrap()
-    }
-    fn space_at_depth(&self, depth: &Depth) -> ScopeId {
-        *self
-            .stack
-            .get(self.stack.len() - depth.val() as usize - 1)
-            .unwrap_or_else(|| {
-                panic!(
-                    "couldn't find scope at depth {}; this is the current scope stack: {:?}",
-                    depth.val(),
-                    self.stack
-                )
-            })
-    }
-
-    pub fn enter_space(&mut self, id: ScopeId) {
-        self.stack.push(id)
-    }
-
-    pub fn exit_space(&mut self) -> ScopeId {
-        debug_assert!(
-            self.stack.len() >= 2,
-            "Trying to exit the index space scope when there isn't an outer!"
-        );
-        self.stack.pop().unwrap()
-    }
-}
-
-pub(crate) struct EncodeCtx {
-    pub(crate) space_stack: SpaceStack,
-    pub(crate) registry: RegistryHandle,
-    pub(crate) store: StoreHandle,
-}
-impl EncodeCtx {
-    pub fn new(comp: &Component) -> Self {
-        Self {
-            space_stack: SpaceStack::new(comp.space_id),
-            registry: comp.scope_registry.clone(),
-            store: comp.index_store.clone(),
-        }
-    }
-    fn maybe_enter_scope<T: GetScopeKind>(&mut self, node: &T) {
-        if let Some(scope_entry) = self.registry.borrow().scope_entry(node) {
-            self.space_stack.enter_space(scope_entry.space);
-        }
-    }
-    fn maybe_exit_scope<T: GetScopeKind>(&mut self, node: &T) {
-        if let Some(scope_entry) = self.registry.borrow().scope_entry(node) {
-            // Exit the nested index space...should be equivalent to the ID
-            // of the scope that was entered by this node
-            let exited_from = self.space_stack.exit_space();
-            debug_assert_eq!(scope_entry.space, exited_from);
-        }
-    }
-    fn enter_comp_scope(&mut self, comp_id: ComponentId) {
-        let Some(scope_id) = self.registry.borrow().scope_of_comp(comp_id) else {
-            panic!("no scope found for component {:?}", comp_id);
-        };
-        self.space_stack.enter_space(scope_id);
-    }
-    fn exit_comp_scope(&mut self, comp_id: ComponentId) {
-        let Some(scope_id) = self.registry.borrow().scope_of_comp(comp_id) else {
-            panic!("no scope found for component {:?}", comp_id);
-        };
-        let exited_from = self.space_stack.exit_space();
-        debug_assert_eq!(scope_id, exited_from);
-    }
-
-    fn lookup_actual_id_or_panic(&self, r: &IndexedRef) -> usize {
-        let scope_id = self.space_stack.space_at_depth(&r.depth);
-        self.store
-            .borrow()
-            .scopes
-            .get(&scope_id)
-            .unwrap()
-            .lookup_actual_id_or_panic(r)
-    }
-
-    fn index_from_assumed_id(&mut self, r: &IndexedRef) -> (SpaceSubtype, usize, Option<usize>) {
-        let scope_id = self.space_stack.space_at_depth(&r.depth);
-        self.store
-            .borrow_mut()
-            .scopes
-            .get_mut(&scope_id)
-            .unwrap()
-            .index_from_assumed_id(r)
-    }
 }

@@ -51,7 +51,7 @@ use wasmparser::{
 /// - Visualization tooling
 ///
 /// This API is not intended for mutation or transformation of the component.
-pub fn traverse_component<V: ComponentVisitor>(component: &Component, visitor: &mut V) {
+pub fn traverse_component<'a, V: ComponentVisitor<'a>>(component: &'a Component<'a>, visitor: &mut V) {
     let mut ctx = VisitCtx::new(component);
     traverse(component, true, None, visitor, &mut ctx);
 }
@@ -80,7 +80,7 @@ pub fn traverse_component<V: ComponentVisitor>(component: &Component, visitor: &
 ///
 /// This visitor is strictly read-only. Implementations must not mutate
 /// the underlying component structure.
-pub trait ComponentVisitor {
+pub trait ComponentVisitor<'a> {
     /// Invoked when entering a component.
     ///
     /// The `id` will be:
@@ -88,22 +88,22 @@ pub trait ComponentVisitor {
     /// - `Some(id)` for nested components
     ///
     /// This is the earliest hook available for a component.
-    fn enter_component(&mut self, _cx: &VisitCtx, _id: Option<u32>, _component: &Component) {}
+    fn enter_component(&mut self, _cx: &VisitCtx<'a>, _id: Option<u32>, _component: &Component<'a>) {}
     /// Invoked after all items within a component have been visited.
     ///
     /// Always paired with a prior `enter_component` call.
-    fn exit_component(&mut self, _cx: &VisitCtx, _id: Option<u32>, _component: &Component) {}
+    fn exit_component(&mut self, _cx: &VisitCtx<'a>, _id: Option<u32>, _component: &Component<'a>) {}
     /// Invoked for each core WebAssembly module defined in the component.
-    fn visit_module(&mut self, _cx: &VisitCtx, _id: u32, _module: &Module) {}
+    fn visit_module(&mut self, _cx: &VisitCtx<'a>, _id: u32, _module: &Module<'a>) {}
 
     // ------------------------
     // Component-level items
     // ------------------------
 
     /// Invoked for each component type definition.
-    fn visit_comp_type(&mut self, _cx: &VisitCtx, _id: u32, _comp_type: &ComponentType) {}
+    fn visit_comp_type(&mut self, _cx: &VisitCtx<'a>, _id: u32, _comp_type: &ComponentType<'a>) {}
     /// Invoked for each component instance.
-    fn visit_comp_instance(&mut self, _cx: &VisitCtx, _id: u32, _instance: &ComponentInstance) {}
+    fn visit_comp_instance(&mut self, _cx: &VisitCtx<'a>, _id: u32, _instance: &ComponentInstance<'a>) {}
 
     // ------------------------------------------------
     // Items with multiple possible resolved namespaces
@@ -114,7 +114,7 @@ pub trait ComponentVisitor {
     /// The `kind` parameter indicates the resolved namespace of this item.
     fn visit_canon(
         &mut self,
-        _cx: &VisitCtx,
+        _cx: &VisitCtx<'a>,
         _kind: ItemKind,
         _id: u32,
         _canon: &CanonicalFunction,
@@ -124,17 +124,17 @@ pub trait ComponentVisitor {
     ///
     /// The `kind` parameter indicates the resolved target namespace
     /// referenced by the alias.
-    fn visit_alias(&mut self, _cx: &VisitCtx, _kind: ItemKind, _id: u32, _alias: &ComponentAlias) {}
+    fn visit_alias(&mut self, _cx: &VisitCtx<'a>, _kind: ItemKind, _id: u32, _alias: &ComponentAlias<'a>) {}
     /// Invoked for component imports.
     ///
     /// The `kind` parameter identifies the imported item category
     /// (e.g. type, function, instance).
     fn visit_comp_import(
         &mut self,
-        _cx: &VisitCtx,
+        _cx: &VisitCtx<'a>,
         _kind: ItemKind,
         _id: u32,
-        _import: &ComponentImport,
+        _import: &ComponentImport<'a>,
     ) {
     }
     /// Invoked for component exports.
@@ -142,10 +142,10 @@ pub trait ComponentVisitor {
     /// The `kind` parameter identifies the exported item category.
     fn visit_comp_export(
         &mut self,
-        _cx: &VisitCtx,
+        _cx: &VisitCtx<'a>,
         _kind: ItemKind,
         _id: u32,
-        _export: &ComponentExport,
+        _export: &ComponentExport<'a>,
     ) {
     }
 
@@ -154,9 +154,9 @@ pub trait ComponentVisitor {
     // ------------------------
 
     /// Invoked for each core WebAssembly type.
-    fn visit_core_type(&mut self, _cx: &VisitCtx, _id: u32, _ty: &CoreType) {}
+    fn visit_core_type(&mut self, _cx: &VisitCtx<'a>, _id: u32, _ty: &CoreType<'a>) {}
     /// Invoked for each core WebAssembly instance.
-    fn visit_core_instance(&mut self, _cx: &VisitCtx, _id: u32, _inst: &Instance) {}
+    fn visit_core_instance(&mut self, _cx: &VisitCtx<'a>, _id: u32, _inst: &Instance<'a>) {}
 
     // ------------------------
     // Sections
@@ -166,17 +166,17 @@ pub trait ComponentVisitor {
     ///
     /// Custom sections are visited in traversal order and are not
     /// associated with structured enter/exit pairing.
-    fn visit_custom_section(&mut self, _cx: &VisitCtx, _sect: &CustomSection) {}
+    fn visit_custom_section(&mut self, _cx: &VisitCtx<'a>, _sect: &CustomSection<'a>) {}
     /// Invoked if the component defines a start function.
-    fn visit_start_section(&mut self, _cx: &VisitCtx, _start: &ComponentStartFunction) {}
+    fn visit_start_section(&mut self, _cx: &VisitCtx<'a>, _start: &ComponentStartFunction) {}
 }
 
-fn traverse<V: ComponentVisitor>(
-    component: &Component,
+fn traverse<'a, V: ComponentVisitor<'a>>(
+    component: &'a Component<'a>,
     is_root: bool,
     comp_idx: Option<usize>,
     visitor: &mut V,
-    ctx: &mut VisitCtx,
+    ctx: &mut VisitCtx<'a>,
 ) {
     ctx.inner.push_component(component);
     let id = if let Some(idx) = comp_idx {
@@ -381,13 +381,17 @@ fn traverse<V: ComponentVisitor>(
     }
 }
 
-fn visit_vec<'a, T: GetScopeKind>(
+fn visit_vec<'a, V, T>(
     slice: &'a [T],
-    ctx: &mut VisitCtx,
-    visitor: &mut dyn ComponentVisitor,
+    ctx: &mut VisitCtx<'a>,
+    visitor: &mut V,
     start_idx: usize,
-    visit: fn(&mut dyn ComponentVisitor, &mut VisitCtx, usize, &T),
-) {
+    visit: fn(&mut V, &mut VisitCtx<'a>, usize, &T),
+)
+where
+    V: ComponentVisitor<'a>,
+    T: GetScopeKind,
+{
     for (i, item) in slice.iter().enumerate() {
         ctx.inner.maybe_enter_scope(item);
         visit(visitor, ctx, start_idx + i, item);
@@ -395,13 +399,17 @@ fn visit_vec<'a, T: GetScopeKind>(
     }
 }
 
-fn visit_boxed_vec<'a, T: GetScopeKind>(
+fn visit_boxed_vec<'a, V, T>(
     slice: &'a [Box<T>],
-    ctx: &mut VisitCtx,
-    visitor: &mut dyn ComponentVisitor,
+    ctx: &mut VisitCtx<'a>,
+    visitor: &mut V,
     start_idx: usize,
-    visit: fn(&mut dyn ComponentVisitor, &mut VisitCtx, usize, &T),
-) {
+    visit: fn(&mut V, &mut VisitCtx<'a>, usize, &T),
+)
+where
+    V: ComponentVisitor<'a>,
+    T: GetScopeKind,
+{
     for (i, item) in slice.iter().enumerate() {
         let item = item.as_ref();
 
@@ -465,11 +473,13 @@ impl From<Space> for ItemKind {
 /// All resolution operations are read-only and reflect the *semantic*
 /// structure of the component, not its internal storage layout.
 pub struct VisitCtx<'a> {
+    pub(crate) curr_item: (ItemKind, Option<usize>),
     pub(crate) inner: VisitCtxInner<'a>,
 }
 impl<'a> VisitCtx<'a> {
     pub(crate) fn new(component: &'a Component<'a>) -> Self {
         Self {
+            curr_item: (ItemKind::Comp, None),
             inner: VisitCtxInner::new(component),
         }
     }
@@ -644,7 +654,7 @@ pub(crate) mod internal {
             }
         }
 
-        fn enter_comp_scope(&mut self, comp_id: ComponentId) {
+        pub(crate) fn enter_comp_scope(&mut self, comp_id: ComponentId) {
             let Some(scope_id) = self.registry.borrow().scope_of_comp(comp_id) else {
                 panic!("no scope found for component {:?}", comp_id);
             };
@@ -653,7 +663,7 @@ pub(crate) mod internal {
             self.scope_stack.enter_space(scope_id);
         }
 
-        fn exit_comp_scope(&mut self, comp_id: ComponentId) {
+        pub(crate) fn exit_comp_scope(&mut self, comp_id: ComponentId) {
             let Some(scope_id) = self.registry.borrow().scope_of_comp(comp_id) else {
                 panic!("no scope found for component {:?}", comp_id);
             };
@@ -699,7 +709,7 @@ pub(crate) mod internal {
                 .lookup_assumed_id(space, section, vec_idx) as u32
         }
 
-        fn index_from_assumed_id(&self, r: &IndexedRef) -> (SpaceSubtype, usize, Option<usize>) {
+        pub(crate) fn index_from_assumed_id_no_cache(&self, r: &IndexedRef) -> (SpaceSubtype, usize, Option<usize>) {
             let scope_id = self.scope_stack.space_at_depth(&r.depth);
             self.store
                 .borrow()
@@ -707,6 +717,26 @@ pub(crate) mod internal {
                 .get(&scope_id)
                 .unwrap()
                 .index_from_assumed_id_no_cache(r)
+        }
+
+        pub(crate) fn index_from_assumed_id(&mut self, r: &IndexedRef) -> (SpaceSubtype, usize, Option<usize>) {
+            let scope_id = self.scope_stack.space_at_depth(&r.depth);
+            self.store
+                .borrow_mut()
+                .scopes
+                .get_mut(&scope_id)
+                .unwrap()
+                .index_from_assumed_id(r)
+        }
+
+        pub(crate) fn lookup_actual_id_or_panic(&self, r: &IndexedRef) -> usize {
+            let scope_id = self.scope_stack.space_at_depth(&r.depth);
+            self.store
+                .borrow()
+                .scopes
+                .get(&scope_id)
+                .unwrap()
+                .lookup_actual_id_or_panic(r)
         }
     }
 
@@ -729,7 +759,7 @@ pub(crate) mod internal {
         }
 
         pub fn resolve(&self, r: &IndexedRef) -> ResolvedItem<'_, '_> {
-            let (vec, idx, subidx) = self.index_from_assumed_id(r);
+            let (vec, idx, subidx) = self.index_from_assumed_id_no_cache(r);
             if r.space != Space::CoreType {
                 assert!(
                     subidx.is_none(),
@@ -793,7 +823,7 @@ pub(crate) mod internal {
         fn new() -> Self {
             Self { stack: vec![] }
         }
-        fn curr_space_id(&self) -> ScopeId {
+        pub(crate) fn curr_space_id(&self) -> ScopeId {
             self.stack.last().cloned().unwrap()
         }
         fn space_at_depth(&self, depth: &Depth) -> ScopeId {
