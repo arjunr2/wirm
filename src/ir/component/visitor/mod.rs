@@ -1,10 +1,10 @@
-use wasmparser::{CanonicalFunction, ComponentAlias, ComponentExport, ComponentImport, ComponentInstance, ComponentStartFunction, ComponentType, CoreType, Instance};
+use wasmparser::{CanonicalFunction, ComponentAlias, ComponentExport, ComponentImport, ComponentInstance, ComponentStartFunction, ComponentType, ComponentTypeDeclaration, CoreType, Instance, InstanceTypeDeclaration, ModuleTypeDeclaration};
 use crate::{Component, Module};
 use crate::ir::component::idx_spaces::Space;
 use crate::ir::component::refs::{IndexedRef, RefKind};
 use crate::ir::component::visitor::driver::{drive_event, VisitEvent};
-use crate::ir::component::visitor::events_structural::get_structural_evts;
-use crate::ir::component::visitor::events_topological::get_topological_evts;
+use crate::ir::component::visitor::events_structural::get_structural_events;
+use crate::ir::component::visitor::events_topological::get_topological_events;
 use crate::ir::component::visitor::utils::VisitCtxInner;
 use crate::ir::types::CustomSection;
 
@@ -45,7 +45,7 @@ pub fn walk_structural<'ir, V: ComponentVisitor<'ir>>(
     root: &'ir Component<'ir>,
     visitor: &mut V,
 ) {
-    walk(get_structural_evts, root, visitor);
+    walk(get_structural_events, root, visitor);
 }
 
 /// Walk a [`Component`] in *topological* (dependency) order.
@@ -84,17 +84,17 @@ pub fn walk_topological<'ir, V: ComponentVisitor<'ir>>(
     root: &'ir Component<'ir>,
     visitor: &mut V,
 ) {
-    walk(get_topological_evts, root, visitor);
+    walk(get_topological_events, root, visitor);
 }
 
 fn walk<'ir, V: ComponentVisitor<'ir>>(
-    get_evts: fn (&'ir Component<'ir>, Option<usize>, &mut VisitCtx<'ir>, &mut Vec<VisitEvent<'ir>>),
+    get_evts: fn (&'ir Component<'ir>, &mut VisitCtx<'ir>, &mut Vec<VisitEvent<'ir>>),
     root: &'ir Component<'ir>,
     visitor: &mut V,
 ) {
     let mut ctx = VisitCtx::new(root);
     let mut events = Vec::new();
-    get_evts(root, None, &mut ctx, &mut events);
+    get_evts(root, &mut ctx, &mut events);
 
     for event in events {
         drive_event(event, visitor, &mut ctx);
@@ -147,8 +147,14 @@ pub trait ComponentVisitor<'a> {
     // Component-level items
     // ------------------------
 
-    /// Invoked for each component type definition.
-    fn visit_comp_type(&mut self, _cx: &VisitCtx<'a>, _id: u32, _comp_type: &ComponentType<'a>) {}
+    /// TODO: Docs
+    fn enter_comp_type(&mut self, _cx: &VisitCtx<'a>, _id: u32, _comp_type: &ComponentType<'a>) {}
+    /// TODO: Docs
+    fn visit_comp_type_decl(&mut self, _cx: &VisitCtx<'a>, _decl_idx: usize, _parent: &ComponentType<'a>, _decl: &ComponentTypeDeclaration<'a>) {}
+    /// TODO: Docs
+    fn visit_inst_type_decl(&mut self, _cx: &VisitCtx<'a>, _decl_idx: usize, _parent: &ComponentType<'a>, _decl: &InstanceTypeDeclaration<'a>) {}
+    /// TODO: Docs
+    fn exit_comp_type(&mut self, _cx: &VisitCtx<'a>, _id: u32, _comp_type: &ComponentType<'a>) {}
     /// Invoked for each component instance.
     fn visit_comp_instance(&mut self, _cx: &VisitCtx<'a>, _id: u32, _instance: &ComponentInstance<'a>) {}
 
@@ -199,9 +205,13 @@ pub trait ComponentVisitor<'a> {
     // ------------------------
     // Core WebAssembly items
     // ------------------------
-
-    /// Invoked for each core WebAssembly type.
-    fn visit_core_type(&mut self, _cx: &VisitCtx<'a>, _id: u32, _ty: &CoreType<'a>) {}
+    
+    /// TODO: Docs
+    fn enter_core_type(&mut self, _cx: &VisitCtx<'a>, _id: u32, _comp_type: &CoreType<'a>) {}
+    /// TODO: Docs
+    fn visit_module_type_decl(&mut self, _cx: &VisitCtx<'a>, _decl_idx: usize, _parent: &CoreType<'a>, _decl: &ModuleTypeDeclaration<'a>) {}
+    /// TODO: Docs
+    fn exit_core_type(&mut self, _cx: &VisitCtx<'a>, _id: u32, _comp_type: &CoreType<'a>) {}
     /// Invoked for each core WebAssembly instance.
     fn visit_core_instance(&mut self, _cx: &VisitCtx<'a>, _id: u32, _inst: &Instance<'a>) {}
 
@@ -274,13 +284,11 @@ impl From<Space> for ItemKind {
 /// All resolution operations are read-only and reflect the *semantic*
 /// structure of the component, not its internal storage layout.
 pub struct VisitCtx<'a> {
-    pub(crate) curr_item: (ItemKind, Option<usize>),
     pub(crate) inner: VisitCtxInner<'a>,
 }
 impl<'a> VisitCtx<'a> {
     pub(crate) fn new(component: &'a Component<'a>) -> Self {
         Self {
-            curr_item: (ItemKind::Comp, None),
             inner: VisitCtxInner::new(component),
         }
     }

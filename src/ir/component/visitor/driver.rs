@@ -1,4 +1,4 @@
-use wasmparser::{CanonicalFunction, ComponentAlias, ComponentExport, ComponentImport, ComponentInstance, ComponentStartFunction, ComponentType, CoreType, Instance};
+use wasmparser::{CanonicalFunction, ComponentAlias, ComponentExport, ComponentImport, ComponentInstance, ComponentStartFunction, ComponentType, ComponentTypeDeclaration, CoreType, Instance, InstanceTypeDeclaration, ModuleTypeDeclaration};
 use crate::{Component, Module};
 use crate::ir::component::idx_spaces::{IndexSpaceOf, Space};
 use crate::ir::component::section::ComponentSection;
@@ -21,7 +21,7 @@ pub fn drive_event<'ir, V: ComponentVisitor<'ir>>(
         }
         VisitEvent::EnterComp { component, idx, .. } => {
             ctx.inner.push_component(component);
-            
+
             // TODO: This seems like the wrong time to do the lookup
             //       (should it be before `push_component`?)
             let id = ctx.inner.lookup_id_for(
@@ -64,14 +64,35 @@ pub fn drive_event<'ir, V: ComponentVisitor<'ir>>(
             ctx.inner.maybe_exit_scope(inst);
         }
 
-        VisitEvent::CompType { idx, ty } => {
+        VisitEvent::EnterCompType {idx, ty } => {
             ctx.inner.maybe_enter_scope(ty);
             let id = ctx.inner.lookup_id_for(
                 &Space::CompType,
                 &ComponentSection::ComponentType,
                 idx,
             );
-            visitor.visit_comp_type(ctx, id, ty);
+            visitor.enter_comp_type(ctx, id, ty);
+        }
+
+        VisitEvent::CompTypeDecl {idx, parent, decl } => {
+            ctx.inner.maybe_enter_scope(decl);
+            visitor.visit_comp_type_decl(ctx, idx, parent, decl);
+            ctx.inner.maybe_exit_scope(decl);
+        }
+
+        VisitEvent::InstTypeDecl {idx, parent, decl } => {
+            ctx.inner.maybe_enter_scope(decl);
+            visitor.visit_inst_type_decl(ctx, idx, parent, decl);
+            ctx.inner.maybe_exit_scope(decl);
+        }
+
+        VisitEvent::ExitCompType {idx, ty } => {
+            let id = ctx.inner.lookup_id_for(
+                &Space::CompType,
+                &ComponentSection::ComponentType,
+                idx,
+            );
+            visitor.exit_comp_type(ctx, id, ty);
             ctx.inner.maybe_exit_scope(ty);
         }
 
@@ -119,14 +140,27 @@ pub fn drive_event<'ir, V: ComponentVisitor<'ir>>(
             visitor.visit_comp_export(ctx, kind, id, exp);
             ctx.inner.maybe_exit_scope(exp);
         }
-        VisitEvent::CoreType { idx, ty } => {
+        VisitEvent::EnterCoreType { idx, ty } => {
             ctx.inner.maybe_enter_scope(ty);
             let id = ctx.inner.lookup_id_for(
                 &Space::CoreType,
                 &ComponentSection::CoreType,
                 idx,
             );
-            visitor.visit_core_type(ctx, id, ty);
+            visitor.enter_core_type(ctx, id, ty);
+        }
+        VisitEvent::ModuleTypeDecl {idx, parent, decl } => {
+            ctx.inner.maybe_enter_scope(decl);
+            visitor.visit_module_type_decl(ctx, idx, parent, decl);
+            ctx.inner.maybe_exit_scope(decl);
+        }
+        VisitEvent::ExitCoreType {idx, ty } => {
+            let id = ctx.inner.lookup_id_for(
+                &Space::CoreType,
+                &ComponentSection::CoreType,
+                idx,
+            );
+            visitor.exit_core_type(ctx, id, ty);
             ctx.inner.maybe_exit_scope(ty);
         }
         VisitEvent::CoreInst { idx, inst } => {
@@ -176,9 +210,26 @@ pub enum VisitEvent<'ir> {
     // Component-level items
     // ------------------------
 
-    CompType {
+    EnterCompType {
         idx: usize,
         ty: &'ir ComponentType<'ir>,
+    },
+    ExitCompType {
+        idx: usize,
+        ty: &'ir ComponentType<'ir>,
+    },
+    // subitems of a component type
+    CompTypeDecl {
+        parent: &'ir ComponentType<'ir>,
+        /// index in the decl vector
+        idx: usize,
+        decl: &'ir ComponentTypeDeclaration<'ir>,
+    },
+    InstTypeDecl {
+        parent: &'ir ComponentType<'ir>,
+        /// index in the decl vector
+        idx: usize,
+        decl: &'ir InstanceTypeDeclaration<'ir>,
     },
 
     CompInst {
@@ -213,7 +264,17 @@ pub enum VisitEvent<'ir> {
     // ------------------------
     // Core WebAssembly items
     // ------------------------
-    CoreType {
+    EnterCoreType {
+        idx: usize,
+        ty: &'ir CoreType<'ir>,
+    },
+    ModuleTypeDecl {
+        parent: &'ir CoreType<'ir>,
+        /// index in the decl vector
+        idx: usize,
+        decl: &'ir ModuleTypeDeclaration<'ir>,
+    },
+    ExitCoreType {
         idx: usize,
         ty: &'ir CoreType<'ir>,
     },
@@ -233,23 +294,32 @@ pub enum VisitEvent<'ir> {
     },
 }
 impl<'ir> VisitEvent<'ir> {
-    pub fn enter_root_comp(_: ItemKind, _: usize, component: &'ir Component<'ir>) -> Self {
+    pub fn enter_root_comp(component: &'ir Component<'ir>) -> Self {
         Self::EnterRootComp { component }
     }
-    pub fn exit_root_comp(_: ItemKind, _: usize, component: &'ir Component<'ir>) -> Self {
+    pub fn exit_root_comp(component: &'ir Component<'ir>) -> Self {
         Self::ExitRootComp { component }
     }
-    pub fn enter_comp(_: ItemKind, idx: usize, component: &'ir Component<'ir>) -> Self {
+    pub fn enter_comp(idx: usize, component: &'ir Component<'ir>) -> Self {
         Self::EnterComp { idx, component }
     }
-    pub fn exit_comp(_: ItemKind, idx: usize, component: &'ir Component<'ir>) -> Self {
+    pub fn exit_comp(idx: usize, component: &'ir Component<'ir>) -> Self {
         Self::ExitComp { idx, component }
     }
     pub fn module(_: ItemKind, idx: usize, module: &'ir Module<'ir>) -> Self {
         Self::Module { idx, module }
     }
-    pub fn comp_type(_: ItemKind, idx: usize, ty: &'ir ComponentType<'ir>) -> Self {
-        Self::CompType { idx, ty }
+    pub fn enter_comp_type(_: ItemKind, idx: usize, ty: &'ir ComponentType<'ir>) -> Self {
+        Self::EnterCompType { idx, ty }
+    }
+    pub fn comp_type_decl(parent: &'ir ComponentType<'ir>, idx: usize, decl: &'ir ComponentTypeDeclaration<'ir>) -> Self {
+        Self::CompTypeDecl { parent, idx, decl }
+    }
+    pub fn inst_type_decl(parent: &'ir ComponentType<'ir>, idx: usize, decl: &'ir InstanceTypeDeclaration<'ir>) -> Self {
+        Self::InstTypeDecl { parent, idx, decl }
+    }
+    pub fn exit_comp_type(_: ItemKind, idx: usize, ty: &'ir ComponentType<'ir>) -> Self {
+        Self::ExitCompType { idx, ty }
     }
     pub fn comp_inst(_: ItemKind, idx: usize, inst: &'ir ComponentInstance<'ir>) -> Self {
         Self::CompInst { idx, inst }
@@ -266,8 +336,14 @@ impl<'ir> VisitEvent<'ir> {
     pub fn export(kind: ItemKind, idx: usize, exp: &'ir ComponentExport<'ir>) -> Self {
         Self::Export { kind, idx, exp }
     }
-    pub fn core_type(_: ItemKind, idx: usize, ty: &'ir CoreType<'ir>) -> Self {
-        Self::CoreType { idx, ty }
+    pub fn enter_core_type(_: ItemKind, idx: usize, ty: &'ir CoreType<'ir>) -> Self {
+        Self::EnterCoreType { idx, ty }
+    }
+    pub fn mod_type_decl(parent: &'ir CoreType<'ir>, idx: usize, decl: &'ir ModuleTypeDeclaration<'ir>) -> Self {
+        Self::ModuleTypeDecl { parent, idx, decl }
+    }
+    pub fn exit_core_type(_: ItemKind, idx: usize, ty: &'ir CoreType<'ir>) -> Self {
+        Self::ExitCoreType { idx, ty }
     }
     pub fn core_inst(_: ItemKind, idx: usize, inst: &'ir Instance<'ir>) -> Self {
         Self::CoreInst { idx, inst }

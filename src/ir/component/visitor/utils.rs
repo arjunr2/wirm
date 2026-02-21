@@ -22,7 +22,7 @@
 //! These guarantees allow resolution to rely on structural identity
 //! without exposing internal identity mechanisms publicly.
 
-use crate::ir::component::idx_spaces::{ScopeId, Space, SpaceSubtype, StoreHandle};
+use crate::ir::component::idx_spaces::{IndexSpaceOf, ScopeId, Space, SpaceSubtype, StoreHandle};
 use crate::ir::component::refs::{Depth, IndexedRef, RefKind};
 use crate::ir::component::scopes::{
     build_component_store, ComponentStore, GetScopeKind, RegistryHandle,
@@ -30,7 +30,8 @@ use crate::ir::component::scopes::{
 use crate::ir::component::section::ComponentSection;
 use crate::ir::id::ComponentId;
 use crate::Component;
-use crate::ir::component::visitor::ResolvedItem;
+use crate::ir::component::visitor::driver::VisitEvent;
+use crate::ir::component::visitor::{ItemKind, ResolvedItem};
 
 pub struct VisitCtxInner<'a> {
     pub(crate) registry: RegistryHandle,
@@ -129,7 +130,7 @@ impl<'a> VisitCtxInner<'a> {
         debug_assert_eq!(scope_id, exited_from);
     }
 
-    fn comp_at(&self, depth: Depth) -> &ComponentId {
+    pub(crate) fn comp_at(&self, depth: Depth) -> &ComponentId {
         self.component_stack
             .get(self.component_stack.len() - depth.val() as usize - 1)
             .unwrap_or_else(|| {
@@ -156,6 +157,7 @@ impl VisitCtxInner<'_> {
         let nested = self.node_has_nested_scope.last().unwrap_or(&false);
         let scope_id = if *nested {
             self.scope_stack.space_at_depth(&Depth::parent())
+            // self.scope_stack.curr_space_id()
         } else {
             self.scope_stack.curr_space_id()
         };
@@ -357,3 +359,27 @@ impl SectionTracker {
         curr
     }
 }
+
+pub fn for_each_indexed<'ir, T>(
+    slice: &'ir [T],
+    start: usize,
+    count: usize,
+    mut f: impl FnMut(usize, &'ir T),
+) {
+    debug_assert!(start + count <= slice.len());
+
+    for i in 0..count {
+        let idx = start + i;
+        f(idx, &slice[idx]);
+    }
+}
+
+pub fn emit_indexed<'ir, T: IndexSpaceOf>(
+    out: &mut Vec<VisitEvent<'ir>>,
+    idx: usize,
+    item: &'ir T,
+    make: fn(ItemKind, usize, &'ir T) -> VisitEvent<'ir>,
+) {
+    out.push(make(item.index_space_of().into(), idx, item));
+}
+

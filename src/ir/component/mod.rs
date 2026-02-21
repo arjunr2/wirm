@@ -44,7 +44,6 @@ pub mod refs;
 pub(crate) mod scopes;
 pub(crate) mod section;
 mod types;
-pub mod visitor_old;
 pub mod visitor;
 
 #[derive(Debug)]

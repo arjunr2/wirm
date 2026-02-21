@@ -36,7 +36,7 @@ impl IndexStore {
     /// Fully reset the trackers in all scopes.
     pub fn reset(&mut self) {
         for scope in self.scopes.values_mut() {
-            scope.reset_all();
+            scope.reset_ids();
         }
     }
     /// Lookup where to find an item in the component IR based on its assumed ID
@@ -231,20 +231,6 @@ pub(crate) struct IndexScope {
     pub core_table: IdxSpace,
     pub core_global: IdxSpace,
     pub core_tag: IdxSpace,
-
-    // General trackers for indices of item vectors (used during encoding to see where i've been)
-    last_processed_module: usize,
-    last_processed_alias: usize,
-    last_processed_core_ty: usize,
-    last_processed_comp_ty: usize,
-    last_processed_imp: usize,
-    last_processed_exp: usize,
-    last_processed_core_inst: usize,
-    last_processed_comp_inst: usize,
-    last_processed_canon: usize,
-    last_processed_component: usize,
-    last_processed_start: usize,
-    last_processed_custom: usize,
 }
 impl IndexScope {
     pub fn new(id: ScopeId) -> Self {
@@ -397,36 +383,6 @@ impl IndexScope {
         );
     }
 
-    /// This function is used while traversing the component. This means that we
-    /// should already know the space ID associated with the component section
-    /// (if in visiting this next session we enter some inner index space).
-    ///
-    /// So, we use the associated space ID to return the inner index space. The
-    /// calling function should use this return value to then context switch into
-    /// this new index space. When we've finished visiting the section, swap back
-    /// to the returned index space's `parent` (a field on the space).
-    pub fn visit_section(&mut self, section: &ComponentSection, num: usize) -> usize {
-        // TODO: Move to using the SectionTracker
-        let tracker = match section {
-            ComponentSection::Component => &mut self.last_processed_component,
-            ComponentSection::Module => &mut self.last_processed_module,
-            ComponentSection::Alias => &mut self.last_processed_alias,
-            ComponentSection::CoreType => &mut self.last_processed_core_ty,
-            ComponentSection::ComponentType => &mut self.last_processed_comp_ty,
-            ComponentSection::ComponentImport => &mut self.last_processed_imp,
-            ComponentSection::ComponentExport => &mut self.last_processed_exp,
-            ComponentSection::CoreInstance => &mut self.last_processed_core_inst,
-            ComponentSection::ComponentInstance => &mut self.last_processed_comp_inst,
-            ComponentSection::Canon => &mut self.last_processed_canon,
-            ComponentSection::CustomSection => &mut self.last_processed_custom,
-            ComponentSection::ComponentStartSection => &mut self.last_processed_start,
-        };
-
-        let curr = *tracker;
-        *tracker += num;
-        curr
-    }
-
     pub fn reset_ids(&mut self) {
         self.comp.reset_ids();
         self.comp_func.reset_ids();
@@ -443,25 +399,6 @@ impl IndexScope {
         self.core_memory.reset_ids();
         self.core_global.reset_ids();
         self.core_tag.reset_ids();
-    }
-    fn reset_last_processed(&mut self) {
-        self.last_processed_module = 0;
-        self.last_processed_alias = 0;
-        self.last_processed_core_ty = 0;
-        self.last_processed_comp_ty = 0;
-        self.last_processed_imp = 0;
-        self.last_processed_exp = 0;
-        self.last_processed_core_inst = 0;
-        self.last_processed_comp_inst = 0;
-        self.last_processed_canon = 0;
-        self.last_processed_component = 0;
-        self.last_processed_start = 0;
-        self.last_processed_custom = 0;
-    }
-
-    pub fn reset_all(&mut self) {
-        self.reset_ids();
-        self.reset_last_processed();
     }
 
     // ===================

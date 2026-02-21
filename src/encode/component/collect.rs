@@ -49,20 +49,12 @@ impl<'a> Collect<'a> for Component<'a> {
         }
         // assign a temporary index during collection
         collect_ctx.seen.components.insert(ptr);
+        ctx.inner.push_comp_section_tracker();
 
 
         // Collect dependencies first (in the order of the sections)
         for (num, section) in self.sections.iter() {
-            let start_idx = {
-                let mut store = ctx.inner.store.borrow_mut();
-                let indices = {
-                    store
-                        .scopes
-                        .get_mut(&ctx.inner.scope_stack.curr_space_id())
-                        .unwrap()
-                };
-                indices.visit_section(section, *num as usize)
-            };
+            let start_idx = ctx.inner.visit_section(section, *num as usize);
 
             match section {
                 ComponentSection::Module => {
@@ -192,6 +184,7 @@ impl<'a> Collect<'a> for Component<'a> {
                 }
             }
         }
+        ctx.inner.pop_comp_section_tracker()
     }
 }
 

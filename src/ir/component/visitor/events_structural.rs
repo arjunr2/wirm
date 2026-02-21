@@ -1,193 +1,243 @@
+use wasmparser::{ComponentType, ComponentTypeDeclaration, CoreType, InstanceTypeDeclaration, ModuleTypeDeclaration};
 use crate::Component;
 use crate::ir::component::idx_spaces::IndexSpaceOf;
 use crate::ir::component::section::ComponentSection;
 use crate::ir::component::visitor::driver::VisitEvent;
-use crate::ir::component::visitor::{ItemKind, VisitCtx};
+use crate::ir::component::visitor::VisitCtx;
+use crate::ir::component::visitor::utils::{emit_indexed, for_each_indexed};
 
-pub(crate) fn get_structural_evts<'ir>(
+pub(crate) fn get_structural_events<'ir>(
     component: &'ir Component<'ir>,
-    comp_idx: Option<usize>,
     ctx: &mut VisitCtx<'ir>,
     out: &mut Vec<VisitEvent<'ir>>,
 ) {
     ctx.inner.push_comp_section_tracker();
-    if let Some(idx) = comp_idx {
-        out.push(VisitEvent::enter_comp(
-            component.index_space_of().into(),
-            idx,
-            component
-        ));
-    } else {
-        out.push(VisitEvent::enter_root_comp(
-            component.index_space_of().into(),
-            0,
-            component
-        ));
-    }
+    out.push(VisitEvent::enter_root_comp(
+        component
+    ));
 
+    visit_comp(component, ctx, out);
+
+    out.push(VisitEvent::exit_root_comp(
+        component
+    ));
+}
+fn visit_comp<'ir>(
+    component: &'ir Component<'ir>,
+    ctx: &mut VisitCtx<'ir>,
+    out: &mut Vec<VisitEvent<'ir>>,
+) {
     for (num, section) in component.sections.iter() {
-        let start_idx = ctx.inner.visit_section(section, *num as usize);
+        let count = *num as usize;
+        let start_idx = ctx.inner.visit_section(section, count);
 
         match section {
             ComponentSection::Component => {
-                debug_assert!(start_idx + *num as usize <= component.components.len());
-                for i in 0..*num {
-                    let idx = start_idx + i as usize;
-                    let sub = &component.components[idx];
-                    get_structural_evts(sub, Some(idx), ctx, out);
-                }
+                for_each_indexed(
+                    &component.components,
+                    start_idx,
+                    count,
+                    |idx, sub| {
+                        ctx.inner.push_comp_section_tracker();
+                        out.push(VisitEvent::enter_comp(idx, sub));
+                        visit_comp(sub, ctx, out);
+                        ctx.inner.pop_comp_section_tracker();
+                        out.push(VisitEvent::exit_comp(idx, sub));
+                    },
+                );
             }
 
             ComponentSection::Module => {
-                debug_assert!(start_idx + *num as usize <= component.modules.vec.len());
-                push_events_for(
-                    &component.modules.vec[start_idx..start_idx + *num as usize],
+                for_each_indexed(
+                    &component.modules.vec,
                     start_idx,
-                    VisitEvent::module,
-                    out
+                    count,
+                    |idx, module| { emit_indexed(out, idx, module, VisitEvent::module ) },
                 );
             }
 
             ComponentSection::ComponentType => {
-                debug_assert!(start_idx + *num as usize <= component.component_types.items.len());
-                push_events_for_boxed(
-                    &component.component_types.items[start_idx..start_idx + *num as usize],
+                for_each_indexed(
+                    &component.component_types.items,
                     start_idx,
-                    VisitEvent::comp_type,
-                    out
+                    count,
+                    |idx, ty| visit_comp_type(idx, ty, out),
                 );
             }
 
             ComponentSection::ComponentInstance => {
-                debug_assert!(start_idx + *num as usize <= component.component_instance.len());
-                push_events_for(
-                    &component.component_instance[start_idx..start_idx + *num as usize],
+                for_each_indexed(
+                    &component.component_instance,
                     start_idx,
-                    VisitEvent::comp_inst,
-                    out
+                    count,
+                    |idx, inst| { emit_indexed(out, idx, inst, VisitEvent::comp_inst ) },
                 );
             }
 
             ComponentSection::Canon => {
-                debug_assert!(start_idx + *num as usize <= component.canons.items.len());
-                push_events_for(
-                    &component.canons.items[start_idx..start_idx + *num as usize],
+                for_each_indexed(
+                    &component.canons.items,
                     start_idx,
-                    VisitEvent::canon,
-                    out
+                    count,
+                    |idx, canon| { emit_indexed(out, idx, canon, VisitEvent::canon ) },
                 );
             }
 
             ComponentSection::Alias => {
-                debug_assert!(start_idx + *num as usize <= component.alias.items.len());
-                push_events_for(
-                    &component.alias.items[start_idx..start_idx + *num as usize],
+                for_each_indexed(
+                    &component.alias.items,
                     start_idx,
-                    VisitEvent::alias,
-                    out
+                    count,
+                    |idx, alias| { emit_indexed(out, idx, alias, VisitEvent::alias ) },
                 );
             }
 
             ComponentSection::ComponentImport => {
-                debug_assert!(start_idx + *num as usize <= component.imports.len());
-                push_events_for(
-                    &component.imports[start_idx..start_idx + *num as usize],
+                for_each_indexed(
+                    &component.imports,
                     start_idx,
-                    VisitEvent::import,
-                    out
+                    count,
+                    |idx, import| { emit_indexed(out, idx, import, VisitEvent::import ) },
                 );
             }
 
             ComponentSection::ComponentExport => {
-                debug_assert!(start_idx + *num as usize <= component.exports.len());
-                push_events_for(
-                    &component.exports[start_idx..start_idx + *num as usize],
+                for_each_indexed(
+                    &component.exports,
                     start_idx,
-                    VisitEvent::export,
-                    out
+                    count,
+                    |idx, export| { emit_indexed(out, idx, export, VisitEvent::export ) },
                 );
             }
 
             ComponentSection::CoreType => {
-                debug_assert!(start_idx + *num as usize <= component.core_types.len());
-                push_events_for_boxed(
-                    &component.core_types[start_idx..start_idx + *num as usize],
+                for_each_indexed(
+                    &component.core_types,
                     start_idx,
-                    VisitEvent::core_type,
-                    out
+                    count,
+                    |idx, ty| { visit_core_type(idx, ty, out) },
                 );
             }
 
             ComponentSection::CoreInstance => {
-                debug_assert!(start_idx + *num as usize <= component.instances.len());
-                push_events_for(
-                    &component.instances[start_idx..start_idx + *num as usize],
+                for_each_indexed(
+                    &component.instances,
                     start_idx,
-                    VisitEvent::core_inst,
-                    out
+                    count,
+                    |idx, inst| { emit_indexed(out, idx, inst, VisitEvent::core_inst ) },
                 );
             }
 
             ComponentSection::CustomSection => {
-                debug_assert!(start_idx + *num as usize <= component.custom_sections.custom_sections.len());
-                push_events_for(
-                    &component.custom_sections.custom_sections[start_idx..start_idx + *num as usize],
+                for_each_indexed(
+                    &component.custom_sections.custom_sections,
                     start_idx,
-                    VisitEvent::custom_sect,
-                    out
+                    count,
+                    |idx, sect| { emit_indexed(out, idx, sect, VisitEvent::custom_sect ) },
                 );
             }
 
             ComponentSection::ComponentStartSection => {
-                debug_assert!(start_idx + *num as usize <= component.start_section.len());
-                push_events_for(
-                    &component.start_section[start_idx..start_idx + *num as usize],
+                for_each_indexed(
+                    &component.start_section,
                     start_idx,
-                    VisitEvent::start_func,
-                    out
+                    count,
+                    |idx, func| { emit_indexed(out, idx, func, VisitEvent::start_func ) },
                 );
             }
         }
     }
-
-    if let Some(idx) = comp_idx {
-        ctx.inner.pop_comp_section_tracker();
-        out.push(VisitEvent::exit_comp(
-            component.index_space_of().into(),
-            idx,
-            component
-        ));
-    } else {
-        out.push(VisitEvent::exit_root_comp(
-            component.index_space_of().into(),
-            0,
-            component
-        ));
-    }
 }
-
-fn push_events_for<'ir, T: 'ir + IndexSpaceOf>(
-    slice: &'ir [T],
-    start: usize,
-    new_evt: fn(ItemKind, usize, &'ir T) -> VisitEvent<'ir>,
+fn visit_comp_type<'ir>(
+    idx: usize,
+    ty: &'ir ComponentType<'ir>,
     out: &mut Vec<VisitEvent<'ir>>
 ) {
-    for (i, item) in slice.iter().enumerate() {
-        out.push(
-            new_evt(item.index_space_of().into(), start + i, &item)
-        );
-    }
-}
+    out.push(VisitEvent::enter_comp_type(
+        ty.index_space_of().into(),
+        idx,
+        ty
+    ));
 
-fn push_events_for_boxed<'ir, T: 'ir + IndexSpaceOf>(
-    slice: &'ir [Box<T>],
-    start: usize,
-    new_evt: fn(ItemKind, usize, &'ir T) -> VisitEvent<'ir>,
+    match ty {
+        ComponentType::Component(decls) => {
+            for (i, decl) in decls.iter().enumerate() {
+                visit_component_type_decl(ty, decl, i, out);
+            }
+        }
+
+        ComponentType::Instance(decls) => {
+            for (i, decl) in decls.iter().enumerate() {
+                visit_instance_type_decl(ty, decl, i, out);
+            }
+        }
+
+        // no sub-scoping for the below variants
+        ComponentType::Defined(_) | ComponentType::Func(_) | ComponentType::Resource { .. } => {}
+    }
+
+    out.push(VisitEvent::exit_comp_type(
+        ty.index_space_of().into(),
+        idx,
+        ty
+    ));
+}
+fn visit_component_type_decl<'ir>(
+    parent: &'ir ComponentType<'ir>,
+    decl: &'ir ComponentTypeDeclaration<'ir>,
+    idx: usize,
     out: &mut Vec<VisitEvent<'ir>>
 ) {
-    for (i, item) in slice.iter().enumerate() {
-        out.push(
-            new_evt(item.index_space_of().into(), start + i, &item)
-        );
+    out.push(VisitEvent::comp_type_decl(
+        parent, idx, decl
+    ));
+}
+fn visit_instance_type_decl<'ir>(
+    parent: &'ir ComponentType<'ir>,
+    decl: &'ir InstanceTypeDeclaration<'ir>,
+    idx: usize,
+    out: &mut Vec<VisitEvent<'ir>>
+) {
+    out.push(VisitEvent::inst_type_decl(
+        parent, idx, decl
+    ));
+}
+fn visit_core_type<'ir>(
+    idx: usize,
+    ty: &'ir CoreType<'ir>,
+    out: &mut Vec<VisitEvent<'ir>>
+) {
+    out.push(VisitEvent::enter_core_type(
+        ty.index_space_of().into(),
+        idx,
+        ty
+    ));
+
+    match ty {
+        CoreType::Module(decls) => {
+            for (i, decl) in decls.iter().enumerate() {
+                visit_module_type_decl(ty, decl, i, out);
+            }
+        }
+
+        // no sub-scoping for the below variant
+        CoreType::Rec(_) => {}
     }
+
+    out.push(VisitEvent::exit_core_type(
+        ty.index_space_of().into(),
+        idx,
+        ty
+    ));
+}
+
+fn visit_module_type_decl<'ir>(
+    parent: &'ir CoreType<'ir>,
+    decl: &'ir ModuleTypeDeclaration<'ir>,
+    idx: usize,
+    out: &mut Vec<VisitEvent<'ir>>
+) {
+    out.push(VisitEvent::mod_type_decl(
+        parent, idx, decl
+    ));
 }
