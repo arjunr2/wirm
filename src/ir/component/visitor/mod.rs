@@ -135,28 +135,88 @@ pub trait ComponentVisitor<'a> {
     /// Always paired with a prior `enter_root_component` call.
     fn exit_root_component(&mut self, _cx: &VisitCtx<'a>, _component: &Component<'a>) {}
     /// Invoked when entering a subcomponent within the root.
+    ///
+    /// The `id` corresponds to the resolved component index within the
+    /// current namespace. This callback is paired with `exit_component`
+    /// once traversal of the component’s body has completed.
     fn enter_component(&mut self, _cx: &VisitCtx<'a>, _id: u32, _component: &Component<'a>) {}
     /// Invoked after all items within a subcomponent have been visited.
     ///
     /// Always paired with a prior `enter_component` call.
     fn exit_component(&mut self, _cx: &VisitCtx<'a>, _id: u32, _component: &Component<'a>) {}
     /// Invoked for each core WebAssembly module defined in the component.
+    ///
+    /// The `id` corresponds to the module’s resolved index within the
+    /// current core module namespace.
     fn visit_module(&mut self, _cx: &VisitCtx<'a>, _id: u32, _module: &Module<'a>) {}
 
     // ------------------------
     // Component-level items
     // ------------------------
 
-    /// TODO: Docs
+    /// Invoked when entering a component-level type definition.
+    ///
+    /// This includes all variants of `ComponentType`, such as defined,
+    /// function, component, instance, and resource types.
+    ///
+    /// The `id` corresponds to the resolved type index within the
+    /// component type namespace.
+    ///
+    /// This callback is paired with `exit_comp_type`, and any nested
+    /// declarations (e.g. `ComponentTypeDeclaration` or
+    /// `InstanceTypeDeclaration`) will be reported between the enter/exit
+    /// calls.
     fn enter_comp_type(&mut self, _cx: &VisitCtx<'a>, _id: u32, _comp_type: &ComponentType<'a>) {}
-    /// TODO: Docs
-    fn visit_comp_type_decl(&mut self, _cx: &VisitCtx<'a>, _decl_idx: usize, _parent: &ComponentType<'a>, _decl: &ComponentTypeDeclaration<'a>) {}
-    /// TODO: Docs
-    fn visit_inst_type_decl(&mut self, _cx: &VisitCtx<'a>, _decl_idx: usize, _parent: &ComponentType<'a>, _decl: &InstanceTypeDeclaration<'a>) {}
-    /// TODO: Docs
+
+    /// Invoked for each declaration within a `ComponentType::Component`.
+    ///
+    /// The `decl_idx` is the index of this declaration within the parent
+    /// component type’s declaration list. The `parent` is the enclosing
+    /// `ComponentType`, and `decl` is the specific declaration.
+    ///
+    /// These callbacks are emitted between `enter_comp_type` and
+    /// `exit_comp_type` for the enclosing type.
+    fn visit_comp_type_decl(
+        &mut self,
+        _cx: &VisitCtx<'a>,
+        _decl_idx: usize,
+        _parent: &ComponentType<'a>,
+        _decl: &ComponentTypeDeclaration<'a>,
+    ) {}
+
+    /// Invoked for each declaration within a `ComponentType::Instance`.
+    ///
+    /// The `decl_idx` is the index of this declaration within the parent
+    /// instance type’s declaration list. The `parent` is the enclosing
+    /// `ComponentType`, and `decl` is the specific instance type
+    /// declaration.
+    ///
+    /// These callbacks are emitted between `enter_comp_type` and
+    /// `exit_comp_type` for the enclosing type.
+    fn visit_inst_type_decl(
+        &mut self,
+        _cx: &VisitCtx<'a>,
+        _decl_idx: usize,
+        _parent: &ComponentType<'a>,
+        _decl: &InstanceTypeDeclaration<'a>,
+    ) {}
+
+    /// Invoked after all nested declarations within a component-level
+    /// type have been visited.
+    ///
+    /// Always paired with a prior `enter_comp_type` call for the same `id`.
     fn exit_comp_type(&mut self, _cx: &VisitCtx<'a>, _id: u32, _comp_type: &ComponentType<'a>) {}
+
     /// Invoked for each component instance.
-    fn visit_comp_instance(&mut self, _cx: &VisitCtx<'a>, _id: u32, _instance: &ComponentInstance<'a>) {}
+    ///
+    /// The `id` corresponds to the resolved instance index within the
+    /// component instance namespace.
+    fn visit_comp_instance(
+        &mut self,
+        _cx: &VisitCtx<'a>,
+        _id: u32,
+        _instance: &ComponentInstance<'a>,
+    ) {}
 
     // ------------------------------------------------
     // Items with multiple possible resolved namespaces
@@ -164,7 +224,11 @@ pub trait ComponentVisitor<'a> {
 
     /// Invoked for canonical functions.
     ///
-    /// The `kind` parameter indicates the resolved namespace of this item.
+    /// The `kind` parameter indicates the resolved namespace of this item
+    /// (e.g. component function vs. core function).
+    ///
+    /// The `id` is the resolved index within the namespace identified
+    /// by `kind`.
     fn visit_canon(
         &mut self,
         _cx: &VisitCtx<'a>,
@@ -173,15 +237,28 @@ pub trait ComponentVisitor<'a> {
         _canon: &CanonicalFunction,
     ) {
     }
+
     /// Invoked for component aliases.
     ///
     /// The `kind` parameter indicates the resolved target namespace
     /// referenced by the alias.
-    fn visit_alias(&mut self, _cx: &VisitCtx<'a>, _kind: ItemKind, _id: u32, _alias: &ComponentAlias<'a>) {}
+    ///
+    /// The `id` is the resolved index of the alias within its namespace.
+    fn visit_alias(
+        &mut self,
+        _cx: &VisitCtx<'a>,
+        _kind: ItemKind,
+        _id: u32,
+        _alias: &ComponentAlias<'a>,
+    ) {}
+
     /// Invoked for component imports.
     ///
     /// The `kind` parameter identifies the imported item category
     /// (e.g. type, function, instance).
+    ///
+    /// The `id` is the resolved index assigned to the imported item
+    /// within the corresponding namespace.
     fn visit_comp_import(
         &mut self,
         _cx: &VisitCtx<'a>,
@@ -190,9 +267,13 @@ pub trait ComponentVisitor<'a> {
         _import: &ComponentImport<'a>,
     ) {
     }
+
     /// Invoked for component exports.
     ///
     /// The `kind` parameter identifies the exported item category.
+    ///
+    /// The `id` is the resolved index of the exported item within the
+    /// corresponding namespace.
     fn visit_comp_export(
         &mut self,
         _cx: &VisitCtx<'a>,
@@ -205,15 +286,49 @@ pub trait ComponentVisitor<'a> {
     // ------------------------
     // Core WebAssembly items
     // ------------------------
-    
-    /// TODO: Docs
+
+    /// Invoked when entering a core WebAssembly type definition.
+    ///
+    /// The `id` corresponds to the resolved type index within the
+    /// core type namespace.
+    ///
+    /// This callback is paired with `exit_core_type`, and nested module
+    /// type declarations (if any) will be reported between the enter/exit
+    /// calls.
     fn enter_core_type(&mut self, _cx: &VisitCtx<'a>, _id: u32, _comp_type: &CoreType<'a>) {}
-    /// TODO: Docs
-    fn visit_module_type_decl(&mut self, _cx: &VisitCtx<'a>, _decl_idx: usize, _parent: &CoreType<'a>, _decl: &ModuleTypeDeclaration<'a>) {}
-    /// TODO: Docs
+
+    /// Invoked for each declaration within a core module type.
+    ///
+    /// The `decl_idx` is the index of the declaration within the parent
+    /// module type’s declaration list. The `parent` is the enclosing
+    /// `CoreType`, and `decl` is the specific module type declaration.
+    ///
+    /// These callbacks are emitted between `enter_core_type` and
+    /// `exit_core_type` for the enclosing type.
+    fn visit_module_type_decl(
+        &mut self,
+        _cx: &VisitCtx<'a>,
+        _decl_idx: usize,
+        _parent: &CoreType<'a>,
+        _decl: &ModuleTypeDeclaration<'a>,
+    ) {}
+
+    /// Invoked after all nested declarations within a core type have
+    /// been visited.
+    ///
+    /// Always paired with a prior `enter_core_type` call for the same `id`.
     fn exit_core_type(&mut self, _cx: &VisitCtx<'a>, _id: u32, _comp_type: &CoreType<'a>) {}
+
     /// Invoked for each core WebAssembly instance.
-    fn visit_core_instance(&mut self, _cx: &VisitCtx<'a>, _id: u32, _inst: &Instance<'a>) {}
+    ///
+    /// The `id` corresponds to the resolved instance index within the
+    /// core instance namespace.
+    fn visit_core_instance(
+        &mut self,
+        _cx: &VisitCtx<'a>,
+        _id: u32,
+        _inst: &Instance<'a>,
+    ) {}
 
     // ------------------------
     // Sections
@@ -224,7 +339,11 @@ pub trait ComponentVisitor<'a> {
     /// Custom sections are visited in traversal order and are not
     /// associated with structured enter/exit pairing.
     fn visit_custom_section(&mut self, _cx: &VisitCtx<'a>, _sect: &CustomSection<'a>) {}
+
     /// Invoked if the component defines a start function.
+    ///
+    /// This callback is emitted at the point in traversal where the
+    /// start section appears.
     fn visit_start_section(&mut self, _cx: &VisitCtx<'a>, _start: &ComponentStartFunction) {}
 }
 
@@ -325,18 +444,58 @@ impl<'a> VisitCtx<'a> {
 /// A resolved component item.
 ///
 /// This represents the semantic target of a reference after index
-/// resolution.
+/// resolution has been performed.
+///
+/// Each variant contains:
+///
+/// - A `u32` representing the **resolved index of the item within its
+///   corresponding namespace**, and
+/// - A reference to the underlying IR node.
+///
+/// The `u32` is *not* a syntactic index from the binary. Instead, it is
+/// the canonical, namespace-specific ID assigned during resolution. For
+/// example, a component type's `u32` is its resolved index in the
+/// component type namespace, and a core instance's `u32` is its resolved
+/// index in the core instance namespace.
+///
+/// This enum allows callers to uniformly handle any reference target
+/// without needing to separately track both namespace and ID.
+///
+/// # Invariant
+///
+/// The `u32` stored in each variant **must** correspond to the namespace
+/// implied by the variant and must match the ID used during visitor
+/// traversal. For example, `ResolvedItem::CompType(idx, _)` must always
+/// have `idx` equal to the resolved index of that component type in the
+/// component type namespace.
 pub enum ResolvedItem<'a, 'b> {
+    /// A resolved subcomponent.
     Component(u32, &'a Component<'b>),
+
+    /// A resolved core WebAssembly module.
     Module(u32, &'a Module<'b>),
 
+    /// A resolved canonical function.
     Func(u32, &'a CanonicalFunction),
+
+    /// A resolved component-level type.
     CompType(u32, &'a ComponentType<'b>),
+
+    /// A resolved component instance.
     CompInst(u32, &'a ComponentInstance<'b>),
+
+    /// A resolved core WebAssembly instance.
     CoreInst(u32, &'a Instance<'b>),
+
+    /// A resolved core WebAssembly type.
     CoreType(u32, &'a CoreType<'b>),
 
+    /// A resolved component alias.
     Alias(u32, &'a ComponentAlias<'b>),
+
+    /// A resolved component import.
     Import(u32, &'a ComponentImport<'b>),
-    Export(u32, &'a ComponentExport<'b>)
+
+    /// A resolved component export.
+    Export(u32, &'a ComponentExport<'b>),
 }
