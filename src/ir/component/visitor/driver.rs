@@ -76,13 +76,23 @@ pub fn drive_event<'ir, V: ComponentVisitor<'ir>>(
 
         VisitEvent::CompTypeDecl {idx, parent, decl } => {
             ctx.inner.maybe_enter_scope(decl);
-            visitor.visit_comp_type_decl(ctx, idx, parent, decl);
+            let id = ctx.inner.lookup_id_for(
+                &decl.index_space_of(),
+                &ComponentSection::ComponentType,
+                idx,
+            );
+            visitor.visit_comp_type_decl(ctx, idx, id, parent, decl);
             ctx.inner.maybe_exit_scope(decl);
         }
 
         VisitEvent::InstTypeDecl {idx, parent, decl } => {
             ctx.inner.maybe_enter_scope(decl);
-            visitor.visit_inst_type_decl(ctx, idx, parent, decl);
+            let id = ctx.inner.lookup_id_for(
+                &decl.index_space_of(),
+                &ComponentSection::ComponentType,
+                idx,
+            );
+            visitor.visit_inst_type_decl(ctx, idx, id, parent, decl);
             ctx.inner.maybe_exit_scope(decl);
         }
 
@@ -151,7 +161,12 @@ pub fn drive_event<'ir, V: ComponentVisitor<'ir>>(
         }
         VisitEvent::ModuleTypeDecl {idx, parent, decl } => {
             ctx.inner.maybe_enter_scope(decl);
-            visitor.visit_module_type_decl(ctx, idx, parent, decl);
+            let id = ctx.inner.lookup_id_for(
+                &decl.index_space_of(),
+                &ComponentSection::CoreType,
+                idx,
+            );
+            visitor.visit_module_type_decl(ctx, idx, id, parent, decl);
             ctx.inner.maybe_exit_scope(decl);
         }
         VisitEvent::ExitCoreType {idx, ty } => {

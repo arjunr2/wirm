@@ -696,6 +696,7 @@ impl IdxSpace {
 }
 
 #[derive(Clone, Copy, Debug)]
+#[derive(PartialEq)]
 pub(crate) enum SpaceSubtype {
     Export,
     Import,

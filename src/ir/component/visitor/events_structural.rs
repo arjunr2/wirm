@@ -21,6 +21,7 @@ pub(crate) fn get_structural_events<'ir>(
     out.push(VisitEvent::exit_root_comp(
         component
     ));
+    ctx.inner.pop_component();
 }
 fn visit_comp<'ir>(
     component: &'ir Component<'ir>,
@@ -191,6 +192,14 @@ fn visit_component_type_decl<'ir>(
     out.push(VisitEvent::comp_type_decl(
         parent, idx, decl
     ));
+
+    match decl {
+        ComponentTypeDeclaration::Type(ty) => visit_comp_type(idx, ty, out),
+        ComponentTypeDeclaration::CoreType(ty) => visit_core_type(idx, ty, out),
+        ComponentTypeDeclaration::Alias(_)
+        | ComponentTypeDeclaration::Export { .. }
+        | ComponentTypeDeclaration::Import(_) => {}
+    }
 }
 fn visit_instance_type_decl<'ir>(
     parent: &'ir ComponentType<'ir>,
@@ -201,6 +210,14 @@ fn visit_instance_type_decl<'ir>(
     out.push(VisitEvent::inst_type_decl(
         parent, idx, decl
     ));
+
+    match decl {
+        InstanceTypeDeclaration::Type(ty) => visit_comp_type(idx, ty, out),
+        InstanceTypeDeclaration::CoreType(ty) => visit_core_type(idx, ty, out),
+        InstanceTypeDeclaration::Alias(_)
+        | InstanceTypeDeclaration::Export { .. } => {}
+
+    }
 }
 fn visit_core_type<'ir>(
     idx: usize,

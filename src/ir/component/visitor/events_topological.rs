@@ -17,16 +17,17 @@ pub(crate) fn get_topological_events<'ir>(
     let mut topo = TopoCtx::default();
 
     ctx.inner.push_component(component);
-    ctx.inner.push_comp_section_tracker();
     out.push(VisitEvent::enter_root_comp(
         component
     ));
 
     topo.collect_component(component, None, ctx);
+    out.extend(topo.events);
 
     out.push(VisitEvent::exit_root_comp(
         component
     ));
+    ctx.inner.pop_component();
 }
 
 #[derive(Default)]
@@ -47,7 +48,6 @@ impl<'ir> TopoCtx<'ir> {
         }
 
         if let Some(idx) = idx {
-            ctx.inner.push_comp_section_tracker();
             ctx.inner.push_component(comp);
             self.events.push(VisitEvent::enter_comp(idx, comp));
         }
@@ -65,7 +65,6 @@ impl<'ir> TopoCtx<'ir> {
 
 
         if let Some(idx) = idx {
-            ctx.inner.pop_comp_section_tracker();
             ctx.inner.pop_component();
             self.events.push(VisitEvent::exit_comp(idx, comp));
         }
@@ -101,16 +100,13 @@ impl<'ir> TopoCtx<'ir> {
             return;
         }
 
-        // resolve referenced indices first
-        ctx.inner.maybe_enter_scope(node);
-        self.collect_deps(node, ctx);
-        ctx.inner.maybe_exit_scope(node);
-
         // structured enter
         emit_enter(&mut self.events);
 
         // walk inner declarations
+        ctx.inner.maybe_enter_scope(node);
         walk_body(self, ctx);
+        ctx.inner.maybe_exit_scope(node);
 
         // structured exit
         emit_exit(&mut self.events);
@@ -145,14 +141,32 @@ impl<'ir> TopoCtx<'ir> {
             |this, ctx| {
                 match node {
                     ComponentType::Component(decls) => {
-                        for (i, decl) in decls.iter().enumerate() {
-                            this.collect_component_type_decl(node, decl, i, ctx);
+                        for i in 0..decls.len() {
+                            this.collect_subitem(
+                                decls,
+                                &decls[i],
+                                i,
+                                NodeKey::component_type_decl,
+                                |inner_this, item, i, cx| {
+                                    inner_this.collect_component_type_decl(node, item, i, cx);
+                                },
+                                ctx
+                            );
                         }
                     }
 
                     ComponentType::Instance(decls) => {
-                        for (i, decl) in decls.iter().enumerate() {
-                            this.collect_instance_type_decl(node, decl, i, ctx);
+                        for i in 0..decls.len() {
+                            this.collect_subitem(
+                                decls,
+                                &decls[i],
+                                i,
+                                NodeKey::inst_type_decl,
+                                |inner_this, item, i, cx| {
+                                    inner_this.collect_instance_type_decl(node, item, i, cx);
+                                },
+                                ctx
+                            );
                         }
                     }
 
@@ -169,14 +183,24 @@ impl<'ir> TopoCtx<'ir> {
         idx: usize,
         ctx: &mut VisitCtx<'ir>,
     ) {
-        self.collect_item(
-            decl,
-            ctx,
-            NodeKey::ComponentTypeDecl(id(parent), idx),
-            |events| events.push(VisitEvent::comp_type_decl(
-                parent, idx, decl
-            ))
-        );
+        // use the parent since this guy doesn't have global identity
+        if !self.seen.insert(NodeKey::ComponentTypeDecl(id(parent), idx)) {
+            return;
+        }
+        self.events.push(VisitEvent::comp_type_decl(
+            parent, idx, decl,
+        ));
+        match decl {
+            ComponentTypeDeclaration::Type(ty) => self.collect_component_type(
+                ty, idx, ctx
+            ),
+            ComponentTypeDeclaration::CoreType(ty) => self.collect_core_type(
+                ty, idx, ctx
+            ),
+            ComponentTypeDeclaration::Alias(_)
+            | ComponentTypeDeclaration::Export { .. }
+            | ComponentTypeDeclaration::Import(_) => {}
+        }
     }
     fn collect_instance_type_decl(
         &mut self,
@@ -185,15 +209,23 @@ impl<'ir> TopoCtx<'ir> {
         idx: usize,
         ctx: &mut VisitCtx<'ir>,
     ) {
-        self.collect_item(
-            decl,
-            ctx,
-            // use the parent since this guy doesn't have global identity
-            NodeKey::InstanceTypeDecl(id(parent), idx),
-            |events| events.push(VisitEvent::inst_type_decl(
-                parent, idx, decl
-            ))
-        );
+        // use the parent since this guy doesn't have global identity
+        if !self.seen.insert(NodeKey::InstanceTypeDecl(id(parent), idx)) {
+            return;
+        }
+        self.events.push(VisitEvent::inst_type_decl(
+            parent, idx, decl,
+        ));
+        match decl {
+            InstanceTypeDeclaration::Type(ty) => self.collect_component_type(
+                ty, idx, ctx,
+            ),
+            InstanceTypeDeclaration::CoreType(ty) => self.collect_core_type(
+                ty, idx, ctx
+            ),
+            InstanceTypeDeclaration::Alias(_)
+            | InstanceTypeDeclaration::Export { .. } => {}
+        }
     }
     fn collect_comp_inst(
         &mut self,
@@ -255,8 +287,17 @@ impl<'ir> TopoCtx<'ir> {
             |this, ctx| {
                 match node {
                     CoreType::Module(decls ) => {
-                        for (i, decl) in decls.iter().enumerate() {
-                            this.collect_module_type_decl(node, decl, i, ctx);
+                        for i in 0..decls.len() {
+                            this.collect_subitem(
+                                decls,
+                                &decls[i],
+                                i,
+                                NodeKey::module_type_decl,
+                                |inner_this, item, i, cx| {
+                                    inner_this.collect_module_type_decl(node, item, i, cx);
+                                },
+                                ctx
+                            );
                         }
                     }
 
@@ -271,16 +312,15 @@ impl<'ir> TopoCtx<'ir> {
         parent: &'ir CoreType<'ir>,
         decl: &'ir ModuleTypeDeclaration<'ir>,
         idx: usize,
-        ctx: &mut VisitCtx<'ir>,
+        _: &mut VisitCtx<'ir>,
     ) {
-        self.collect_item(
-            decl,
-            ctx,
-            NodeKey::ModuleTypeDecl(id(parent), idx),
-            |events| events.push(VisitEvent::mod_type_decl(
-                parent, idx, decl
-            ))
-        );
+        // use the parent since this guy doesn't have global identity
+        if !self.seen.insert(NodeKey::ModuleTypeDecl(id(parent), idx)) {
+            return;
+        }
+        self.events.push(VisitEvent::mod_type_decl(
+            parent, idx, decl
+        ))
     }
     fn collect_canon(
         &mut self,
@@ -532,6 +572,41 @@ impl<'ir> TopoCtx<'ir> {
             }
         }
     }
+
+    fn collect_subitem<'a, T: ReferencedIndices + GetScopeKind + 'a>(
+        &mut self,
+        all: &'a [T],
+        item: &'a T,
+        item_idx: usize,
+        gen_key: fn(&T, usize) -> NodeKey,
+        mut emit_item: impl FnMut(&mut Self, &'a T, usize, &mut VisitCtx<'a>),
+        ctx: &mut VisitCtx<'a>,
+    ) {
+        if !self.seen.insert(gen_key(item, item_idx)) {
+            return;
+        }
+
+        // collect the dependencies of this guy
+        ctx.inner.maybe_enter_scope(item);
+        let refs = item.referenced_indices(Depth::default());
+        for RefKind { ref_, .. } in refs.iter() {
+            let (vec, idx, _) = ctx.inner.index_from_assumed_id(ref_);
+            assert_eq!(vec, SpaceSubtype::Main);
+            let dep_item = &all[idx];
+
+            if !self.seen.insert(gen_key(dep_item, idx)) {
+                continue;
+            }
+
+            // collect subitem
+            emit_item(self, dep_item, idx, ctx);
+        }
+
+        ctx.inner.maybe_exit_scope(item);
+
+        // collect item
+        emit_item(self, item, item_idx, ctx);
+    }
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
@@ -552,8 +627,18 @@ enum NodeKey {
     Custom(*const ()),
     Start(*const ()),
 }
+impl NodeKey {
+    fn inst_type_decl(decl: &InstanceTypeDeclaration, idx: usize) -> Self {
+        Self::InstanceTypeDecl(id(decl), idx)
+    }
+    fn component_type_decl(decl: &ComponentTypeDeclaration, idx: usize) -> Self {
+        Self::ComponentTypeDecl(id(decl), idx)
+    }
+    fn module_type_decl(decl: &ModuleTypeDeclaration, idx: usize) -> Self {
+        Self::ModuleTypeDecl(id(decl), idx)
+    }
+}
 
 fn id<T>(ptr: &T) -> *const () {
     ptr as *const T as *const ()
 }
-

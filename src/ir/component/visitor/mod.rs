@@ -180,6 +180,7 @@ pub trait ComponentVisitor<'a> {
         &mut self,
         _cx: &VisitCtx<'a>,
         _decl_idx: usize,
+        _id: u32,
         _parent: &ComponentType<'a>,
         _decl: &ComponentTypeDeclaration<'a>,
     ) {}
@@ -197,6 +198,7 @@ pub trait ComponentVisitor<'a> {
         &mut self,
         _cx: &VisitCtx<'a>,
         _decl_idx: usize,
+        _id: u32,
         _parent: &ComponentType<'a>,
         _decl: &InstanceTypeDeclaration<'a>,
     ) {}
@@ -295,7 +297,7 @@ pub trait ComponentVisitor<'a> {
     /// This callback is paired with `exit_core_type`, and nested module
     /// type declarations (if any) will be reported between the enter/exit
     /// calls.
-    fn enter_core_type(&mut self, _cx: &VisitCtx<'a>, _id: u32, _comp_type: &CoreType<'a>) {}
+    fn enter_core_type(&mut self, _cx: &VisitCtx<'a>, _id: u32, _core_type: &CoreType<'a>) {}
 
     /// Invoked for each declaration within a core module type.
     ///
@@ -309,6 +311,7 @@ pub trait ComponentVisitor<'a> {
         &mut self,
         _cx: &VisitCtx<'a>,
         _decl_idx: usize,
+        _id: u32,
         _parent: &CoreType<'a>,
         _decl: &ModuleTypeDeclaration<'a>,
     ) {}
@@ -317,7 +320,7 @@ pub trait ComponentVisitor<'a> {
     /// been visited.
     ///
     /// Always paired with a prior `enter_core_type` call for the same `id`.
-    fn exit_core_type(&mut self, _cx: &VisitCtx<'a>, _id: u32, _comp_type: &CoreType<'a>) {}
+    fn exit_core_type(&mut self, _cx: &VisitCtx<'a>, _id: u32, _core_type: &CoreType<'a>) {}
 
     /// Invoked for each core WebAssembly instance.
     ///

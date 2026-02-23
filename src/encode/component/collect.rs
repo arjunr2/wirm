@@ -49,7 +49,7 @@ impl<'a> Collect<'a> for Component<'a> {
         }
         // assign a temporary index during collection
         collect_ctx.seen.components.insert(ptr);
-        ctx.inner.push_comp_section_tracker();
+        // ctx.inner.push_comp_section_tracker();
 
 
         // Collect dependencies first (in the order of the sections)

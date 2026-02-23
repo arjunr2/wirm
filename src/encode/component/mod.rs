@@ -1,12 +1,16 @@
-use crate::encode::component::assign::assign_indices;
-use crate::encode::component::encode::encode_internal;
+// use crate::encode::component::encode::encode_internal;
 use crate::Component;
+use crate::encode::component::assign_new::assign_indices;
+use crate::encode::component::encode_new::encode_internal_new;
 use crate::ir::component::visitor::VisitCtx;
 
 mod assign;
 mod collect;
 pub(crate) mod encode;
 mod fix_indices;
+mod fix_indices_new;
+mod assign_new;
+mod encode_new;
 // mod collect_new;
 
 /// Encode this component into its binary WebAssembly representation.
@@ -144,22 +148,23 @@ mod fix_indices;
 pub fn encode(comp: &Component) -> Vec<u8> {
     // Phase 1: Collect
     let mut ctx = VisitCtx::new(comp);
-    {
-        let mut store = ctx.inner.store.borrow_mut();
-        store.reset();
-    }
-    let mut plan = comp.collect_root(&mut ctx);
+    // {
+    //     let mut store = ctx.inner.store.borrow_mut();
+    //     store.reset();
+    // }
+    // let mut plan = comp.collect_root(&mut ctx);
 
     // Phase 2: Assign indices
-    {
-        let mut store = ctx.inner.store.borrow_mut();
-        store.reset_indices();
-    }
-    assign_indices(&mut plan, &mut ctx);
+    // {
+    //     let mut store = ctx.inner.store.borrow_mut();
+    //     store.reset_indices();
+    // }
+    let ids = assign_indices(comp);
 
     // Phase 3: Encode (pass in the root-level component's plan, assigned indices, and original->new index map)
-    debug_assert_eq!(1, ctx.inner.scope_stack.stack.len());
-    let bytes = encode_internal(comp, &plan, &mut ctx);
+    // debug_assert_eq!(1, ctx.inner.scope_stack.stack.len());
+    // let bytes = encode_internal(comp, &plan, &mut ctx);
+    let bytes = encode_internal_new(comp, &ids);
 
     // Reset the index stores for any future visits!
     {

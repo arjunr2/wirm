@@ -513,7 +513,7 @@ impl ReferencedIndices for InstanceTypeDeclaration<'_> {
 impl GetFuncRefs for InstanceTypeDeclaration<'_> {
     fn get_func_refs(&self) -> Vec<RefKind> {
         match self {
-            InstanceTypeDeclaration::Type(ty) => ty.get_func_refs(),
+            InstanceTypeDeclaration::Type(ty) => vec![],
             InstanceTypeDeclaration::CoreType(_)
             | InstanceTypeDeclaration::Alias(_)
             | InstanceTypeDeclaration::Export { .. } => vec![],
@@ -523,8 +523,8 @@ impl GetFuncRefs for InstanceTypeDeclaration<'_> {
 impl GetTypeRefs for InstanceTypeDeclaration<'_> {
     fn get_type_refs(&self) -> Vec<RefKind> {
         match self {
-            InstanceTypeDeclaration::CoreType(ty) => ty.get_type_refs(),
-            InstanceTypeDeclaration::Type(ty) => ty.get_type_refs(),
+            InstanceTypeDeclaration::CoreType(ty) => vec![],
+            InstanceTypeDeclaration::Type(ty) => vec![],
             InstanceTypeDeclaration::Export { ty, .. } => ty.get_type_refs(),
             InstanceTypeDeclaration::Alias(_) => vec![],
         }

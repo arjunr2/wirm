@@ -78,12 +78,13 @@ impl<'a> VisitCtxInner<'a> {
     pub fn push_component(&mut self, component: &Component) {
         let id = component.id;
         self.component_stack.push(id);
+        self.push_comp_section_tracker();
         self.enter_comp_scope(id);
     }
 
     pub fn pop_component(&mut self) {
         let id = self.component_stack.pop().unwrap();
-        self.section_tracker_stack.pop();
+        self.pop_comp_section_tracker();
         self.exit_comp_scope(id);
     }
     pub fn curr_component(&self) -> &Component<'_> {
@@ -187,6 +188,21 @@ impl VisitCtxInner<'_> {
             .get_mut(&scope_id)
             .unwrap()
             .index_from_assumed_id(r)
+    }
+
+    /// Assign the actual ID for the specified item in the IR.
+    pub fn assign_actual_id(
+        &mut self,
+        space: &Space,
+        section: ComponentSection,
+        vec_idx: usize,
+    ) {
+        self.store.borrow_mut().assign_actual_id(
+            &self.scope_stack.curr_space_id(),
+            space,
+            &section,
+            vec_idx
+        );
     }
 
     pub(crate) fn lookup_actual_id_or_panic(&self, r: &IndexedRef) -> usize {
@@ -305,10 +321,6 @@ impl ScopeStack {
     }
 
     pub fn exit_space(&mut self) -> ScopeId {
-        debug_assert!(
-            self.stack.len() >= 2,
-            "Trying to exit the index space scope when there isn't an outer!"
-        );
         self.stack.pop().unwrap()
     }
 }
