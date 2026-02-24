@@ -32,9 +32,20 @@ impl ComponentVisitor<'_> for Assigner {
         self.assign_actual_id(cx, &module.index_space_of(), id)
     }
     fn visit_comp_type_decl(&mut self, cx: &VisitCtx<'_>, _decl_idx: usize, id: u32, _parent: &ComponentType<'_>, decl: &ComponentTypeDeclaration<'_>) {
+        if matches!(decl, ComponentTypeDeclaration::CoreType(_)
+                        | ComponentTypeDeclaration::Type(_)) {
+            // this ID assignment will be handled by the type handler!
+            return;
+        }
         self.assign_actual_id(cx, &decl.index_space_of(), id)
     }
     fn visit_inst_type_decl(&mut self, cx: &VisitCtx<'_>, _decl_idx: usize, id: u32, _parent: &ComponentType<'_>, decl: &InstanceTypeDeclaration<'_>) {
+        if matches!(decl, InstanceTypeDeclaration::CoreType(_)
+                        | InstanceTypeDeclaration::Type(_)) {
+            // this ID assignment will be handled by the type handler!
+            return;
+        }
+
         self.assign_actual_id(cx, &decl.index_space_of(), id)
     }
     fn exit_comp_type(&mut self, cx: &VisitCtx<'_>, id: u32, ty: &ComponentType<'_>) {
@@ -88,7 +99,7 @@ impl ActualIds {
         })
     }
     pub fn assign_actual_id(&mut self, id: ScopeId, space: &Space, assumed_id: usize) {
-        let ids = self.scopes.entry(id).or_default();
+        let ids = self.scopes.entry(id).or_insert(IdsForScope::new(id));
         ids.assign_actual_id(space, assumed_id)
     }
     pub fn lookup_actual_id_or_panic(&self, scope_stack: &ScopeStack, r: &IndexedRef) -> usize {
@@ -129,6 +140,12 @@ pub struct IdsForScope {
     pub core_tag: IdTracker,
 }
 impl IdsForScope {
+    pub fn new(scope_id: ScopeId) -> Self {
+        Self {
+            scope_id,
+            ..Default::default()
+        }
+    }
     pub fn assign_actual_id(&mut self, space: &Space, assumed_id: usize) {
         if let Some(space) = self.get_space_mut(space) {
             space.assign_actual_id(assumed_id);
