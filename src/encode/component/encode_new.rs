@@ -127,11 +127,15 @@ impl ComponentVisitor<'_> for Encoder<'_> {
         let section = curr_comp_ty_sect_mut(&mut self.comp_stack);
         match self.type_stack.last_mut() {
             Some(TypeFrame::InstTy { ty: ity }) => {
-                let new_frame = encode_comp_ty(ty, ity, &mut self.reencode);
+                let new_frame = encode_comp_ty_in_inst_ty(ty, ity, &mut self.reencode);
                 self.type_stack.push(new_frame);
                 return;
             }
-            Some(TypeFrame::CompTy { ty }) => todo!(),
+            Some(TypeFrame::CompTy { ty: cty }) => {
+                let new_frame = encode_comp_ty_in_comp_ty(ty, cty, &mut self.reencode);
+                self.type_stack.push(new_frame);
+                return;
+            },
             Some(TypeFrame::ModTy { .. }) => unreachable!(),
             Some(TypeFrame::Nop) | None => {}
         }
@@ -244,11 +248,15 @@ impl ComponentVisitor<'_> for Encoder<'_> {
         let section = curr_core_ty_sect_mut(&mut self.comp_stack);
         match self.type_stack.last_mut() {
             Some(TypeFrame::InstTy { ty: ity }) => {
-                let new_frame = encode_core_ty(ty, ity, &mut self.reencode);
+                let new_frame = encode_core_ty_from_inst_ty(ty, ity, &mut self.reencode);
                 self.type_stack.push(new_frame);
                 return;
             },
-            Some(TypeFrame::CompTy { ty }) => todo!(),
+            Some(TypeFrame::CompTy { ty: cty }) => {
+                let new_frame = encode_core_ty_from_comp_ty(ty, cty, &mut self.reencode);
+                self.type_stack.push(new_frame);
+                return;
+            },
             Some(TypeFrame::ModTy { .. }) => unreachable!(),
             Some(TypeFrame::Nop)
             | None => {}
@@ -276,11 +284,15 @@ impl ComponentVisitor<'_> for Encoder<'_> {
         let section = curr_core_ty_sect_mut(&mut self.comp_stack);
         match self.type_stack.last_mut() {
             Some(TypeFrame::InstTy { ty: ity }) => {
-                let new_frame = encode_core_ty(ty, ity, &mut self.reencode);
+                let new_frame = encode_core_ty_from_inst_ty(ty, ity, &mut self.reencode);
                 self.type_stack.push(new_frame);
                 return;
             },
-            Some(TypeFrame::CompTy { ty }) => todo!(),
+            Some(TypeFrame::CompTy { ty: cty }) => {
+                let new_frame = encode_core_ty_from_comp_ty(ty, cty, &mut self.reencode);
+                self.type_stack.push(new_frame);
+                return;
+            },
             Some(TypeFrame::ModTy { .. }) => unreachable!(),
             Some(TypeFrame::Nop)
             | None => {}
@@ -829,7 +841,6 @@ fn encode_comp_ty_decl(
     match ty {
         ComponentTypeDeclaration::CoreType(core_ty) => {
             // encode_core_ty_in_comp_ty(core_ty, subitem_plan, new_comp_ty, reencode, ctx)
-            todo!()
         }
         ComponentTypeDeclaration::Type(comp_ty) => {
             // encode_comp_ty(
@@ -840,7 +851,6 @@ fn encode_comp_ty_decl(
             //     reencode,
             //     ctx,
             // )
-            todo!()
         },
         ComponentTypeDeclaration::Alias(a) => encode_alias_in_comp_ty(a, new_comp_ty, reencode),
         ComponentTypeDeclaration::Export { name, ty } => {
@@ -951,7 +961,7 @@ fn encode_inst_ty_decl(
         }
     }
 }
-fn encode_core_ty(
+fn encode_core_ty_from_inst_ty(
     core_ty: &CoreType,
     inst_ty: &mut wasm_encoder::InstanceType,
     reencode: &mut RoundtripReencoder,
@@ -960,6 +970,23 @@ fn encode_core_ty(
         CoreType::Rec(recgroup) => {
             for sub in recgroup.types() {
                 encode_subtype(sub, inst_ty.core_type().core(), reencode);
+            }
+            TypeFrame::Nop
+        }
+        CoreType::Module(decls) => {
+            TypeFrame::ModTy { ty: wasm_encoder::ModuleType::new() }
+        }
+    }
+}
+fn encode_core_ty_from_comp_ty(
+    core_ty: &CoreType,
+    comp_ty: &mut wasm_encoder::ComponentType,
+    reencode: &mut RoundtripReencoder,
+) -> TypeFrame {
+    match core_ty {
+        CoreType::Rec(recgroup) => {
+            for sub in recgroup.types() {
+                encode_subtype(sub, comp_ty.core_type().core(), reencode);
             }
             TypeFrame::Nop
         }
@@ -1007,7 +1034,7 @@ fn encode_module_type_decl(
     }
 }
 
-fn encode_comp_ty(
+fn encode_comp_ty_in_inst_ty(
     ty: &ComponentType,
     ity: &mut wasm_encoder::InstanceType,
     reencode: &mut RoundtripReencoder,
@@ -1023,6 +1050,33 @@ fn encode_comp_ty(
         },
         ComponentType::Resource { rep, dtor } => {
             ity.ty().resource(reencode.val_type(*rep).unwrap(), *dtor);
+            TypeFrame::Nop
+        }
+        ComponentType::Component(_) => {
+            TypeFrame::CompTy { ty: wasm_encoder::ComponentType::new() }
+        }
+        ComponentType::Instance(_) => {
+            TypeFrame::InstTy { ty: wasm_encoder::InstanceType::new() }
+        }
+    }
+}
+
+fn encode_comp_ty_in_comp_ty(
+    ty: &ComponentType,
+    cty: &mut wasm_encoder::ComponentType,
+    reencode: &mut RoundtripReencoder,
+) -> TypeFrame {
+    match ty {
+        ComponentType::Defined(comp_ty) => {
+            encode_comp_defined_ty(comp_ty, cty.ty().defined_type(), reencode);
+            TypeFrame::Nop
+        }
+        ComponentType::Func(func_ty) => {
+            encode_comp_func_ty(func_ty, cty.ty().function(), reencode);
+            TypeFrame::Nop
+        },
+        ComponentType::Resource { rep, dtor } => {
+            cty.ty().resource(reencode.val_type(*rep).unwrap(), *dtor);
             TypeFrame::Nop
         }
         ComponentType::Component(_) => {
