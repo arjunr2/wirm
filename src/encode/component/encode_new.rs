@@ -7,6 +7,7 @@ use crate::encode::component::collect::SubItemPlan;
 use crate::encode::component::fix_indices_new::FixIndices;
 use crate::ir::component::Names;
 use crate::ir::component::visitor::{walk_topological, ComponentVisitor, ItemKind, VisitCtx};
+use crate::ir::component::visitor::utils::ScopeStack;
 use crate::ir::types::CustomSection;
 
 pub(crate) fn encode_internal_new(
@@ -219,28 +220,28 @@ impl ComponentVisitor<'_> for Encoder<'_> {
         }
     }
     fn visit_comp_instance(&mut self, cx: &VisitCtx<'_>, _id: u32, instance: &ComponentInstance<'_>) {
-        let ids = self.ids.get_scope(cx.inner.scope_stack.curr_space_id());
-        let fixed = instance.fix(&None, ids);
+        // let ids = self.ids.get_scope(cx.inner.scope_stack.curr_space_id());
+        let fixed = instance.fix(&self.ids, &cx.inner.scope_stack);
         encode_comp_inst_section(&fixed, &mut self.comp_stack.last_mut().unwrap().component, &mut self.reencode);
     }
     fn visit_canon(&mut self, cx: &VisitCtx<'_>, _kind: ItemKind, _id: u32, canon: &CanonicalFunction) {
-        let ids = self.ids.get_scope(cx.inner.scope_stack.curr_space_id());
-        let fixed = canon.fix(&None, ids);
+        // let ids = self.ids.get_scope(cx.inner.scope_stack.curr_space_id());
+        let fixed = canon.fix(&self.ids, &cx.inner.scope_stack);
         encode_canon_section(&fixed, &mut self.comp_stack.last_mut().unwrap().component, &mut self.reencode);
     }
     fn visit_alias(&mut self, cx: &VisitCtx<'_>, _kind: ItemKind, _id: u32, alias: &ComponentAlias<'_>) {
-        let ids = self.ids.get_scope(cx.inner.scope_stack.curr_space_id());
-        let fixed = alias.fix(&None, ids);
+        // let ids = self.ids.get_scope(cx.inner.scope_stack.curr_space_id());
+        let fixed = alias.fix(&self.ids, &cx.inner.scope_stack);
         encode_alias_section(&fixed, &mut self.comp_stack.last_mut().unwrap().component, &mut self.reencode);
     }
     fn visit_comp_import(&mut self, cx: &VisitCtx<'_>, _kind: ItemKind, _id: u32, import: &ComponentImport<'_>) {
-        let ids = self.ids.get_scope(cx.inner.scope_stack.curr_space_id());
-        let fixed = import.fix(&None, ids);
+        // let ids = self.ids.get_scope(cx.inner.scope_stack.curr_space_id());
+        let fixed = import.fix(&self.ids, &cx.inner.scope_stack);
         encode_comp_import_section(&fixed, &mut self.comp_stack.last_mut().unwrap().component, &mut self.reencode);
     }
     fn visit_comp_export(&mut self, cx: &VisitCtx<'_>, _kind: ItemKind, _id: u32, export: &ComponentExport<'_>) {
-        let ids = self.ids.get_scope(cx.inner.scope_stack.curr_space_id());
-        let fixed = export.fix(&None, ids);
+        // let ids = self.ids.get_scope(cx.inner.scope_stack.curr_space_id());
+        let fixed = export.fix(&self.ids, &cx.inner.scope_stack);
         encode_comp_export_section(&fixed, &mut self.comp_stack.last_mut().unwrap().component, &mut self.reencode);
     }
     fn enter_core_rec_group(&mut self, cx: &VisitCtx<'_>, count: usize, ty: &CoreType<'_>) {
@@ -264,7 +265,7 @@ impl ComponentVisitor<'_> for Encoder<'_> {
 
         match ty {
             CoreType::Rec(group) => {
-                encode_rec_group_in_core_ty(group, self.ids.get_scope(cx.inner.scope_stack.curr_space_id()), section, &mut self.reencode);
+                encode_rec_group_in_core_ty(group, &self.ids, &cx.inner.scope_stack, section, &mut self.reencode);
             }
             _ => unreachable!()
         }
@@ -310,7 +311,7 @@ impl ComponentVisitor<'_> for Encoder<'_> {
     fn visit_module_type_decl(&mut self, cx: &VisitCtx<'_>, _decl_idx: usize, _id: u32, _parent: &CoreType<'_>, decl: &ModuleTypeDeclaration<'_>) {
         match self.type_stack.last_mut().unwrap() {
             TypeFrame::ModTy { ty } => {
-                encode_module_type_decl(decl, self.ids.get_scope(cx.inner.scope_stack.curr_space_id()), ty, &mut self.reencode);
+                encode_module_type_decl(decl, &self.ids, &cx.inner.scope_stack, ty, &mut self.reencode);
             },
             TypeFrame::CompTy { .. }
             | TypeFrame::InstTy { .. }
@@ -342,18 +343,18 @@ impl ComponentVisitor<'_> for Encoder<'_> {
         }
     }
     fn visit_core_instance(&mut self, cx: &VisitCtx<'_>, _id: u32, inst: &Instance<'_>) {
-        let ids = self.curr_ids(cx);
-        let fixed = inst.fix(&None, ids);
+        // let ids = self.curr_ids(cx);
+        let fixed = inst.fix(&self.ids, &cx.inner.scope_stack);
         encode_inst_section(&fixed, &mut self.comp_stack.last_mut().unwrap().component, &mut self.reencode);
     }
     fn visit_start_section(&mut self, cx: &VisitCtx<'_>, start: &ComponentStartFunction) {
-        let ids = self.curr_ids(cx);
-        let fixed = start.fix(&None, ids);
+        // let ids = self.curr_ids(cx);
+        let fixed = start.fix(&self.ids, &cx.inner.scope_stack);
         encode_start_section(&fixed, &mut self.comp_stack.last_mut().unwrap().component, &mut self.reencode);
     }
     fn visit_custom_section(&mut self, cx: &VisitCtx<'_>, sect: &CustomSection<'_>) {
-        let ids = self.curr_ids(cx);
-        let fixed = sect.fix(&None, ids);
+        // let ids = self.curr_ids(cx);
+        let fixed = sect.fix(&self.ids, &cx.inner.scope_stack);
         encode_custom_section(&fixed, &mut self.comp_stack.last_mut().unwrap().component, &mut self.reencode);
     }
 }
@@ -883,11 +884,12 @@ fn encode_alias_in_comp_ty(
 }
 fn encode_rec_group_in_core_ty(
     group: &RecGroup,
-    ids: &IdsForScope,
+    ids: &ActualIds,
+    scope_stack: &ScopeStack,
     enc: &mut CoreTypeSection,
     reencode: &mut RoundtripReencoder,
 ) {
-    let types = into_wasm_encoder_recgroup(group, ids, reencode);
+    let types = into_wasm_encoder_recgroup(group, ids, scope_stack, reencode);
 
     if group.is_explicit_rec_group() {
         enc.ty().core().rec(types);
@@ -997,13 +999,14 @@ fn encode_core_ty_from_comp_ty(
 }
 fn encode_module_type_decl(
     decl: &ModuleTypeDeclaration,
-    ids: &IdsForScope,
+    ids: &ActualIds,
+    scope_stack: &ScopeStack,
     mty: &mut wasm_encoder::ModuleType,
     reencode: &mut RoundtripReencoder,
 ) {
     match decl {
         ModuleTypeDeclaration::Type(recgroup) => {
-            let types = into_wasm_encoder_recgroup(recgroup, ids, reencode);
+            let types = into_wasm_encoder_recgroup(recgroup, ids, scope_stack, reencode);
 
             if recgroup.is_explicit_rec_group() {
                 mty.ty().rec(types);
@@ -1126,14 +1129,15 @@ fn into_wasm_encoder_alias<'a>(
 
 pub fn into_wasm_encoder_recgroup(
     group: &RecGroup,
-    ids: &IdsForScope,
+    ids: &ActualIds,
+    scope_stack: &ScopeStack,
     reencode: &mut RoundtripReencoder,
 ) -> Vec<wasm_encoder::SubType> {
 
     let subtypes = group
         .types()
         .map(|subty| {
-            let fixed_subty = subty.fix(&None, ids);
+            let fixed_subty = subty.fix(ids, scope_stack);
             reencode
                 .sub_type(fixed_subty)
                 .unwrap_or_else(|e| panic!("Could not encode type as subtype: {:?}\n\t{e}", subty))
@@ -1146,7 +1150,8 @@ pub fn into_wasm_encoder_recgroup(
 pub fn encode_module_type_decls(
     subitem_plan: &Option<SubItemPlan>,
     decls: &[wasmparser::ModuleTypeDeclaration],
-    ids: &IdsForScope,
+    ids: &ActualIds,
+    scope_stack: &ScopeStack,
     enc: ComponentCoreTypeEncoder,
     reencode: &mut RoundtripReencoder,
 ) {
@@ -1157,7 +1162,7 @@ pub fn encode_module_type_decls(
         let decl = &decls[*idx];
         match decl {
             wasmparser::ModuleTypeDeclaration::Type(recgroup) => {
-                let types = into_wasm_encoder_recgroup(recgroup, ids, reencode);
+                let types = into_wasm_encoder_recgroup(recgroup, ids, scope_stack, reencode);
 
                 if recgroup.is_explicit_rec_group() {
                     mty.ty().rec(types);

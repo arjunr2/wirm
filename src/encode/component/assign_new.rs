@@ -4,6 +4,7 @@ use crate::{Component, Module};
 use crate::ir::component::idx_spaces::{IndexSpaceOf, ScopeId, Space};
 use crate::ir::component::refs::IndexedRef;
 use crate::ir::component::visitor::{walk_topological, ComponentVisitor, ItemKind, VisitCtx};
+use crate::ir::component::visitor::utils::ScopeStack;
 
 pub(crate) fn assign_indices(component: &Component) -> ActualIds {
     let mut assigner = Assigner::default();
@@ -90,9 +91,10 @@ impl ActualIds {
         let ids = self.scopes.entry(id).or_default();
         ids.assign_actual_id(space, assumed_id)
     }
-    pub fn lookup_actual_id_or_panic(&mut self, id: ScopeId, r: &IndexedRef) -> usize {
-        let ids = self.scopes.get_mut(&id).unwrap_or_else(|| {
-            panic!("Attempted to assign a non-existent scope: {id}");
+    pub fn lookup_actual_id_or_panic(&self, scope_stack: &ScopeStack, r: &IndexedRef) -> usize {
+        let scope_id = scope_stack.space_at_depth(&r.depth);
+        let ids = self.scopes.get(&scope_id).unwrap_or_else(|| {
+            panic!("Attempted to assign a non-existent scope: {scope_id}");
         });
         ids.lookup_actual_id_or_panic(r)
     }

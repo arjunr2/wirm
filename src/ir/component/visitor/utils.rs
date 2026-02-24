@@ -324,7 +324,7 @@ impl ScopeStack {
     pub(crate) fn curr_space_id(&self) -> ScopeId {
         self.stack.last().cloned().unwrap()
     }
-    fn space_at_depth(&self, depth: &Depth) -> ScopeId {
+    pub(crate) fn space_at_depth(&self, depth: &Depth) -> ScopeId {
         *self
             .stack
             .get(self.stack.len() - depth.val() as usize - 1)
