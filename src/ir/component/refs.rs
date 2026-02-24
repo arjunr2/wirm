@@ -198,6 +198,7 @@ impl Depth {
     pub fn val(&self) -> i32 {
         self.0
     }
+    pub fn is_curr(&self) -> bool { self.0 == 0 }
     pub fn is_inner(&self) -> bool {
         self.0 < 0
     }

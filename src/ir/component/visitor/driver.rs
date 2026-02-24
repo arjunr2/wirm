@@ -38,8 +38,8 @@ pub fn drive_event<'ir, V: ComponentVisitor<'ir>>(
                 &ComponentSection::Component,
                 idx,
             );
-            visitor.exit_component(ctx, id, component);
             ctx.inner.pop_component();
+            visitor.exit_component(ctx, id, component);
         }
 
         VisitEvent::Module { idx, module } => {

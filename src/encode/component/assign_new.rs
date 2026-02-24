@@ -29,7 +29,6 @@ impl ComponentVisitor<'_> for Assigner {
     }
     fn visit_module(&mut self, cx: &VisitCtx<'_>, id: u32, module: &Module<'_>) {
         self.assign_actual_id(cx, &module.index_space_of(), id)
-
     }
     fn visit_comp_type_decl(&mut self, cx: &VisitCtx<'_>, _decl_idx: usize, id: u32, _parent: &ComponentType<'_>, decl: &ComponentTypeDeclaration<'_>) {
         self.assign_actual_id(cx, &decl.index_space_of(), id)

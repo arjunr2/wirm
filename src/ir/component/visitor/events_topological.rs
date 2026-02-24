@@ -600,7 +600,8 @@ impl<'ir> TopoCtx<'ir> {
         ctx.inner.maybe_enter_scope(item);
         let refs = item.referenced_indices(Depth::default());
         for RefKind { ref_, .. } in refs.iter() {
-            let (vec, idx, _) = ctx.inner.index_from_assumed_id(ref_);
+            if !ref_.depth.is_curr() { continue; }
+            let (vec, idx, depth) = ctx.inner.index_from_assumed_id(ref_);
             assert_eq!(vec, SpaceSubtype::Main);
             let dep_item = &all[idx];
 
