@@ -444,9 +444,8 @@ impl ReferencedIndices for ComponentTypeDeclaration<'_> {
 impl GetFuncRefs for ComponentTypeDeclaration<'_> {
     fn get_func_refs(&self) -> Vec<RefKind> {
         match self {
-            ComponentTypeDeclaration::Type(ty) => ty.get_func_refs(),
-
-            ComponentTypeDeclaration::CoreType(_)
+            ComponentTypeDeclaration::Type(_)       // these are inner refs
+            | ComponentTypeDeclaration::CoreType(_) // these are inner refs
             | ComponentTypeDeclaration::Alias(_)
             | ComponentTypeDeclaration::Export { .. }
             | ComponentTypeDeclaration::Import(_) => vec![],
@@ -456,20 +455,19 @@ impl GetFuncRefs for ComponentTypeDeclaration<'_> {
 impl GetTypeRefs for ComponentTypeDeclaration<'_> {
     fn get_type_refs(&self) -> Vec<RefKind> {
         match self {
-            ComponentTypeDeclaration::CoreType(ty) => ty.get_type_refs(),
-            ComponentTypeDeclaration::Type(ty) => ty.get_type_refs(),
             ComponentTypeDeclaration::Export { ty, .. } => ty.get_type_refs(),
             ComponentTypeDeclaration::Import(import) => import.get_type_refs(),
-            ComponentTypeDeclaration::Alias(_) => vec![],
+            ComponentTypeDeclaration::CoreType(_) // these are inner refs
+            | ComponentTypeDeclaration::Type(_)   // these are inner refs
+            | ComponentTypeDeclaration::Alias(_) => vec![],
         }
     }
 }
 impl GetParamRefs for ComponentTypeDeclaration<'_> {
     fn get_param_refs(&self) -> Vec<RefKind> {
         match self {
-            ComponentTypeDeclaration::Type(ty) => ty.get_param_refs(),
-
-            ComponentTypeDeclaration::CoreType(_)
+            ComponentTypeDeclaration::Type(_)       // these are inner refs
+            | ComponentTypeDeclaration::CoreType(_) // these are inner refs
             | ComponentTypeDeclaration::Alias(_)
             | ComponentTypeDeclaration::Export { .. }
             | ComponentTypeDeclaration::Import(_) => vec![],
@@ -479,8 +477,8 @@ impl GetParamRefs for ComponentTypeDeclaration<'_> {
 impl GetResultRefs for ComponentTypeDeclaration<'_> {
     fn get_result_refs(&self) -> Vec<RefKind> {
         match self {
-            ComponentTypeDeclaration::Type(ty) => ty.get_result_refs(),
-            ComponentTypeDeclaration::CoreType(_)
+            ComponentTypeDeclaration::Type(_)       // these are inner refs
+            | ComponentTypeDeclaration::CoreType(_) // these are inner refs
             | ComponentTypeDeclaration::Alias(_)
             | ComponentTypeDeclaration::Export { .. }
             | ComponentTypeDeclaration::Import(_) => vec![],
@@ -491,8 +489,8 @@ impl GetItemRefs for ComponentTypeDeclaration<'_> {
     fn get_item_refs(&self) -> Vec<RefKind> {
         match self {
             ComponentTypeDeclaration::Alias(ty) => vec![ty.get_item_ref()],
-            ComponentTypeDeclaration::CoreType(_)
-            | ComponentTypeDeclaration::Type(_)
+            ComponentTypeDeclaration::CoreType(_) // these are inner refs
+            | ComponentTypeDeclaration::Type(_)   // these are inner refs
             | ComponentTypeDeclaration::Export { .. }
             | ComponentTypeDeclaration::Import(_) => vec![],
         }
@@ -572,13 +570,15 @@ impl GetTypeRefs for CoreType<'_> {
         match self {
             CoreType::Rec(group) => group.get_type_refs(),
             CoreType::Module(tys) => {
-                let mut refs = vec![];
-                for ty in tys.iter() {
-                    // TODO: Technically these are in an `inner` depth space...
-                    refs.extend(ty.get_type_refs());
-                }
-
-                refs
+                // let mut refs = vec![];
+                // for ty in tys.iter() {
+                //     // TODO: Technically these are in an `inner` depth space...
+                //              CORRECT -- i need to remove all get_type_refs that do this!
+                //     // refs.extend(ty.get_type_refs());
+                // }
+                //
+                // refs
+                vec![]
             }
         }
     }
