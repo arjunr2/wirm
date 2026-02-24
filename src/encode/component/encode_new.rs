@@ -1,9 +1,8 @@
-use wasm_encoder::{Alias, ComponentAliasSection, ComponentCoreTypeEncoder, ComponentDefinedTypeEncoder, ComponentFuncTypeEncoder, ComponentTypeSection, CoreTypeEncoder, CoreTypeSection, ModuleArg, ModuleSection, NameMap, NestedComponentSection};
+use wasm_encoder::{Alias, ComponentAliasSection, ComponentDefinedTypeEncoder, ComponentFuncTypeEncoder, ComponentTypeSection, CoreTypeEncoder, CoreTypeSection, ModuleArg, ModuleSection, NameMap, NestedComponentSection};
 use wasm_encoder::reencode::{Reencode, ReencodeComponent, RoundtripReencoder};
 use wasmparser::{CanonicalFunction, ComponentAlias, ComponentDefinedType, ComponentExport, ComponentFuncType, ComponentImport, ComponentInstance, ComponentStartFunction, ComponentType, ComponentTypeDeclaration, CoreType, Instance, InstanceTypeDeclaration, ModuleTypeDeclaration, RecGroup, SubType};
 use crate::{Component, Module};
-use crate::encode::component::assign_new::{ActualIds, IdsForScope};
-use crate::encode::component::collect::SubItemPlan;
+use crate::encode::component::assign_new::ActualIds;
 use crate::encode::component::fix_indices_new::FixIndices;
 use crate::ir::component::Names;
 use crate::ir::component::visitor::{walk_topological, ComponentVisitor, ItemKind, VisitCtx};
@@ -42,36 +41,8 @@ impl<'a> Encoder<'a> {
             type_stack: vec![]
         }
     }
-    fn curr_ids<'b>(&'b self, ctx: &VisitCtx) -> &'b IdsForScope {
-        self.ids.get_scope(ctx.inner.scope_stack.curr_space_id())
-    }
-    fn curr_comp_frame<'b>(&'b mut self) -> &'b mut CompFrame {
-        self.comp_stack.last_mut().unwrap()
-    }
-    fn curr_comp_mut<'b>(&'b mut self) -> &'b mut wasm_encoder::Component {
+    fn curr_comp_mut(&mut self) -> &mut wasm_encoder::Component {
         &mut self.comp_stack.last_mut().unwrap().component
-    }
-    fn curr_comp_ty_sect_mut<'b>(&'b mut self) -> &'b mut ComponentTypeSection {
-        let frame = self.comp_stack.last_mut().unwrap();
-
-        if frame.comp_type_section.is_none() {
-            frame.comp_type_section = Some(
-                ComponentTypeSection::new()
-            );
-        }
-
-        frame.comp_type_section.as_mut().unwrap()
-    }
-    fn curr_core_ty_sect_mut<'b>(&'b mut self) -> &'b mut CoreTypeSection {
-        let frame = self.comp_stack.last_mut().unwrap();
-
-        if frame.core_type_section.is_none() {
-            frame.core_type_section = Some(
-                CoreTypeSection::new()
-            );
-        }
-
-        frame.core_type_section.as_mut().unwrap()
     }
     fn handle_enter_comp(&mut self) {
         self.comp_stack.push(CompFrame::new());
@@ -120,20 +91,20 @@ impl ComponentVisitor<'_> for Encoder<'_> {
 
         self.curr_comp_mut().section(&NestedComponentSection(&nested_comp));
     }
-    fn visit_module(&mut self, _cx: &VisitCtx<'_>, _id: u32, module: &Module<'_>) {
+    fn visit_module(&mut self, _: &VisitCtx<'_>, _id: u32, module: &Module<'_>) {
         encode_module_section(module, self.curr_comp_mut());
     }
-    fn enter_comp_type(&mut self, _cx: &VisitCtx<'_>, _id: u32, ty: &ComponentType<'_>) {
+    fn enter_comp_type(&mut self, cx: &VisitCtx<'_>, _id: u32, ty: &ComponentType<'_>) {
         // always make sure the component type section exists!
         let section = curr_comp_ty_sect_mut(&mut self.comp_stack);
         match self.type_stack.last_mut() {
             Some(TypeFrame::InstTy { ty: ity }) => {
-                let new_frame = encode_comp_ty_in_inst_ty(ty, ity, &mut self.reencode);
+                let new_frame = encode_comp_ty_in_inst_ty(ty, ity, &mut self.reencode, &self.ids, &cx.inner.scope_stack);
                 self.type_stack.push(new_frame);
                 return;
             }
             Some(TypeFrame::CompTy { ty: cty }) => {
-                let new_frame = encode_comp_ty_in_comp_ty(ty, cty, &mut self.reencode);
+                let new_frame = encode_comp_ty_in_comp_ty(ty, cty, &mut self.reencode, &self.ids, &cx.inner.scope_stack);
                 self.type_stack.push(new_frame);
                 return;
             },
@@ -143,11 +114,11 @@ impl ComponentVisitor<'_> for Encoder<'_> {
 
         match ty {
             ComponentType::Defined(comp_ty) => {
-                encode_comp_defined_ty(comp_ty, section.defined_type(), &mut self.reencode);
+                encode_comp_defined_ty(comp_ty, section.defined_type(), &mut self.reencode, &self.ids, &cx.inner.scope_stack);
                 self.type_stack.push(TypeFrame::Nop);
             }
             ComponentType::Func(func_ty) => {
-                encode_comp_func_ty(func_ty, section.function(), &mut self.reencode);
+                encode_comp_func_ty(func_ty, section.function(), &mut self.reencode, &self.ids, &cx.inner.scope_stack);
                 self.type_stack.push(TypeFrame::Nop);
             },
             ComponentType::Resource { rep, dtor } => {
@@ -166,27 +137,27 @@ impl ComponentVisitor<'_> for Encoder<'_> {
             }
         }
     }
-    fn visit_comp_type_decl(&mut self, _: &VisitCtx<'_>, _: usize, _: u32, _: &ComponentType<'_>, decl: &ComponentTypeDeclaration<'_>) {
+    fn visit_comp_type_decl(&mut self, cx: &VisitCtx<'_>, _: usize, _: u32, _: &ComponentType<'_>, decl: &ComponentTypeDeclaration<'_>) {
         match self.type_stack.last_mut().unwrap() {
             TypeFrame::CompTy { ty } => {
-                encode_comp_ty_decl(decl, ty, &mut self.reencode);
+                encode_comp_ty_decl(decl, ty, &mut self.reencode, &self.ids, &cx.inner.scope_stack);
             },
             TypeFrame::InstTy { .. }
             | TypeFrame::ModTy { .. }
             | TypeFrame::Nop=> unreachable!(),
         }
     }
-    fn visit_inst_type_decl(&mut self, _: &VisitCtx<'_>, _: usize, _: u32, _: &ComponentType<'_>, decl: &InstanceTypeDeclaration<'_>) {
+    fn visit_inst_type_decl(&mut self, cx: &VisitCtx<'_>, _: usize, _: u32, _: &ComponentType<'_>, decl: &InstanceTypeDeclaration<'_>) {
         match self.type_stack.last_mut().unwrap() {
             TypeFrame::InstTy { ty } => {
-                encode_inst_ty_decl(decl, ty, &mut self.reencode);
+                encode_inst_ty_decl(decl, ty, &mut self.reencode, &self.ids, &cx.inner.scope_stack);
             },
             TypeFrame::CompTy { .. }
             | TypeFrame::ModTy { .. }
             | TypeFrame::Nop => unreachable!(),
         }
     }
-    fn exit_comp_type(&mut self, _cx: &VisitCtx<'_>, _id: u32, _: &ComponentType<'_>) {
+    fn exit_comp_type(&mut self, _: &VisitCtx<'_>, _: u32, _: &ComponentType<'_>) {
         let CompFrame {comp_type_section, component, .. } = curr_comp_frame(&mut self.comp_stack);
         let section = comp_type_section.as_mut().unwrap();
         match self.type_stack.pop() {
@@ -219,42 +190,32 @@ impl ComponentVisitor<'_> for Encoder<'_> {
             *comp_type_section = None;
         }
     }
-    fn visit_comp_instance(&mut self, cx: &VisitCtx<'_>, _id: u32, instance: &ComponentInstance<'_>) {
-        // let ids = self.ids.get_scope(cx.inner.scope_stack.curr_space_id());
-        let fixed = instance.fix(&self.ids, &cx.inner.scope_stack);
-        encode_comp_inst_section(&fixed, &mut self.comp_stack.last_mut().unwrap().component, &mut self.reencode);
+    fn visit_comp_instance(&mut self, cx: &VisitCtx<'_>, _: u32, instance: &ComponentInstance<'_>) {
+        encode_comp_inst_section(instance, &mut self.comp_stack.last_mut().unwrap().component, &mut self.reencode, &self.ids, &cx.inner.scope_stack);
     }
-    fn visit_canon(&mut self, cx: &VisitCtx<'_>, _kind: ItemKind, _id: u32, canon: &CanonicalFunction) {
-        // let ids = self.ids.get_scope(cx.inner.scope_stack.curr_space_id());
-        let fixed = canon.fix(&self.ids, &cx.inner.scope_stack);
-        encode_canon_section(&fixed, &mut self.comp_stack.last_mut().unwrap().component, &mut self.reencode);
+    fn visit_canon(&mut self, cx: &VisitCtx<'_>, _: ItemKind, _: u32, canon: &CanonicalFunction) {
+        encode_canon_section(canon, &mut self.comp_stack.last_mut().unwrap().component, &mut self.reencode, &self.ids, &cx.inner.scope_stack);
     }
-    fn visit_alias(&mut self, cx: &VisitCtx<'_>, _kind: ItemKind, _id: u32, alias: &ComponentAlias<'_>) {
-        // let ids = self.ids.get_scope(cx.inner.scope_stack.curr_space_id());
-        let fixed = alias.fix(&self.ids, &cx.inner.scope_stack);
-        encode_alias_section(&fixed, &mut self.comp_stack.last_mut().unwrap().component, &mut self.reencode);
+    fn visit_alias(&mut self, cx: &VisitCtx<'_>, _: ItemKind, _: u32, alias: &ComponentAlias<'_>) {
+        encode_alias_section(alias, &mut self.comp_stack.last_mut().unwrap().component, &mut self.reencode, &self.ids, &cx.inner.scope_stack);
     }
-    fn visit_comp_import(&mut self, cx: &VisitCtx<'_>, _kind: ItemKind, _id: u32, import: &ComponentImport<'_>) {
-        // let ids = self.ids.get_scope(cx.inner.scope_stack.curr_space_id());
-        let fixed = import.fix(&self.ids, &cx.inner.scope_stack);
-        encode_comp_import_section(&fixed, &mut self.comp_stack.last_mut().unwrap().component, &mut self.reencode);
+    fn visit_comp_import(&mut self, cx: &VisitCtx<'_>, _: ItemKind, _: u32, import: &ComponentImport<'_>) {
+        encode_comp_import_section(import, &mut self.comp_stack.last_mut().unwrap().component, &mut self.reencode, &self.ids, &cx.inner.scope_stack);
     }
-    fn visit_comp_export(&mut self, cx: &VisitCtx<'_>, _kind: ItemKind, _id: u32, export: &ComponentExport<'_>) {
-        // let ids = self.ids.get_scope(cx.inner.scope_stack.curr_space_id());
-        let fixed = export.fix(&self.ids, &cx.inner.scope_stack);
-        encode_comp_export_section(&fixed, &mut self.comp_stack.last_mut().unwrap().component, &mut self.reencode);
+    fn visit_comp_export(&mut self, cx: &VisitCtx<'_>, _: ItemKind, _: u32, export: &ComponentExport<'_>) {
+        encode_comp_export_section(export, &mut self.comp_stack.last_mut().unwrap().component, &mut self.reencode, &self.ids, &cx.inner.scope_stack);
     }
-    fn enter_core_rec_group(&mut self, cx: &VisitCtx<'_>, count: usize, ty: &CoreType<'_>) {
+    fn enter_core_rec_group(&mut self, cx: &VisitCtx<'_>, _: usize, ty: &CoreType<'_>) {
         // always make sure the core type section exists!
         let section = curr_core_ty_sect_mut(&mut self.comp_stack);
         match self.type_stack.last_mut() {
             Some(TypeFrame::InstTy { ty: ity }) => {
-                let new_frame = encode_core_ty_from_inst_ty(ty, ity, &mut self.reencode);
+                let new_frame = encode_core_ty_from_inst_ty(ty, ity, &mut self.reencode, &self.ids, &cx.inner.scope_stack);
                 self.type_stack.push(new_frame);
                 return;
             },
             Some(TypeFrame::CompTy { ty: cty }) => {
-                let new_frame = encode_core_ty_from_comp_ty(ty, cty, &mut self.reencode);
+                let new_frame = encode_core_ty_from_comp_ty(ty, cty, &mut self.reencode, &self.ids, &cx.inner.scope_stack);
                 self.type_stack.push(new_frame);
                 return;
             },
@@ -265,14 +226,11 @@ impl ComponentVisitor<'_> for Encoder<'_> {
 
         match ty {
             CoreType::Rec(group) => {
-                encode_rec_group_in_core_ty(group, &self.ids, &cx.inner.scope_stack, section, &mut self.reencode);
+                encode_rec_group_in_core_ty(group, section, &mut self.reencode, &self.ids, &cx.inner.scope_stack);
             }
             _ => unreachable!()
         }
     }
-    // fn visit_core_subtype(&mut self, _cx: &VisitCtx<'_>, _id: u32, _subtype: &SubType) {
-    //     todo!()
-    // }
     fn exit_core_rec_group(&mut self, _: &VisitCtx<'_>) {
         let CompFrame {core_type_section, component, .. } = curr_comp_frame(&mut self.comp_stack);
         let section = core_type_section.as_mut().unwrap();
@@ -282,15 +240,15 @@ impl ComponentVisitor<'_> for Encoder<'_> {
     }
     fn enter_core_type(&mut self, cx: &VisitCtx<'_>, _id: u32, ty: &CoreType<'_>) {
         // always make sure the core type section exists!
-        let section = curr_core_ty_sect_mut(&mut self.comp_stack);
+        curr_core_ty_sect_mut(&mut self.comp_stack);
         match self.type_stack.last_mut() {
             Some(TypeFrame::InstTy { ty: ity }) => {
-                let new_frame = encode_core_ty_from_inst_ty(ty, ity, &mut self.reencode);
+                let new_frame = encode_core_ty_from_inst_ty(ty, ity, &mut self.reencode, &self.ids, &cx.inner.scope_stack);
                 self.type_stack.push(new_frame);
                 return;
             },
             Some(TypeFrame::CompTy { ty: cty }) => {
-                let new_frame = encode_core_ty_from_comp_ty(ty, cty, &mut self.reencode);
+                let new_frame = encode_core_ty_from_comp_ty(ty, cty, &mut self.reencode, &self.ids, &cx.inner.scope_stack);
                 self.type_stack.push(new_frame);
                 return;
             },
@@ -300,7 +258,7 @@ impl ComponentVisitor<'_> for Encoder<'_> {
         }
 
         match ty {
-            CoreType::Rec(group) => unreachable!(),
+            CoreType::Rec(_) => unreachable!(),
             CoreType::Module(_) => {
                 self.type_stack.push(TypeFrame::ModTy {
                     ty: wasm_encoder::ModuleType::new()
@@ -311,7 +269,7 @@ impl ComponentVisitor<'_> for Encoder<'_> {
     fn visit_module_type_decl(&mut self, cx: &VisitCtx<'_>, _decl_idx: usize, _id: u32, _parent: &CoreType<'_>, decl: &ModuleTypeDeclaration<'_>) {
         match self.type_stack.last_mut().unwrap() {
             TypeFrame::ModTy { ty } => {
-                encode_module_type_decl(decl, &self.ids, &cx.inner.scope_stack, ty, &mut self.reencode);
+                encode_module_type_decl(decl, ty, &mut self.reencode, &self.ids, &cx.inner.scope_stack);
             },
             TypeFrame::CompTy { .. }
             | TypeFrame::InstTy { .. }
@@ -342,20 +300,14 @@ impl ComponentVisitor<'_> for Encoder<'_> {
             *core_type_section = None;
         }
     }
-    fn visit_core_instance(&mut self, cx: &VisitCtx<'_>, _id: u32, inst: &Instance<'_>) {
-        // let ids = self.curr_ids(cx);
-        let fixed = inst.fix(&self.ids, &cx.inner.scope_stack);
-        encode_inst_section(&fixed, &mut self.comp_stack.last_mut().unwrap().component, &mut self.reencode);
+    fn visit_core_instance(&mut self, cx: &VisitCtx<'_>, _: u32, inst: &Instance<'_>) {
+        encode_inst_section(inst, &mut self.comp_stack.last_mut().unwrap().component, &mut self.reencode, &self.ids, &cx.inner.scope_stack);
     }
     fn visit_start_section(&mut self, cx: &VisitCtx<'_>, start: &ComponentStartFunction) {
-        // let ids = self.curr_ids(cx);
-        let fixed = start.fix(&self.ids, &cx.inner.scope_stack);
-        encode_start_section(&fixed, &mut self.comp_stack.last_mut().unwrap().component, &mut self.reencode);
+        encode_start_section(start, &mut self.comp_stack.last_mut().unwrap().component, &mut self.reencode, &self.ids, &cx.inner.scope_stack);
     }
     fn visit_custom_section(&mut self, cx: &VisitCtx<'_>, sect: &CustomSection<'_>) {
-        // let ids = self.curr_ids(cx);
-        let fixed = sect.fix(&self.ids, &cx.inner.scope_stack);
-        encode_custom_section(&fixed, &mut self.comp_stack.last_mut().unwrap().component, &mut self.reencode);
+        encode_custom_section(sect, &mut self.comp_stack.last_mut().unwrap().component, &mut self.reencode, &self.ids, &cx.inner.scope_stack);
     }
 }
 struct CompFrame {
@@ -393,50 +345,14 @@ fn encode_name_section(names: &Names) -> NameMap {
 fn encode_module_section(module: &Module, component: &mut wasm_encoder::Component) {
     component.section(&ModuleSection(&module.encode_internal(false).0));
 }
-// fn encode_comp_ty_section(
-//     comp_ty: &ComponentType,
-//     plan: &Option<SubItemPlan>,
-//     component: &mut wasm_encoder::Component,
-//     reencode: &mut RoundtripReencoder,
-//     ctx: &mut VisitCtx,
-// ) {
-//     ctx.inner.maybe_enter_scope(comp_ty);
-//     let mut section = ComponentTypeSection::new();
-//
-//     match comp_ty {
-//         ComponentType::Defined(comp_ty) => {
-//             encode_comp_defined_ty(comp_ty, section.defined_type(), reencode)
-//         }
-//         ComponentType::Func(func_ty) => encode_comp_func_ty(func_ty, section.function(), reencode),
-//         ComponentType::Component(decls) => {
-//             let mut new_comp = wasm_encoder::ComponentType::new();
-//             for (idx, subplan) in plan.as_ref().unwrap().order().iter() {
-//                 let decl = &decls[*idx];
-//                 encode_comp_ty_decl(decl, subplan, &mut new_comp, component, reencode, ctx);
-//             }
-//             section.component(&new_comp);
-//         }
-//         ComponentType::Instance(decls) => {
-//             let mut ity = InstanceType::new();
-//             for (idx, subplan) in plan.as_ref().unwrap().order().iter() {
-//                 let decl = &decls[*idx];
-//                 encode_inst_ty_decl(decl, subplan, &mut ity, component, reencode, ctx);
-//             }
-//             section.instance(&ity);
-//         }
-//         ComponentType::Resource { rep, dtor } => {
-//             section.resource(reencode.val_type(*rep).unwrap(), *dtor);
-//         }
-//     }
-//
-//     component.section(&section);
-//     ctx.inner.maybe_exit_scope(comp_ty);
-// }
 fn encode_comp_inst_section(
-    comp_inst: &ComponentInstance,
+    instance: &ComponentInstance,
     component: &mut wasm_encoder::Component,
     reencode: &mut RoundtripReencoder,
+    ids: &ActualIds,
+    scope_stack: &ScopeStack
 ) {
+    let comp_inst = instance.fix(ids, scope_stack);
     let mut instances = wasm_encoder::ComponentInstanceSection::new();
 
     match comp_inst {
@@ -445,7 +361,7 @@ fn encode_comp_inst_section(
             args,
         } => {
             instances.instantiate(
-                *component_index,
+                component_index,
                 args.iter().map(|arg| {
                     (
                         arg.name,
@@ -469,10 +385,13 @@ fn encode_comp_inst_section(
     component.section(&instances);
 }
 fn encode_canon_section(
-    canon: &CanonicalFunction,
+    c: &CanonicalFunction,
     component: &mut wasm_encoder::Component,
     reencode: &mut RoundtripReencoder,
+    ids: &ActualIds,
+    scope_stack: &ScopeStack
 ) {
+    let canon = c.fix(ids, scope_stack);
     let mut canon_sec = wasm_encoder::CanonicalFunctionSection::new();
 
     match canon {
@@ -482,8 +401,8 @@ fn encode_canon_section(
             options,
         } => {
             canon_sec.lift(
-                *core_func_index,
-                *type_index,
+                core_func_index,
+                type_index,
                 options.iter().map(|canon| {
                     do_reencode(
                         *canon,
@@ -499,7 +418,7 @@ fn encode_canon_section(
             options,
         } => {
             canon_sec.lower(
-                *func_index,
+                func_index,
                 options.iter().map(|canon| {
                     do_reencode(
                         *canon,
@@ -511,16 +430,16 @@ fn encode_canon_section(
             );
         }
         CanonicalFunction::ResourceNew { resource } => {
-            canon_sec.resource_new(*resource);
+            canon_sec.resource_new(resource);
         }
         CanonicalFunction::ResourceDrop { resource } => {
-            canon_sec.resource_drop(*resource);
+            canon_sec.resource_drop(resource);
         }
         CanonicalFunction::ResourceRep { resource } => {
-            canon_sec.resource_rep(*resource);
+            canon_sec.resource_rep(resource);
         }
         CanonicalFunction::ResourceDropAsync { resource } => {
-            canon_sec.resource_drop_async(*resource);
+            canon_sec.resource_drop_async(resource);
         }
         CanonicalFunction::ThreadAvailableParallelism => {
             canon_sec.thread_available_parallelism();
@@ -545,14 +464,14 @@ fn encode_canon_section(
             memory,
         } => {
             // NOTE: There's a discrepancy in naming here. `cancellable` refers to the same bit as `async_`
-            canon_sec.waitable_set_wait(*cancellable, *memory);
+            canon_sec.waitable_set_wait(cancellable, memory);
         }
         CanonicalFunction::WaitableSetPoll {
             cancellable,
             memory,
         } => {
             // NOTE: There's a discrepancy in naming here. `cancellable` refers to the same bit as `async_`
-            canon_sec.waitable_set_poll(*cancellable, *memory);
+            canon_sec.waitable_set_poll(cancellable, memory);
         }
         CanonicalFunction::WaitableSetDrop => {
             canon_sec.waitable_set_drop();
@@ -564,34 +483,34 @@ fn encode_canon_section(
             canon_sec.subtask_drop();
         }
         CanonicalFunction::StreamNew { ty } => {
-            canon_sec.stream_new(*ty);
+            canon_sec.stream_new(ty);
         }
         CanonicalFunction::StreamRead { ty, options } => {
-            canon_sec.stream_read(*ty, options.iter().map(|opt| (*opt).into()));
+            canon_sec.stream_read(ty, options.iter().map(|opt| (*opt).into()));
         }
         CanonicalFunction::StreamWrite { ty, options } => {
-            canon_sec.stream_write(*ty, options.iter().map(|opt| (*opt).into()));
+            canon_sec.stream_write(ty, options.iter().map(|opt| (*opt).into()));
         }
         CanonicalFunction::StreamCancelRead { async_, ty } => {
-            canon_sec.stream_cancel_read(*ty, *async_);
+            canon_sec.stream_cancel_read(ty, async_);
         }
         CanonicalFunction::StreamCancelWrite { async_, ty } => {
-            canon_sec.stream_cancel_write(*ty, *async_);
+            canon_sec.stream_cancel_write(ty, async_);
         }
         CanonicalFunction::FutureNew { ty } => {
-            canon_sec.future_new(*ty);
+            canon_sec.future_new(ty);
         }
         CanonicalFunction::FutureRead { ty, options } => {
-            canon_sec.future_read(*ty, options.iter().map(|opt| (*opt).into()));
+            canon_sec.future_read(ty, options.iter().map(|opt| (*opt).into()));
         }
         CanonicalFunction::FutureWrite { ty, options } => {
-            canon_sec.future_write(*ty, options.iter().map(|opt| (*opt).into()));
+            canon_sec.future_write(ty, options.iter().map(|opt| (*opt).into()));
         }
         CanonicalFunction::FutureCancelRead { async_, ty } => {
-            canon_sec.future_cancel_read(*ty, *async_);
+            canon_sec.future_cancel_read(ty, async_);
         }
         CanonicalFunction::FutureCancelWrite { async_, ty } => {
-            canon_sec.future_cancel_write(*ty, *async_);
+            canon_sec.future_cancel_write(ty, async_);
         }
         CanonicalFunction::ErrorContextNew { options } => {
             canon_sec.error_context_new(options.iter().map(|opt| (*opt).into()));
@@ -603,40 +522,40 @@ fn encode_canon_section(
             canon_sec.error_context_drop();
         }
         CanonicalFunction::ThreadSpawnRef { func_ty_index } => {
-            canon_sec.thread_spawn_ref(*func_ty_index);
+            canon_sec.thread_spawn_ref(func_ty_index);
         }
         CanonicalFunction::ThreadSpawnIndirect {
             func_ty_index,
             table_index,
         } => {
-            canon_sec.thread_spawn_indirect(*func_ty_index, *table_index);
+            canon_sec.thread_spawn_indirect(func_ty_index, table_index);
         }
         CanonicalFunction::TaskCancel => {
             canon_sec.task_cancel();
         }
         CanonicalFunction::ContextGet(i) => {
-            canon_sec.context_get(*i);
+            canon_sec.context_get(i);
         }
         CanonicalFunction::ContextSet(i) => {
-            canon_sec.context_set(*i);
+            canon_sec.context_set(i);
         }
         CanonicalFunction::SubtaskCancel { async_ } => {
-            canon_sec.subtask_cancel(*async_);
+            canon_sec.subtask_cancel(async_);
         }
         CanonicalFunction::StreamDropReadable { ty } => {
-            canon_sec.stream_drop_readable(*ty);
+            canon_sec.stream_drop_readable(ty);
         }
         CanonicalFunction::StreamDropWritable { ty } => {
-            canon_sec.stream_drop_writable(*ty);
+            canon_sec.stream_drop_writable(ty);
         }
         CanonicalFunction::FutureDropReadable { ty } => {
-            canon_sec.future_drop_readable(*ty);
+            canon_sec.future_drop_readable(ty);
         }
         CanonicalFunction::FutureDropWritable { ty } => {
-            canon_sec.future_drop_writable(*ty);
+            canon_sec.future_drop_writable(ty);
         }
         CanonicalFunction::ThreadYield { cancellable } => {
-            canon_sec.thread_yield(*cancellable);
+            canon_sec.thread_yield(cancellable);
         }
         CanonicalFunction::ThreadIndex => {
             canon_sec.thread_index();
@@ -645,39 +564,45 @@ fn encode_canon_section(
             func_ty_index,
             table_index,
         } => {
-            canon_sec.thread_new_indirect(*func_ty_index, *table_index);
+            canon_sec.thread_new_indirect(func_ty_index, table_index);
         }
         CanonicalFunction::ThreadSwitchTo { cancellable } => {
-            canon_sec.thread_switch_to(*cancellable);
+            canon_sec.thread_switch_to(cancellable);
         }
         CanonicalFunction::ThreadSuspend { cancellable } => {
-            canon_sec.thread_suspend(*cancellable);
+            canon_sec.thread_suspend(cancellable);
         }
         CanonicalFunction::ThreadResumeLater => {
             canon_sec.thread_resume_later();
         }
         CanonicalFunction::ThreadYieldTo { cancellable } => {
-            canon_sec.thread_yield_to(*cancellable);
+            canon_sec.thread_yield_to(cancellable);
         }
     }
     component.section(&canon_sec);
 }
 fn encode_alias_section(
-    alias: &ComponentAlias,
+    a: &ComponentAlias,
     component: &mut wasm_encoder::Component,
     reencode: &mut RoundtripReencoder,
+    ids: &ActualIds,
+    scope_stack: &ScopeStack
 ) {
-    let new_a = into_wasm_encoder_alias(alias, reencode);
+    let alias = a.fix(ids, scope_stack);
+    let new_a = into_wasm_encoder_alias(&alias, reencode);
 
     let mut alias_section = ComponentAliasSection::new();
     alias_section.alias(new_a);
     component.section(&alias_section);
 }
 fn encode_comp_import_section(
-    import: &ComponentImport,
+    i: &ComponentImport,
     component: &mut wasm_encoder::Component,
     reencode: &mut RoundtripReencoder,
+    ids: &ActualIds,
+    scope_stack: &ScopeStack
 ) {
+    let import = i.fix(ids, scope_stack);
     let mut imports = wasm_encoder::ComponentImportSection::new();
 
     let ty = do_reencode(
@@ -691,10 +616,13 @@ fn encode_comp_import_section(
     component.section(&imports);
 }
 fn encode_comp_export_section(
-    export: &ComponentExport,
+    e: &ComponentExport,
     component: &mut wasm_encoder::Component,
     reencode: &mut RoundtripReencoder,
+    ids: &ActualIds,
+    scope_stack: &ScopeStack
 ) {
+    let export = e.fix(ids, scope_stack);
     let mut exports = wasm_encoder::ComponentExportSection::new();
 
     let ty = export.ty.map(|ty| {
@@ -716,16 +644,19 @@ fn encode_comp_export_section(
     component.section(&exports);
 }
 fn encode_inst_section(
-    inst: &Instance,
+    i: &Instance,
     component: &mut wasm_encoder::Component,
     _: &mut RoundtripReencoder,
+    ids: &ActualIds,
+    scope_stack: &ScopeStack
 ) {
+    let inst = i.fix(ids, scope_stack);
     let mut instances = wasm_encoder::InstanceSection::new();
 
     match inst {
         Instance::Instantiate { module_index, args } => {
             instances.instantiate(
-                *module_index,
+                module_index,
                 args.iter()
                     .map(|arg| (arg.name, ModuleArg::Instance(arg.index))),
             );
@@ -744,10 +675,13 @@ fn encode_inst_section(
     component.section(&instances);
 }
 fn encode_start_section(
-    start: &ComponentStartFunction,
+    s: &ComponentStartFunction,
     component: &mut wasm_encoder::Component,
     _: &mut RoundtripReencoder,
+    ids: &ActualIds,
+    scope_stack: &ScopeStack
 ) {
+    let start = s.fix(ids, scope_stack);
     component.section(&wasm_encoder::ComponentStartSection {
         function_index: start.func_index,
         args: start.arguments.clone(),
@@ -755,10 +689,13 @@ fn encode_start_section(
     });
 }
 fn encode_custom_section(
-    custom: &CustomSection,
+    s: &CustomSection,
     component: &mut wasm_encoder::Component,
     _: &mut RoundtripReencoder,
+    ids: &ActualIds,
+    scope_stack: &ScopeStack
 ) {
+    let custom = s.fix(ids, scope_stack);
     component.section(&wasm_encoder::CustomSection {
         name: std::borrow::Cow::Borrowed(custom.name),
         data: custom.data.clone(),
@@ -768,13 +705,16 @@ fn encode_custom_section(
 // === The inner structs ===
 
 fn encode_comp_defined_ty(
-    ty: &ComponentDefinedType,
+    t: &ComponentDefinedType,
     enc: ComponentDefinedTypeEncoder,
     reencode: &mut RoundtripReencoder,
+    ids: &ActualIds,
+    scope_stack: &ScopeStack
 ) {
+    let ty = t.fix(ids, scope_stack);
     match ty {
         ComponentDefinedType::Primitive(p) => {
-            enc.primitive(wasm_encoder::PrimitiveValType::from(*p))
+            enc.primitive(wasm_encoder::PrimitiveValType::from(p))
         }
         ComponentDefinedType::Record(records) => {
             enc.record(
@@ -790,20 +730,20 @@ fn encode_comp_defined_ty(
                 variant.refines,
             )
         })),
-        ComponentDefinedType::List(l) => enc.list(reencode.component_val_type(*l)),
+        ComponentDefinedType::List(l) => enc.list(reencode.component_val_type(l)),
         ComponentDefinedType::Tuple(tup) => enc.tuple(
             tup.iter()
                 .map(|val_type| reencode.component_val_type(*val_type)),
         ),
         ComponentDefinedType::Flags(flags) => enc.flags(flags.clone().into_vec()),
         ComponentDefinedType::Enum(en) => enc.enum_type(en.clone().into_vec()),
-        ComponentDefinedType::Option(opt) => enc.option(reencode.component_val_type(*opt)),
+        ComponentDefinedType::Option(opt) => enc.option(reencode.component_val_type(opt)),
         ComponentDefinedType::Result { ok, err } => enc.result(
             ok.map(|val_type| reencode.component_val_type(val_type)),
             err.map(|val_type| reencode.component_val_type(val_type)),
         ),
-        ComponentDefinedType::Own(id) => enc.own(*id),
-        ComponentDefinedType::Borrow(id) => enc.borrow(*id),
+        ComponentDefinedType::Own(id) => enc.own(id),
+        ComponentDefinedType::Borrow(id) => enc.borrow(id),
         ComponentDefinedType::Future(opt) => {
             enc.future(opt.map(|opt| reencode.component_val_type(opt)))
         }
@@ -811,20 +751,23 @@ fn encode_comp_defined_ty(
             enc.stream(opt.map(|opt| reencode.component_val_type(opt)))
         }
         ComponentDefinedType::FixedSizeList(ty, i) => {
-            enc.fixed_size_list(reencode.component_val_type(*ty), *i)
+            enc.fixed_size_list(reencode.component_val_type(ty), i)
         }
         ComponentDefinedType::Map(key_ty, val_ty) => enc.map(
-            reencode.component_val_type(*key_ty),
-            reencode.component_val_type(*val_ty),
+            reencode.component_val_type(key_ty),
+            reencode.component_val_type(val_ty),
         ),
     }
 }
 
 fn encode_comp_func_ty(
-    ty: &ComponentFuncType,
+    t: &ComponentFuncType,
     mut enc: ComponentFuncTypeEncoder,
     reencode: &mut RoundtripReencoder,
+    ids: &ActualIds,
+    scope_stack: &ScopeStack
 ) {
+    let ty = t.fix(ids, scope_stack);
     enc.async_(ty.async_);
     enc.params(
         ty.params
@@ -838,32 +781,23 @@ fn encode_comp_ty_decl(
     ty: &ComponentTypeDeclaration,
     new_comp_ty: &mut wasm_encoder::ComponentType,
     reencode: &mut RoundtripReencoder,
+    ids: &ActualIds,
+    scope_stack: &ScopeStack
 ) {
     match ty {
-        ComponentTypeDeclaration::CoreType(core_ty) => {
-            // encode_core_ty_in_comp_ty(core_ty, subitem_plan, new_comp_ty, reencode, ctx)
-        }
-        ComponentTypeDeclaration::Type(comp_ty) => {
-            // encode_comp_ty(
-            //     comp_ty,
-            //     subitem_plan,
-            //     new_comp_ty.ty(),
-            //     component,
-            //     reencode,
-            //     ctx,
-            // )
-        },
-        ComponentTypeDeclaration::Alias(a) => encode_alias_in_comp_ty(a, new_comp_ty, reencode),
-        ComponentTypeDeclaration::Export { name, ty } => {
+        ComponentTypeDeclaration::Alias(a) => encode_alias_in_comp_ty(a, new_comp_ty, reencode, ids, scope_stack),
+        ComponentTypeDeclaration::Export { name, ty: t } => {
+            let ty = t.fix(ids, scope_stack);
             let ty = do_reencode(
-                *ty,
+                ty,
                 RoundtripReencoder::component_type_ref,
                 reencode,
                 "component type",
             );
             new_comp_ty.export(name.0, ty);
         }
-        ComponentTypeDeclaration::Import(imp) => {
+        ComponentTypeDeclaration::Import(i) => {
+            let imp = i.fix(ids, scope_stack);
             let ty = do_reencode(
                 imp.ty,
                 RoundtripReencoder::component_type_ref,
@@ -872,24 +806,29 @@ fn encode_comp_ty_decl(
             );
             new_comp_ty.import(imp.name.0, ty);
         }
+        ComponentTypeDeclaration::CoreType(_)
+        | ComponentTypeDeclaration::Type(_) => {}, // handled explicitly in visitor
     }
 }
 fn encode_alias_in_comp_ty(
-    alias: &ComponentAlias,
+    a: &ComponentAlias,
     comp_ty: &mut wasm_encoder::ComponentType,
     reencode: &mut RoundtripReencoder,
+    ids: &ActualIds,
+    scope_stack: &ScopeStack
 ) {
-    let new_a = into_wasm_encoder_alias(alias, reencode);
+    let alias = a.fix(ids, scope_stack);
+    let new_a = into_wasm_encoder_alias(&alias, reencode);
     comp_ty.alias(new_a);
 }
 fn encode_rec_group_in_core_ty(
     group: &RecGroup,
-    ids: &ActualIds,
-    scope_stack: &ScopeStack,
     enc: &mut CoreTypeSection,
     reencode: &mut RoundtripReencoder,
+    ids: &ActualIds,
+    scope_stack: &ScopeStack,
 ) {
-    let types = into_wasm_encoder_recgroup(group, ids, scope_stack, reencode);
+    let types = into_wasm_encoder_recgroup(group, reencode, ids, scope_stack);
 
     if group.is_explicit_rec_group() {
         enc.ty().core().rec(types);
@@ -905,77 +844,81 @@ fn encode_inst_ty_decl(
     inst: &InstanceTypeDeclaration,
     ity: &mut wasm_encoder::InstanceType,
     reencode: &mut RoundtripReencoder,
+    ids: &ActualIds,
+    scope_stack: &ScopeStack
 ) {
     match inst {
-        InstanceTypeDeclaration::Alias(alias) => match alias {
-            ComponentAlias::InstanceExport {
-                kind,
-                instance_index,
-                name,
-            } => {
-                ity.alias(Alias::InstanceExport {
-                    instance: *instance_index,
-                    kind: reencode.component_export_kind(*kind),
+        InstanceTypeDeclaration::Alias(a) => {
+            let alias = a.fix(ids, scope_stack);
+            match alias {
+                ComponentAlias::InstanceExport {
+                    kind,
+                    instance_index,
                     name,
-                });
-            }
-            ComponentAlias::CoreInstanceExport {
-                kind,
-                instance_index,
-                name,
-            } => {
-                ity.alias(Alias::CoreInstanceExport {
-                    instance: *instance_index,
-                    kind: do_reencode(
-                        *kind,
-                        RoundtripReencoder::export_kind,
-                        reencode,
-                        "export kind",
-                    ),
+                } => {
+                    ity.alias(Alias::InstanceExport {
+                        instance: instance_index,
+                        kind: reencode.component_export_kind(kind),
+                        name,
+                    });
+                }
+                ComponentAlias::CoreInstanceExport {
+                    kind,
+                    instance_index,
                     name,
-                });
-            }
-            ComponentAlias::Outer { kind, count, index } => {
-                ity.alias(Alias::Outer {
-                    kind: reencode.component_outer_alias_kind(*kind),
-                    count: *count,
-                    index: *index,
-                });
+                } => {
+                    ity.alias(Alias::CoreInstanceExport {
+                        instance: instance_index,
+                        kind: do_reencode(
+                            kind,
+                            RoundtripReencoder::export_kind,
+                            reencode,
+                            "export kind",
+                        ),
+                        name,
+                    });
+                }
+                ComponentAlias::Outer { kind, count, index } => {
+                    ity.alias(Alias::Outer {
+                        kind: reencode.component_outer_alias_kind(kind),
+                        count,
+                        index,
+                    });
+                }
             }
         },
-        InstanceTypeDeclaration::Export { name, ty } => {
+        InstanceTypeDeclaration::Export { name, ty: t } => {
+            let ty = t.fix(ids, scope_stack);
             ity.export(
                 name.0,
                 do_reencode(
-                    *ty,
+                    ty,
                     RoundtripReencoder::component_type_ref,
                     reencode,
                     "component type",
                 ),
             );
         }
-        InstanceTypeDeclaration::CoreType(core_ty) => {
-            // encode_core_ty_in_inst_ty(core_ty, subitem_plan, ity, reencode)
-        }
-        InstanceTypeDeclaration::Type(ty) => {
-            // let enc = ity.ty();
-            // encode_comp_ty(ty, subitem_plan, enc, component, reencode);
-        }
+        InstanceTypeDeclaration::CoreType(_)
+        | InstanceTypeDeclaration::Type(_) => {}, // handled explicitly in visitor
     }
 }
 fn encode_core_ty_from_inst_ty(
     core_ty: &CoreType,
     inst_ty: &mut wasm_encoder::InstanceType,
     reencode: &mut RoundtripReencoder,
+    ids: &ActualIds,
+    scope_stack: &ScopeStack
 ) -> TypeFrame {
     match core_ty {
-        CoreType::Rec(recgroup) => {
+        CoreType::Rec(r) => {
+            let recgroup = r.fix(ids, scope_stack);
             for sub in recgroup.types() {
                 encode_subtype(sub, inst_ty.core_type().core(), reencode);
             }
             TypeFrame::Nop
         }
-        CoreType::Module(decls) => {
+        CoreType::Module(_) => {
             TypeFrame::ModTy { ty: wasm_encoder::ModuleType::new() }
         }
     }
@@ -984,48 +927,56 @@ fn encode_core_ty_from_comp_ty(
     core_ty: &CoreType,
     comp_ty: &mut wasm_encoder::ComponentType,
     reencode: &mut RoundtripReencoder,
+    ids: &ActualIds,
+    scope_stack: &ScopeStack
 ) -> TypeFrame {
     match core_ty {
-        CoreType::Rec(recgroup) => {
+        CoreType::Rec(r) => {
+            let recgroup = r.fix(ids, scope_stack);
             for sub in recgroup.types() {
                 encode_subtype(sub, comp_ty.core_type().core(), reencode);
             }
             TypeFrame::Nop
         }
-        CoreType::Module(decls) => {
+        CoreType::Module(_) => {
             TypeFrame::ModTy { ty: wasm_encoder::ModuleType::new() }
         }
     }
 }
 fn encode_module_type_decl(
-    decl: &ModuleTypeDeclaration,
-    ids: &ActualIds,
-    scope_stack: &ScopeStack,
+    d: &ModuleTypeDeclaration,
     mty: &mut wasm_encoder::ModuleType,
     reencode: &mut RoundtripReencoder,
+    ids: &ActualIds,
+    scope_stack: &ScopeStack
 ) {
-    match decl {
-        ModuleTypeDeclaration::Type(recgroup) => {
-            let types = into_wasm_encoder_recgroup(recgroup, ids, scope_stack, reencode);
+    if let ModuleTypeDeclaration::Type(recgroup) = d {
+        // special handler for recgroups!
+        let types = into_wasm_encoder_recgroup(recgroup, reencode, ids, scope_stack);
 
-            if recgroup.is_explicit_rec_group() {
-                mty.ty().rec(types);
-            } else {
-                // it's implicit!
-                for subty in types {
-                    mty.ty().subtype(&subty);
-                }
+        if recgroup.is_explicit_rec_group() {
+            mty.ty().rec(types);
+        } else {
+            // it's implicit!
+            for subty in types {
+                mty.ty().subtype(&subty);
             }
         }
+        return;
+    }
+
+    let decl = d.fix(ids, scope_stack);
+    match decl {
+        ModuleTypeDeclaration::Type(_) => unreachable!(),
         ModuleTypeDeclaration::Export { name, ty } => {
-            mty.export(name, reencode.entity_type(*ty).unwrap());
+            mty.export(name, reencode.entity_type(ty).unwrap());
         }
         ModuleTypeDeclaration::OuterAlias {
             kind: _kind,
             count,
             index,
         } => {
-            mty.alias_outer_core_type(*count, *index);
+            mty.alias_outer_core_type(count, index);
         }
         ModuleTypeDeclaration::Import(import) => {
             mty.import(
@@ -1038,59 +989,72 @@ fn encode_module_type_decl(
 }
 
 fn encode_comp_ty_in_inst_ty(
-    ty: &ComponentType,
+    t: &ComponentType,
     ity: &mut wasm_encoder::InstanceType,
     reencode: &mut RoundtripReencoder,
+    ids: &ActualIds,
+    scope_stack: &ScopeStack
 ) -> TypeFrame {
+    // special case for components and instances
+    if let ComponentType::Component(_) = t {
+        return TypeFrame::CompTy { ty: wasm_encoder::ComponentType::new() };
+    } else if let ComponentType::Instance(_) = t {
+        return TypeFrame::InstTy { ty: wasm_encoder::InstanceType::new() }
+    }
+
+    let ty = t.fix(ids, scope_stack);
     match ty {
         ComponentType::Defined(comp_ty) => {
-            encode_comp_defined_ty(comp_ty, ity.ty().defined_type(), reencode);
+            encode_comp_defined_ty(&comp_ty, ity.ty().defined_type(), reencode, ids, scope_stack);
             TypeFrame::Nop
         }
         ComponentType::Func(func_ty) => {
-            encode_comp_func_ty(func_ty, ity.ty().function(), reencode);
+            encode_comp_func_ty(&func_ty, ity.ty().function(), reencode, ids, scope_stack);
             TypeFrame::Nop
         },
         ComponentType::Resource { rep, dtor } => {
-            ity.ty().resource(reencode.val_type(*rep).unwrap(), *dtor);
+            ity.ty().resource(reencode.val_type(rep).unwrap(), dtor);
             TypeFrame::Nop
         }
-        ComponentType::Component(_) => {
-            TypeFrame::CompTy { ty: wasm_encoder::ComponentType::new() }
-        }
-        ComponentType::Instance(_) => {
-            TypeFrame::InstTy { ty: wasm_encoder::InstanceType::new() }
-        }
+        ComponentType::Component(_)
+        | ComponentType::Instance(_) => unreachable!()
     }
 }
 
 fn encode_comp_ty_in_comp_ty(
-    ty: &ComponentType,
+    t: &ComponentType,
     cty: &mut wasm_encoder::ComponentType,
     reencode: &mut RoundtripReencoder,
+    ids: &ActualIds,
+    scope_stack: &ScopeStack
 ) -> TypeFrame {
+    // special case for components and instances
+    if let ComponentType::Component(_) = t {
+        return TypeFrame::CompTy { ty: wasm_encoder::ComponentType::new() };
+    } else if let ComponentType::Instance(_) = t {
+        return TypeFrame::InstTy { ty: wasm_encoder::InstanceType::new() }
+    }
+
+    let ty = t.fix(ids, scope_stack);
     match ty {
         ComponentType::Defined(comp_ty) => {
-            encode_comp_defined_ty(comp_ty, cty.ty().defined_type(), reencode);
+            encode_comp_defined_ty(&comp_ty, cty.ty().defined_type(), reencode, ids, scope_stack);
             TypeFrame::Nop
         }
         ComponentType::Func(func_ty) => {
-            encode_comp_func_ty(func_ty, cty.ty().function(), reencode);
+            encode_comp_func_ty(&func_ty, cty.ty().function(), reencode, ids, scope_stack);
             TypeFrame::Nop
         },
         ComponentType::Resource { rep, dtor } => {
-            cty.ty().resource(reencode.val_type(*rep).unwrap(), *dtor);
+            cty.ty().resource(reencode.val_type(rep).unwrap(), dtor);
             TypeFrame::Nop
         }
-        ComponentType::Component(_) => {
-            TypeFrame::CompTy { ty: wasm_encoder::ComponentType::new() }
-        }
-        ComponentType::Instance(_) => {
-            TypeFrame::InstTy { ty: wasm_encoder::InstanceType::new() }
-        }
+        ComponentType::Component(_)
+        | ComponentType::Instance(_) => unreachable!()
     }
 }
 
+/// NOTE: The alias passed here should already be FIXED
 fn into_wasm_encoder_alias<'a>(
     alias: &ComponentAlias<'a>,
     reencode: &mut RoundtripReencoder,
@@ -1129,11 +1093,10 @@ fn into_wasm_encoder_alias<'a>(
 
 pub fn into_wasm_encoder_recgroup(
     group: &RecGroup,
+    reencode: &mut RoundtripReencoder,
     ids: &ActualIds,
     scope_stack: &ScopeStack,
-    reencode: &mut RoundtripReencoder,
 ) -> Vec<wasm_encoder::SubType> {
-
     let subtypes = group
         .types()
         .map(|subty| {
@@ -1147,54 +1110,7 @@ pub fn into_wasm_encoder_recgroup(
     subtypes
 }
 
-pub fn encode_module_type_decls(
-    subitem_plan: &Option<SubItemPlan>,
-    decls: &[wasmparser::ModuleTypeDeclaration],
-    ids: &ActualIds,
-    scope_stack: &ScopeStack,
-    enc: ComponentCoreTypeEncoder,
-    reencode: &mut RoundtripReencoder,
-) {
-    let mut mty = wasm_encoder::ModuleType::new();
-    for (idx, subplan) in subitem_plan.as_ref().unwrap().order().iter() {
-        assert!(subplan.is_none());
-
-        let decl = &decls[*idx];
-        match decl {
-            wasmparser::ModuleTypeDeclaration::Type(recgroup) => {
-                let types = into_wasm_encoder_recgroup(recgroup, ids, scope_stack, reencode);
-
-                if recgroup.is_explicit_rec_group() {
-                    mty.ty().rec(types);
-                } else {
-                    // it's implicit!
-                    for subty in types {
-                        mty.ty().subtype(&subty);
-                    }
-                }
-            }
-            wasmparser::ModuleTypeDeclaration::Export { name, ty } => {
-                mty.export(name, reencode.entity_type(*ty).unwrap());
-            }
-            wasmparser::ModuleTypeDeclaration::OuterAlias {
-                kind: _kind,
-                count,
-                index,
-            } => {
-                mty.alias_outer_core_type(*count, *index);
-            }
-            wasmparser::ModuleTypeDeclaration::Import(import) => {
-                mty.import(
-                    import.module,
-                    import.name,
-                    reencode.entity_type(import.ty).unwrap(),
-                );
-            }
-        }
-    }
-    enc.module(&mty);
-}
-
+/// NOTE: The subtype passed here should already be FIXED
 fn encode_subtype(subtype: &SubType, enc: CoreTypeEncoder, reencode: &mut RoundtripReencoder) {
     let subty = reencode
         .sub_type(subtype.to_owned())
