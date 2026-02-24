@@ -102,8 +102,8 @@ pub fn drive_event<'ir, V: ComponentVisitor<'ir>>(
                 &ComponentSection::ComponentType,
                 idx,
             );
-            visitor.exit_comp_type(ctx, id, ty);
             ctx.inner.maybe_exit_scope(ty);
+            visitor.exit_comp_type(ctx, id, ty);
         }
 
         VisitEvent::Canon { kind, idx, canon } => {
@@ -175,8 +175,8 @@ pub fn drive_event<'ir, V: ComponentVisitor<'ir>>(
                 &ComponentSection::CoreType,
                 idx,
             );
-            visitor.exit_core_type(ctx, id, ty);
             ctx.inner.maybe_exit_scope(ty);
+            visitor.exit_core_type(ctx, id, ty);
         }
         VisitEvent::CoreInst { idx, inst } => {
             ctx.inner.maybe_enter_scope(inst);

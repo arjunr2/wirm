@@ -22,7 +22,7 @@ wasmparser = "0.244.0"
 
 [dev-dependencies]
 wasmprinter = "0.244.0"
-wat = "1.238.1"
+wat = "1.244.0"
 wasmtime = "40.0.0"
 
 [features]
