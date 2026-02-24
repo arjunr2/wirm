@@ -1,4 +1,4 @@
-use wasmparser::{CanonicalFunction, ComponentAlias, ComponentExport, ComponentImport, ComponentInstance, ComponentStartFunction, ComponentType, ComponentTypeDeclaration, CoreType, Instance, InstanceTypeDeclaration, ModuleTypeDeclaration};
+use wasmparser::{CanonicalFunction, ComponentAlias, ComponentExport, ComponentImport, ComponentInstance, ComponentStartFunction, ComponentType, ComponentTypeDeclaration, CoreType, Instance, InstanceTypeDeclaration, ModuleTypeDeclaration, SubType};
 use crate::{Component, Module};
 use crate::ir::component::idx_spaces::{IndexSpaceOf, Space};
 use crate::ir::component::section::ComponentSection;
@@ -150,6 +150,23 @@ pub fn drive_event<'ir, V: ComponentVisitor<'ir>>(
             visitor.visit_comp_export(ctx, kind, id, exp);
             ctx.inner.maybe_exit_scope(exp);
         }
+        VisitEvent::EnterCoreRecGroup { count, ty } => {
+            visitor.enter_core_rec_group(ctx, count, ty);
+        }
+        VisitEvent::CoreSubtype { parent_idx, subvec_idx, subtype } => {
+            ctx.inner.maybe_enter_scope(subtype);
+            let id = ctx.inner.lookup_id_with_subvec_for(
+                &Space::CoreType,
+                &ComponentSection::CoreType,
+                parent_idx,
+                subvec_idx,
+            );
+            visitor.visit_core_subtype(ctx, id, subtype);
+            ctx.inner.maybe_exit_scope(subtype);
+        }
+        VisitEvent::ExitCoreRecGroup { } => {
+            visitor.exit_core_rec_group(ctx);
+        }
         VisitEvent::EnterCoreType { idx, ty } => {
             ctx.inner.maybe_enter_scope(ty);
             let id = ctx.inner.lookup_id_for(
@@ -279,6 +296,16 @@ pub enum VisitEvent<'ir> {
     // ------------------------
     // Core WebAssembly items
     // ------------------------
+    EnterCoreRecGroup {
+        ty: &'ir CoreType<'ir>,
+        count: usize,
+    },
+    CoreSubtype {
+        parent_idx: usize,
+        subvec_idx: usize,
+        subtype: &'ir SubType
+    },
+    ExitCoreRecGroup {},
     EnterCoreType {
         idx: usize,
         ty: &'ir CoreType<'ir>,
@@ -350,6 +377,15 @@ impl<'ir> VisitEvent<'ir> {
     }
     pub fn export(kind: ItemKind, idx: usize, exp: &'ir ComponentExport<'ir>) -> Self {
         Self::Export { kind, idx, exp }
+    }
+    pub fn enter_rec_group(count: usize, ty: &'ir CoreType<'ir>) -> Self {
+        Self::EnterCoreRecGroup { count, ty }
+    }
+    pub fn core_subtype(parent_idx: usize, subvec_idx: usize, subtype: &'ir SubType) -> Self {
+        Self::CoreSubtype { parent_idx, subvec_idx, subtype }
+    }
+    pub fn exit_rec_group() -> Self {
+        Self::ExitCoreRecGroup {}
     }
     pub fn enter_core_type(_: ItemKind, idx: usize, ty: &'ir CoreType<'ir>) -> Self {
         Self::EnterCoreType { idx, ty }

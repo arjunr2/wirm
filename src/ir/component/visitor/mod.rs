@@ -1,4 +1,4 @@
-use wasmparser::{CanonicalFunction, ComponentAlias, ComponentExport, ComponentImport, ComponentInstance, ComponentStartFunction, ComponentType, ComponentTypeDeclaration, CoreType, Instance, InstanceTypeDeclaration, ModuleTypeDeclaration};
+use wasmparser::{CanonicalFunction, ComponentAlias, ComponentExport, ComponentImport, ComponentInstance, ComponentStartFunction, ComponentType, ComponentTypeDeclaration, CoreType, Instance, InstanceTypeDeclaration, ModuleTypeDeclaration, SubType};
 use crate::{Component, Module};
 use crate::ir::component::idx_spaces::Space;
 use crate::ir::component::refs::{IndexedRef, RefKind};
@@ -288,6 +288,17 @@ pub trait ComponentVisitor<'a> {
     // ------------------------
     // Core WebAssembly items
     // ------------------------
+
+    /// Enter a core recursion group (`core rec`)
+    fn enter_core_rec_group(&mut self, _cx: &VisitCtx<'a>, _count: usize, _core_type: &CoreType<'a>) {}
+    fn visit_core_subtype(
+        &mut self,
+        _cx: &VisitCtx<'a>,
+        _id: u32,
+        _subtype: &SubType,
+    ) {}
+    /// Exit the current recursion group
+    fn exit_core_rec_group(&mut self, _cx: &VisitCtx<'a>) {}
 
     /// Invoked when entering a core WebAssembly type definition.
     ///

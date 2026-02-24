@@ -238,20 +238,32 @@ impl<'ir> TopoCtx<'ir> {
     ) {
         let key = NodeKey::CoreType(id(node));
 
+        let (enter_evt, exit_evt) = if let CoreType::Rec(group) = node {
+            (
+                VisitEvent::enter_rec_group(group.types().len(), node),
+                VisitEvent::exit_rec_group()
+            )
+        } else {
+            (
+                VisitEvent::enter_core_type(
+                    node.index_space_of().into(),
+                    idx,
+                    node
+                ),
+                VisitEvent::exit_core_type(
+                    node.index_space_of().into(),
+                    idx,
+                    node
+                )
+            )
+        };
+
         self.collect_node(
             node,
             key,
             ctx,
-            Some(VisitEvent::enter_core_type(
-                node.index_space_of().into(),
-                idx,
-                node
-            )),
-            VisitEvent::exit_core_type(
-                node.index_space_of().into(),
-                idx,
-                node
-            ),
+            Some(enter_evt),
+            exit_evt,
             |this, node, ctx| {
                 match node {
                     CoreType::Module(decls ) => {
@@ -270,7 +282,11 @@ impl<'ir> TopoCtx<'ir> {
                     }
 
                     // no sub-scoping for the below variant
-                    CoreType::Rec(_) => {}
+                    CoreType::Rec(group) => {
+                        for (subvec_idx, item) in group.types().enumerate() {
+                            this.events.push(VisitEvent::core_subtype(idx, subvec_idx, item));
+                        }
+                    }
                 }
             },
         );

@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use wasmparser::{CanonicalFunction, ComponentAlias, ComponentExport, ComponentImport, ComponentInstance, ComponentType, ComponentTypeDeclaration, CoreType, Instance, InstanceTypeDeclaration, ModuleTypeDeclaration};
+use wasmparser::{CanonicalFunction, ComponentAlias, ComponentExport, ComponentImport, ComponentInstance, ComponentType, ComponentTypeDeclaration, CoreType, Instance, InstanceTypeDeclaration, ModuleTypeDeclaration, SubType};
 use crate::{Component, Module};
 use crate::ir::component::idx_spaces::{IndexSpaceOf, ScopeId, Space};
 use crate::ir::component::refs::IndexedRef;
@@ -9,7 +9,7 @@ pub(crate) fn assign_indices(component: &Component) -> ActualIds {
     let mut assigner = Assigner::default();
     // TODO: Just pull the event vector to keep from generating 2x
     walk_topological(component, &mut assigner);
-    
+
     assigner.ids
 }
 
@@ -58,6 +58,14 @@ impl ComponentVisitor<'_> for Assigner {
     fn visit_module_type_decl(&mut self, cx: &VisitCtx<'_>, _decl_idx: usize, id: u32, _parent: &CoreType<'_>, decl: &ModuleTypeDeclaration<'_>) {
         self.assign_actual_id(cx, &decl.index_space_of(), id)
     }
+    fn enter_core_rec_group(&mut self, cx: &VisitCtx<'_>, _count: usize, _core_type: &CoreType<'_>) {
+        // just need to make sure there's a scope built :)
+        // this is relevant for: (component (core rec) )
+        self.ids.add_scope(cx.inner.scope_stack.curr_space_id());
+    }
+    fn visit_core_subtype(&mut self, cx: &VisitCtx<'_>, id: u32, subtype: &SubType) {
+        self.assign_actual_id(cx, &subtype.index_space_of(), id)
+    }
     fn exit_core_type(&mut self, cx: &VisitCtx<'_>, id: u32, core_type: &CoreType<'_>) {
         self.assign_actual_id(cx, &core_type.index_space_of(), id)
     }
@@ -99,7 +107,7 @@ impl ActualIds {
 #[derive(Clone, Default)]
 pub struct IdsForScope {
     scope_id: ScopeId,
-    
+
     // Component-level spaces
     pub comp: IdTracker,
     pub comp_func: IdTracker,

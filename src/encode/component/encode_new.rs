@@ -239,7 +239,7 @@ impl ComponentVisitor<'_> for Encoder<'_> {
         let fixed = export.fix(&None, ids);
         encode_comp_export_section(&fixed, &mut self.comp_stack.last_mut().unwrap().component, &mut self.reencode);
     }
-    fn enter_core_type(&mut self, cx: &VisitCtx<'_>, _id: u32, ty: &CoreType<'_>) {
+    fn enter_core_rec_group(&mut self, cx: &VisitCtx<'_>, count: usize, ty: &CoreType<'_>) {
         // always make sure the core type section exists!
         let section = curr_core_ty_sect_mut(&mut self.comp_stack);
         match self.type_stack.last_mut() {
@@ -257,8 +257,37 @@ impl ComponentVisitor<'_> for Encoder<'_> {
         match ty {
             CoreType::Rec(group) => {
                 encode_rec_group_in_core_ty(group, self.ids.get_scope(cx.inner.scope_stack.curr_space_id()), section, &mut self.reencode);
-                self.type_stack.push(TypeFrame::Nop);
             }
+            _ => unreachable!()
+        }
+    }
+    // fn visit_core_subtype(&mut self, _cx: &VisitCtx<'_>, _id: u32, _subtype: &SubType) {
+    //     todo!()
+    // }
+    fn exit_core_rec_group(&mut self, _: &VisitCtx<'_>) {
+        let CompFrame {core_type_section, component, .. } = curr_comp_frame(&mut self.comp_stack);
+        let section = core_type_section.as_mut().unwrap();
+
+        component.section(section);
+        *core_type_section = None;
+    }
+    fn enter_core_type(&mut self, cx: &VisitCtx<'_>, _id: u32, ty: &CoreType<'_>) {
+        // always make sure the core type section exists!
+        let section = curr_core_ty_sect_mut(&mut self.comp_stack);
+        match self.type_stack.last_mut() {
+            Some(TypeFrame::InstTy { ty: ity }) => {
+                let new_frame = encode_core_ty(ty, ity, &mut self.reencode);
+                self.type_stack.push(new_frame);
+                return;
+            },
+            Some(TypeFrame::CompTy { ty }) => todo!(),
+            Some(TypeFrame::ModTy { .. }) => unreachable!(),
+            Some(TypeFrame::Nop)
+            | None => {}
+        }
+
+        match ty {
+            CoreType::Rec(group) => unreachable!(),
             CoreType::Module(_) => {
                 self.type_stack.push(TypeFrame::ModTy {
                     ty: wasm_encoder::ModuleType::new()

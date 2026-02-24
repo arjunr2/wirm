@@ -169,6 +169,27 @@ impl VisitCtxInner<'_> {
             .unwrap()
             .lookup_assumed_id(space, section, vec_idx) as u32
     }
+    pub(crate) fn lookup_id_with_subvec_for(
+        &self,
+        space: &Space,
+        section: &ComponentSection,
+        vec_idx: usize,
+        subvec_idx: usize,
+    ) -> u32 {
+        let nested = self.node_has_nested_scope.last().unwrap_or(&false);
+        let scope_id = if *nested {
+            self.scope_stack.space_at_depth(&Depth::parent())
+            // self.scope_stack.curr_space_id()
+        } else {
+            self.scope_stack.curr_space_id()
+        };
+        self.store
+            .borrow()
+            .scopes
+            .get(&scope_id)
+            .unwrap()
+            .lookup_assumed_id_with_subvec(space, section, vec_idx, subvec_idx) as u32
+    }
 
     pub(crate) fn index_from_assumed_id_no_cache(&self, r: &IndexedRef) -> (SpaceSubtype, usize, Option<usize>) {
         let scope_id = self.scope_stack.space_at_depth(&r.depth);
