@@ -9,7 +9,6 @@ use wasmparser::{
     Instance, InstanceTypeDeclaration, InstantiationArg, ModuleTypeDeclaration, RecGroup, RefType,
     StorageType, SubType, TagType, TypeBounds, TypeRef, ValType, VariantCase,
 };
-use crate::ir::component::visitor::VisitCtx;
 
 /// A trait for extracting all referenced indices from an IR node.
 ///
