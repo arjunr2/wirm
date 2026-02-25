@@ -1,5 +1,5 @@
 use crate::ir::component::idx_spaces::{IndexSpaceOf, Space, SpaceSubtype};
-use crate::ir::component::refs::{Depth, RefKind, ReferencedIndices};
+use crate::ir::component::refs::{RefKind, ReferencedIndices};
 use crate::ir::component::scopes::GetScopeKind;
 use crate::ir::component::section::ComponentSection;
 use crate::ir::component::visitor::driver::VisitEvent;
@@ -442,7 +442,7 @@ impl<'ir> TopoCtx<'ir> {
         self.events.push(exit_event);
     }
     fn collect_deps<T: ReferencedIndices + 'ir>(&mut self, item: &'ir T, ctx: &mut VisitCtx<'ir>) {
-        let refs = item.referenced_indices(Depth::default());
+        let refs = item.referenced_indices();
         for RefKind { ref_, .. } in refs.iter() {
             let (vec, idx, subidx) = ctx.inner.index_from_assumed_id(ref_);
             if ref_.space != Space::CoreType {
@@ -518,7 +518,7 @@ impl<'ir> TopoCtx<'ir> {
 
         // collect the dependencies of this guy
         ctx.inner.maybe_enter_scope(item);
-        let refs = item.referenced_indices(Depth::default());
+        let refs = item.referenced_indices();
         for RefKind { ref_, .. } in refs.iter() {
             if !ref_.depth.is_curr() {
                 continue;

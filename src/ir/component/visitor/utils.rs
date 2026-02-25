@@ -133,7 +133,7 @@ impl<'a> VisitCtxInner<'a> {
 
     pub(crate) fn comp_at(&self, depth: Depth) -> &ComponentId {
         self.component_stack
-            .get(self.component_stack.len() - depth.val() as usize - 1)
+            .get(self.component_stack.len() - depth.val() - 1)
             .unwrap_or_else(|| {
                 panic!(
                     "couldn't find component at depth {}; this is the current component stack: {:?}",
@@ -296,7 +296,7 @@ impl ScopeStack {
     pub(crate) fn space_at_depth(&self, depth: &Depth) -> ScopeId {
         *self
             .stack
-            .get(self.stack.len() - depth.val() as usize - 1)
+            .get(self.stack.len() - depth.val() - 1)
             .unwrap_or_else(|| {
                 panic!(
                     "couldn't find scope at depth {}; this is the current scope stack: {:?}",

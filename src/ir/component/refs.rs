@@ -27,7 +27,7 @@ pub trait ReferencedIndices {
     ///
     /// - The referenced [`IndexedRef`]
     /// - The semantic role of the reference
-    fn referenced_indices(&self, depth: Depth) -> Vec<RefKind>;
+    fn referenced_indices(&self) -> Vec<RefKind>;
 }
 /// Extracts references to `components` from a node.
 pub trait GetCompRefs {
@@ -193,27 +193,20 @@ impl RefKind {
 }
 
 #[derive(Clone, Copy, Debug, Default)]
-pub struct Depth(i32);
+pub struct Depth(usize);
 impl Depth {
-    pub fn val(&self) -> i32 {
+    pub fn val(&self) -> usize {
         self.0
     }
     pub fn is_curr(&self) -> bool {
         self.0 == 0
-    }
-    pub fn is_inner(&self) -> bool {
-        self.0 < 0
-    }
-    pub fn inner(mut self) -> Self {
-        self.0 -= 1;
-        self
     }
     pub fn outer(mut self) -> Self {
         self.0 += 1;
         self
     }
     pub fn outer_at(mut self, depth: u32) -> Self {
-        self.0 += depth as i32;
+        self.0 += depth as usize;
         self
     }
     pub fn parent() -> Self {
@@ -248,13 +241,13 @@ pub struct IndexedRef {
 }
 
 impl ReferencedIndices for Module<'_> {
-    fn referenced_indices(&self, _: Depth) -> Vec<RefKind> {
+    fn referenced_indices(&self) -> Vec<RefKind> {
         vec![]
     }
 }
 
 impl ReferencedIndices for ComponentType<'_> {
-    fn referenced_indices(&self, _: Depth) -> Vec<RefKind> {
+    fn referenced_indices(&self) -> Vec<RefKind> {
         let mut refs = vec![];
         refs.extend(self.get_type_refs());
         refs.extend(self.get_func_refs());
@@ -336,7 +329,7 @@ impl GetResultRefs for ComponentType<'_> {
 }
 
 impl ReferencedIndices for ComponentFuncType<'_> {
-    fn referenced_indices(&self, _: Depth) -> Vec<RefKind> {
+    fn referenced_indices(&self) -> Vec<RefKind> {
         let mut all_refs = vec![];
         all_refs.extend(self.get_param_refs());
         all_refs.extend(self.get_result_refs());
@@ -368,7 +361,7 @@ impl GetResultRefs for ComponentFuncType<'_> {
 }
 
 impl ReferencedIndices for ComponentDefinedType<'_> {
-    fn referenced_indices(&self, _: Depth) -> Vec<RefKind> {
+    fn referenced_indices(&self) -> Vec<RefKind> {
         self.get_type_refs()
     }
 }
@@ -432,7 +425,7 @@ impl GetTypeRefs for ComponentDefinedType<'_> {
 }
 
 impl ReferencedIndices for ComponentTypeDeclaration<'_> {
-    fn referenced_indices(&self, _: Depth) -> Vec<RefKind> {
+    fn referenced_indices(&self) -> Vec<RefKind> {
         let mut refs = vec![];
         refs.extend(self.get_type_refs());
         refs.extend(self.get_item_refs());
@@ -464,7 +457,7 @@ impl GetItemRefs for ComponentTypeDeclaration<'_> {
 }
 
 impl ReferencedIndices for InstanceTypeDeclaration<'_> {
-    fn referenced_indices(&self, _: Depth) -> Vec<RefKind> {
+    fn referenced_indices(&self) -> Vec<RefKind> {
         let mut refs = vec![];
         refs.extend(self.get_type_refs());
         refs.extend(self.get_item_refs());
@@ -494,7 +487,7 @@ impl GetItemRefs for InstanceTypeDeclaration<'_> {
 }
 
 impl ReferencedIndices for CoreType<'_> {
-    fn referenced_indices(&self, _: Depth) -> Vec<RefKind> {
+    fn referenced_indices(&self) -> Vec<RefKind> {
         self.get_type_refs()
     }
 }
@@ -508,7 +501,7 @@ impl GetTypeRefs for CoreType<'_> {
 }
 
 impl ReferencedIndices for RecGroup {
-    fn referenced_indices(&self, _: Depth) -> Vec<RefKind> {
+    fn referenced_indices(&self) -> Vec<RefKind> {
         self.get_type_refs()
     }
 }
@@ -524,7 +517,7 @@ impl GetTypeRefs for RecGroup {
 }
 
 impl ReferencedIndices for SubType {
-    fn referenced_indices(&self, _: Depth) -> Vec<RefKind> {
+    fn referenced_indices(&self) -> Vec<RefKind> {
         self.get_type_refs()
     }
 }
@@ -546,7 +539,7 @@ impl GetTypeRefs for SubType {
 }
 
 impl ReferencedIndices for CompositeType {
-    fn referenced_indices(&self, _: Depth) -> Vec<RefKind> {
+    fn referenced_indices(&self) -> Vec<RefKind> {
         let mut refs = vec![];
         refs.extend(self.get_type_refs());
         refs.extend(self.get_param_refs());
@@ -590,7 +583,7 @@ impl GetResultRefs for CompositeType {
 }
 
 impl ReferencedIndices for CompositeInnerType {
-    fn referenced_indices(&self, _: Depth) -> Vec<RefKind> {
+    fn referenced_indices(&self) -> Vec<RefKind> {
         let mut refs = vec![];
         refs.extend(self.get_type_refs());
         refs.extend(self.get_param_refs());
@@ -657,7 +650,7 @@ impl GetResultRefs for CompositeInnerType {
 }
 
 impl ReferencedIndices for FieldType {
-    fn referenced_indices(&self, _: Depth) -> Vec<RefKind> {
+    fn referenced_indices(&self) -> Vec<RefKind> {
         self.get_type_refs()
     }
 }
@@ -668,7 +661,7 @@ impl GetTypeRefs for FieldType {
 }
 
 impl ReferencedIndices for StorageType {
-    fn referenced_indices(&self, _: Depth) -> Vec<RefKind> {
+    fn referenced_indices(&self) -> Vec<RefKind> {
         self.get_type_refs()
     }
 }
@@ -682,14 +675,14 @@ impl GetTypeRefs for StorageType {
 }
 
 impl ReferencedIndices for ModuleTypeDeclaration<'_> {
-    fn referenced_indices(&self, depth: Depth) -> Vec<RefKind> {
+    fn referenced_indices(&self) -> Vec<RefKind> {
         match self {
-            ModuleTypeDeclaration::Type(group) => group.referenced_indices(depth),
-            ModuleTypeDeclaration::Export { ty, .. } => ty.referenced_indices(depth),
-            ModuleTypeDeclaration::Import(i) => i.ty.referenced_indices(depth),
+            ModuleTypeDeclaration::Type(group) => group.referenced_indices(),
+            ModuleTypeDeclaration::Export { ty, .. } => ty.referenced_indices(),
+            ModuleTypeDeclaration::Import(i) => i.ty.referenced_indices(),
             ModuleTypeDeclaration::OuterAlias { kind, count, index } => {
                 vec![RefKind::new(IndexedRef {
-                    depth: depth.outer_at(*count),
+                    depth: Depth(*count as usize),
                     space: kind.index_space_of(),
                     index: *index,
                 })]
@@ -705,7 +698,7 @@ impl GetTypeRefs for ModuleTypeDeclaration<'_> {
             ModuleTypeDeclaration::Import(i) => i.ty.get_type_refs(),
             ModuleTypeDeclaration::OuterAlias { kind, count, index } => {
                 vec![RefKind::new(IndexedRef {
-                    depth: Depth(*count as i32),
+                    depth: Depth(*count as usize),
                     space: kind.index_space_of(),
                     index: *index,
                 })]
@@ -715,7 +708,7 @@ impl GetTypeRefs for ModuleTypeDeclaration<'_> {
 }
 
 impl ReferencedIndices for VariantCase<'_> {
-    fn referenced_indices(&self, _: Depth) -> Vec<RefKind> {
+    fn referenced_indices(&self) -> Vec<RefKind> {
         self.get_type_refs()
     }
 }
@@ -739,7 +732,7 @@ impl GetTypeRefs for VariantCase<'_> {
 }
 
 impl ReferencedIndices for ValType {
-    fn referenced_indices(&self, _: Depth) -> Vec<RefKind> {
+    fn referenced_indices(&self) -> Vec<RefKind> {
         self.get_type_refs()
     }
 }
@@ -753,7 +746,7 @@ impl GetTypeRefs for ValType {
 }
 
 impl ReferencedIndices for RefType {
-    fn referenced_indices(&self, _: Depth) -> Vec<RefKind> {
+    fn referenced_indices(&self) -> Vec<RefKind> {
         self.get_type_refs()
     }
 }
@@ -781,7 +774,7 @@ impl GetTypeRefs for RefType {
 }
 
 impl ReferencedIndices for CanonicalFunction {
-    fn referenced_indices(&self, _: Depth) -> Vec<RefKind> {
+    fn referenced_indices(&self) -> Vec<RefKind> {
         let mut refs = vec![];
         refs.extend(self.get_func_refs());
         refs.extend(self.get_type_refs());
@@ -1120,7 +1113,7 @@ impl GetTableRefs for CanonicalFunction {
 }
 
 impl ReferencedIndices for CanonicalOption {
-    fn referenced_indices(&self, _: Depth) -> Vec<RefKind> {
+    fn referenced_indices(&self) -> Vec<RefKind> {
         let mut refs = vec![];
         refs.extend(self.get_type_refs());
         refs.extend(self.get_func_refs());
@@ -1191,7 +1184,7 @@ impl GetMemRefs for CanonicalOption {
 }
 
 impl ReferencedIndices for ComponentImport<'_> {
-    fn referenced_indices(&self, _: Depth) -> Vec<RefKind> {
+    fn referenced_indices(&self) -> Vec<RefKind> {
         self.get_type_refs()
     }
 }
@@ -1202,7 +1195,7 @@ impl GetTypeRefs for ComponentImport<'_> {
 }
 
 impl ReferencedIndices for ComponentTypeRef {
-    fn referenced_indices(&self, _: Depth) -> Vec<RefKind> {
+    fn referenced_indices(&self) -> Vec<RefKind> {
         self.get_type_refs()
     }
 }
@@ -1239,7 +1232,7 @@ impl GetTypeRefs for ComponentTypeRef {
 }
 
 impl ReferencedIndices for TypeBounds {
-    fn referenced_indices(&self, _: Depth) -> Vec<RefKind> {
+    fn referenced_indices(&self) -> Vec<RefKind> {
         self.get_type_refs()
     }
 }
@@ -1257,7 +1250,7 @@ impl GetTypeRefs for TypeBounds {
 }
 
 impl ReferencedIndices for ComponentValType {
-    fn referenced_indices(&self, _: Depth) -> Vec<RefKind> {
+    fn referenced_indices(&self) -> Vec<RefKind> {
         self.get_type_refs()
     }
 }
@@ -1275,7 +1268,7 @@ impl GetTypeRefs for ComponentValType {
 }
 
 impl ReferencedIndices for ComponentInstantiationArg<'_> {
-    fn referenced_indices(&self, _: Depth) -> Vec<RefKind> {
+    fn referenced_indices(&self) -> Vec<RefKind> {
         vec![self.get_item_ref()]
     }
 }
@@ -1290,7 +1283,7 @@ impl GetItemRef for ComponentInstantiationArg<'_> {
 }
 
 impl ReferencedIndices for ComponentExport<'_> {
-    fn referenced_indices(&self, _: Depth) -> Vec<RefKind> {
+    fn referenced_indices(&self) -> Vec<RefKind> {
         let mut refs = vec![];
         refs.extend(self.get_type_refs());
         refs.push(self.get_item_ref());
@@ -1319,7 +1312,7 @@ impl GetItemRef for ComponentExport<'_> {
 }
 
 impl ReferencedIndices for Export<'_> {
-    fn referenced_indices(&self, _: Depth) -> Vec<RefKind> {
+    fn referenced_indices(&self) -> Vec<RefKind> {
         vec![self.get_item_ref()]
     }
 }
@@ -1334,7 +1327,7 @@ impl GetItemRef for Export<'_> {
 }
 
 impl ReferencedIndices for InstantiationArg<'_> {
-    fn referenced_indices(&self, _: Depth) -> Vec<RefKind> {
+    fn referenced_indices(&self) -> Vec<RefKind> {
         vec![self.get_item_ref()]
     }
 }
@@ -1349,7 +1342,7 @@ impl GetItemRef for InstantiationArg<'_> {
 }
 
 impl ReferencedIndices for Instance<'_> {
-    fn referenced_indices(&self, _: Depth) -> Vec<RefKind> {
+    fn referenced_indices(&self) -> Vec<RefKind> {
         let mut refs = vec![];
         refs.extend(self.get_module_refs());
         refs.extend(self.get_item_refs());
@@ -1391,7 +1384,7 @@ impl GetItemRefs for Instance<'_> {
 }
 
 impl ReferencedIndices for TypeRef {
-    fn referenced_indices(&self, _: Depth) -> Vec<RefKind> {
+    fn referenced_indices(&self) -> Vec<RefKind> {
         self.get_type_refs()
     }
 }
@@ -1415,7 +1408,7 @@ impl GetTypeRefs for TypeRef {
 }
 
 impl ReferencedIndices for ComponentAlias<'_> {
-    fn referenced_indices(&self, _: Depth) -> Vec<RefKind> {
+    fn referenced_indices(&self) -> Vec<RefKind> {
         vec![self.get_item_ref()]
     }
 }
@@ -1433,7 +1426,7 @@ impl GetItemRef for ComponentAlias<'_> {
                 index: *instance_index,
             }),
             ComponentAlias::Outer { count, index, kind } => RefKind::new(IndexedRef {
-                depth: Depth(*count as i32),
+                depth: Depth(*count as usize),
                 space: kind.index_space_of(),
                 index: *index,
             }),
@@ -1442,7 +1435,7 @@ impl GetItemRef for ComponentAlias<'_> {
 }
 
 impl ReferencedIndices for ComponentInstance<'_> {
-    fn referenced_indices(&self, _: Depth) -> Vec<RefKind> {
+    fn referenced_indices(&self) -> Vec<RefKind> {
         let mut refs = vec![];
         refs.extend(self.get_comp_refs());
         refs.extend(self.get_item_refs());
@@ -1490,13 +1483,13 @@ impl GetItemRefs for ComponentInstance<'_> {
 }
 
 impl ReferencedIndices for CustomSection<'_> {
-    fn referenced_indices(&self, _: Depth) -> Vec<RefKind> {
+    fn referenced_indices(&self) -> Vec<RefKind> {
         vec![]
     }
 }
 
 impl ReferencedIndices for ComponentStartFunction {
-    fn referenced_indices(&self, _: Depth) -> Vec<RefKind> {
+    fn referenced_indices(&self) -> Vec<RefKind> {
         let mut refs = vec![];
         refs.push(self.get_func_ref());
         refs.extend(self.get_arg_refs());
