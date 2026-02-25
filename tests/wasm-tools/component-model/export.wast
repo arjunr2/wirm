@@ -1,20 +1,20 @@
 ;; RUN: wast --assert default --snapshot tests/snapshots %
 
-;;(assert_invalid
-;;  (component (export "" (instance 0)))
-;;  "index out of bounds")
-;;
-;;(assert_invalid
-;;  (component (export "" (component 0)))
-;;  "index out of bounds")
-;;
-;;(assert_invalid
-;;  (component (export "" (core module 0)))
-;;  "index out of bounds")
-;;
-;;(assert_invalid
-;;  (component (export "" (func 0)))
-;;  "index out of bounds")
+(assert_invalid
+  (component (export "" (instance 0)))
+  "index out of bounds")
+
+(assert_invalid
+  (component (export "" (component 0)))
+  "index out of bounds")
+
+(assert_invalid
+  (component (export "" (core module 0)))
+  "index out of bounds")
+
+(assert_invalid
+  (component (export "" (func 0)))
+  "index out of bounds")
 
 (component
   (component

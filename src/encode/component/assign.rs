@@ -30,7 +30,13 @@ struct Assigner {
 impl Assigner {
     /// When performing an ID _assignment_, we MUST consider whether the node we're assigning an ID for
     /// has a nested scope! If it does, this node's ID lives in its parent index space.
-    fn assign_actual_id(&mut self, cx: &VisitCtx<'_>, is_inner_node: bool, space: &Space, assumed_id: u32) {
+    fn assign_actual_id(
+        &mut self,
+        cx: &VisitCtx<'_>,
+        is_inner_node: bool,
+        space: &Space,
+        assumed_id: u32,
+    ) {
         let nested = cx.inner.node_has_nested_scope.last().unwrap_or(&false);
         let scope_id = if *nested && !is_inner_node {
             cx.inner.scope_stack.scope_at_depth(&Depth::parent())
@@ -171,7 +177,9 @@ impl ActualIds {
     pub fn add_scope(&mut self, id: ScopeId) {
         self.scopes.entry(id).or_default();
     }
-    pub fn get_scope(&self, id: ScopeId) -> Option<&IdsForScope> { self.scopes.get(&id) }
+    pub fn get_scope(&self, id: ScopeId) -> Option<&IdsForScope> {
+        self.scopes.get(&id)
+    }
     pub fn assign_actual_id(&mut self, id: ScopeId, space: &Space, assumed_id: usize) {
         let ids = self.scopes.entry(id).or_default();
         ids.assign_actual_id(space, assumed_id)

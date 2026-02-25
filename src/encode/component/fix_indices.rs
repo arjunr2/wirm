@@ -851,9 +851,7 @@ impl sealed::Sealed for ModuleTypeDeclaration<'_> {}
 impl FixIndicesImpl for ModuleTypeDeclaration<'_> {
     fn fixme<'a>(&self, ids: &ActualIds, cx: &VisitCtxInner) -> Self {
         match self {
-            ModuleTypeDeclaration::Type(group) => {
-                ModuleTypeDeclaration::Type(group.fix(ids, cx))
-            }
+            ModuleTypeDeclaration::Type(group) => ModuleTypeDeclaration::Type(group.fix(ids, cx)),
             ModuleTypeDeclaration::Export { name, ty } => ModuleTypeDeclaration::Export {
                 name,
                 ty: ty.fix(ids, cx),
@@ -862,10 +860,8 @@ impl FixIndicesImpl for ModuleTypeDeclaration<'_> {
                 ModuleTypeDeclaration::Import(import.fix(ids, cx))
             }
             ModuleTypeDeclaration::OuterAlias { kind, count, .. } => {
-                let new_tid = ids.lookup_actual_id_or_panic(
-                    cx,
-                    &self.get_type_refs().first().unwrap().ref_,
-                );
+                let new_tid =
+                    ids.lookup_actual_id_or_panic(cx, &self.get_type_refs().first().unwrap().ref_);
 
                 ModuleTypeDeclaration::OuterAlias {
                     kind: *kind,
