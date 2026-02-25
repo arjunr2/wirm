@@ -5,3 +5,7 @@ target
 .DS_Store
 **/out.**
 output
+
+# Some helper files
+test.wat
+test.wasm

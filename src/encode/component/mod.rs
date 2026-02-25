@@ -144,15 +144,14 @@ pub fn encode(comp: &Component) -> Vec<u8> {
     // Phase 1: Collect
     // NOTE: I'm directly calling get_topological_events to avoid generating
     // the events 2x (one per visitor used during assign and encode)
-    let mut ctx = VisitCtx::new(comp);
     let mut events = Vec::new();
-    get_topological_events(comp, &mut ctx, &mut events);
+    get_topological_events(comp, &mut VisitCtx::new(comp), &mut events);
 
     // Phase 2: Assign indices
-    let ids = assign_indices(&mut ctx, &events);
+    let ids = assign_indices(&mut VisitCtx::new(comp), &events);
 
     // Phase 3: Encode (pass in the root-level component's plan, assigned indices, and original->new index map)
-    let bytes = encode_internal(&ids, &mut ctx, &events);
+    let bytes = encode_internal(&ids, &mut VisitCtx::new(comp), &events);
 
     // Reset the index stores for any future visits!
     bytes.finish()

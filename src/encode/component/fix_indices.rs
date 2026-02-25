@@ -6,7 +6,7 @@ use crate::ir::component::refs::{
     GetTableRefs, GetTypeRefs,
 };
 use crate::ir::component::scopes::GetScopeKind;
-use crate::ir::component::visitor::utils::ScopeStack;
+use crate::ir::component::visitor::utils::VisitCtxInner;
 use crate::ir::types::CustomSection;
 use wasmparser::{
     ArrayType, CanonicalFunction, CanonicalOption, ComponentAlias, ComponentDefinedType,
@@ -22,10 +22,10 @@ mod sealed {
     pub trait Sealed {}
 }
 trait FixIndicesImpl {
-    fn fixme(&self, ids: &ActualIds, scope_stack: &ScopeStack) -> Self;
+    fn fixme(&self, ids: &ActualIds, cx: &VisitCtxInner) -> Self;
 }
 pub(crate) trait FixIndices: sealed::Sealed {
-    fn fix(&self, ids: &ActualIds, scope_stack: &ScopeStack) -> Self
+    fn fix(&self, ids: &ActualIds, cx: &VisitCtxInner) -> Self
     where
         Self: Sized;
 }
@@ -34,25 +34,25 @@ impl<T> FixIndices for T
 where
     T: GetScopeKind + sealed::Sealed + FixIndicesImpl,
 {
-    fn fix<'a>(&self, ids: &ActualIds, scope_stack: &ScopeStack) -> Self
+    fn fix<'a>(&self, ids: &ActualIds, cx: &VisitCtxInner) -> Self
     where
         Self: Sized,
     {
-        self.fixme(ids, scope_stack)
+        self.fixme(ids, cx)
     }
 }
 
 impl sealed::Sealed for ComponentExport<'_> {}
 #[rustfmt::skip]
 impl FixIndicesImpl for ComponentExport<'_> {
-    fn fixme<'a>(&self, ids: &ActualIds, scope_stack: &ScopeStack) -> Self {
+    fn fixme<'a>(&self, ids: &ActualIds, cx: &VisitCtxInner) -> Self {
         let new_id = ids.lookup_actual_id_or_panic(
-            scope_stack,
+            cx,
             &self.get_item_ref().ref_
         );
 
         let fixed_ty = self.ty.map(|ty| {
-            ty.fix(ids, scope_stack)
+            ty.fix(ids, cx)
         });
 
         ComponentExport {
@@ -67,9 +67,9 @@ impl FixIndicesImpl for ComponentExport<'_> {
 impl sealed::Sealed for ComponentInstantiationArg<'_> {}
 #[rustfmt::skip]
 impl FixIndicesImpl for ComponentInstantiationArg<'_> {
-    fn fixme<'a>(&self, ids: &ActualIds, scope_stack: &ScopeStack) -> Self {
+    fn fixme<'a>(&self, ids: &ActualIds, cx: &VisitCtxInner) -> Self {
         let new_id = ids.lookup_actual_id_or_panic(
-            scope_stack,
+            cx,
             &self.get_item_ref().ref_
         );
 
@@ -84,16 +84,16 @@ impl FixIndicesImpl for ComponentInstantiationArg<'_> {
 impl sealed::Sealed for ComponentType<'_> {}
 #[rustfmt::skip]
 impl FixIndicesImpl for ComponentType<'_> {
-    fn fixme<'a>(&self, ids: &ActualIds, scope_stack: &ScopeStack) -> Self {
+    fn fixme<'a>(&self, ids: &ActualIds, cx: &VisitCtxInner) -> Self {
         match self {
-            ComponentType::Defined(ty) => ComponentType::Defined(ty.fix(ids, scope_stack)),
-            ComponentType::Func(ty) => ComponentType::Func(ty.fix(ids, scope_stack)),
+            ComponentType::Defined(ty) => ComponentType::Defined(ty.fix(ids, cx)),
+            ComponentType::Func(ty) => ComponentType::Func(ty.fix(ids, cx)),
             ComponentType::Resource { rep, dtor } => {
                 ComponentType::Resource {
-                    rep: rep.fix(ids, scope_stack),
+                    rep: rep.fix(ids, cx),
                     dtor: dtor.map(|_| {
                         ids.lookup_actual_id_or_panic(
-                            scope_stack,
+                            cx,
                             &self.get_func_refs().first().unwrap().ref_
                         ) as u32
                     })
@@ -108,24 +108,24 @@ impl FixIndicesImpl for ComponentType<'_> {
 impl sealed::Sealed for ComponentInstance<'_> {}
 #[rustfmt::skip]
 impl FixIndicesImpl for ComponentInstance<'_> {
-    fn fixme<'a>(&self, ids: &ActualIds, scope_stack: &ScopeStack) -> Self {
+    fn fixme<'a>(&self, ids: &ActualIds, cx: &VisitCtxInner) -> Self {
         match self {
             ComponentInstance::Instantiate { args, .. } => {
                 let new_id = ids.lookup_actual_id_or_panic(
-                    scope_stack,
+                    cx,
                     &self.get_comp_refs().first().unwrap().ref_
                 );
 
                 ComponentInstance::Instantiate {
                     component_index: new_id as u32,
                     args: args.iter().map( | arg| {
-                        arg.fix(ids, scope_stack)
+                        arg.fix(ids, cx)
                     }).collect(),
                 }
             }
             ComponentInstance::FromExports(export) => ComponentInstance::FromExports(
                 export.iter().map(|value| {
-                    value.fix(ids, scope_stack)
+                    value.fix(ids, cx)
                 }).collect()
             )
         }
@@ -135,21 +135,21 @@ impl FixIndicesImpl for ComponentInstance<'_> {
 impl sealed::Sealed for CanonicalFunction {}
 #[rustfmt::skip]
 impl FixIndicesImpl for CanonicalFunction {
-    fn fixme<'a>(&self, ids: &ActualIds, scope_stack: &ScopeStack) -> Self {
+    fn fixme<'a>(&self, ids: &ActualIds, cx: &VisitCtxInner) -> Self {
         match self {
             CanonicalFunction::Lift { options: options_orig, .. } => {
                 let new_fid = ids.lookup_actual_id_or_panic(
-                    scope_stack,
+                    cx,
                     &self.get_func_refs().first().unwrap().ref_
                 );
                 let new_tid = ids.lookup_actual_id_or_panic(
-                    scope_stack,
+                    cx,
                     &self.get_type_refs().first().unwrap().ref_
                 );
 
                 let mut fixed_options = vec![];
                 for opt in options_orig.iter() {
-                    fixed_options.push(opt.fix(ids, scope_stack));
+                    fixed_options.push(opt.fix(ids, cx));
                 }
 
                 CanonicalFunction::Lift {
@@ -160,12 +160,12 @@ impl FixIndicesImpl for CanonicalFunction {
             }
             CanonicalFunction::Lower { options: options_orig, .. } => {
                 let new_fid = ids.lookup_actual_id_or_panic(
-                    scope_stack,
+                    cx,
                     &self.get_func_refs().first().unwrap().ref_
                 );
                 let mut fixed_options = vec![];
                 for opt in options_orig.iter() {
-                    fixed_options.push(opt.fix(ids, scope_stack));
+                    fixed_options.push(opt.fix(ids, cx));
                 }
 
                 CanonicalFunction::Lower {
@@ -175,7 +175,7 @@ impl FixIndicesImpl for CanonicalFunction {
             }
             CanonicalFunction::ResourceNew { .. } => {
                 let new_tid = ids.lookup_actual_id_or_panic(
-                    scope_stack,
+                    cx,
                     &self.get_type_refs().first().unwrap().ref_
                 );
 
@@ -183,7 +183,7 @@ impl FixIndicesImpl for CanonicalFunction {
             }
             CanonicalFunction::ResourceDrop { .. } => {
                 let new_tid = ids.lookup_actual_id_or_panic(
-                    scope_stack,
+                    cx,
                     &self.get_type_refs().first().unwrap().ref_
                 );
 
@@ -191,7 +191,7 @@ impl FixIndicesImpl for CanonicalFunction {
             }
             CanonicalFunction::ResourceRep { .. } => {
                 let new_tid = ids.lookup_actual_id_or_panic(
-                    scope_stack,
+                    cx,
                     &self.get_type_refs().first().unwrap().ref_
                 );
 
@@ -199,7 +199,7 @@ impl FixIndicesImpl for CanonicalFunction {
             }
             CanonicalFunction::ResourceDropAsync { .. } => {
                 let new_tid = ids.lookup_actual_id_or_panic(
-                    scope_stack,
+                    cx,
                     &self.get_type_refs().first().unwrap().ref_
                 );
 
@@ -211,18 +211,18 @@ impl FixIndicesImpl for CanonicalFunction {
             } => {
                 let mut fixed_options = vec![];
                 for opt in options_orig.iter() {
-                    fixed_options.push(opt.fix(ids, scope_stack));
+                    fixed_options.push(opt.fix(ids, cx));
                 }
                 CanonicalFunction::TaskReturn {
                     result: result.map(|v| {
-                        v.fix(ids, scope_stack)
+                        v.fix(ids, cx)
                     }),
                     options: fixed_options.into_boxed_slice()
                 }
             }
             CanonicalFunction::WaitableSetWait { cancellable, .. } => {
                 let new_mid = ids.lookup_actual_id_or_panic(
-                    scope_stack,
+                    cx,
                     &self.get_mem_refs().first().unwrap().ref_
                 );
 
@@ -233,7 +233,7 @@ impl FixIndicesImpl for CanonicalFunction {
             }
             CanonicalFunction::WaitableSetPoll { cancellable, .. } => {
                 let new_mid = ids.lookup_actual_id_or_panic(
-                    scope_stack,
+                    cx,
                     &self.get_mem_refs().first().unwrap().ref_
                 );
 
@@ -244,7 +244,7 @@ impl FixIndicesImpl for CanonicalFunction {
             }
             CanonicalFunction::StreamNew { .. } => {
                 let new_tid = ids.lookup_actual_id_or_panic(
-                    scope_stack,
+                    cx,
                     &self.get_type_refs().first().unwrap().ref_
                 );
 
@@ -254,13 +254,13 @@ impl FixIndicesImpl for CanonicalFunction {
             }
             CanonicalFunction::StreamRead { options: options_orig, .. } => {
                 let new_tid = ids.lookup_actual_id_or_panic(
-                    scope_stack,
+                    cx,
                     &self.get_type_refs().first().unwrap().ref_
                 );
 
                 let mut fixed_options = vec![];
                 for opt in options_orig.iter() {
-                    fixed_options.push(opt.fix(ids, scope_stack));
+                    fixed_options.push(opt.fix(ids, cx));
                 }
 
                 CanonicalFunction::StreamRead {
@@ -270,13 +270,13 @@ impl FixIndicesImpl for CanonicalFunction {
             }
             CanonicalFunction::StreamWrite { options: options_orig, .. } => {
                 let new_tid = ids.lookup_actual_id_or_panic(
-                    scope_stack,
+                    cx,
                     &self.get_type_refs().first().unwrap().ref_
                 );
 
                 let mut fixed_options = vec![];
                 for opt in options_orig.iter() {
-                    fixed_options.push(opt.fix(ids, scope_stack));
+                    fixed_options.push(opt.fix(ids, cx));
                 }
 
                 CanonicalFunction::StreamWrite {
@@ -286,7 +286,7 @@ impl FixIndicesImpl for CanonicalFunction {
             }
             CanonicalFunction::StreamCancelRead { async_, .. } => {
                 let new_tid = ids.lookup_actual_id_or_panic(
-                    scope_stack,
+                    cx,
                     &self.get_type_refs().first().unwrap().ref_
                 );
 
@@ -297,7 +297,7 @@ impl FixIndicesImpl for CanonicalFunction {
             }
             CanonicalFunction::StreamCancelWrite { async_, .. } => {
                 let new_tid = ids.lookup_actual_id_or_panic(
-                    scope_stack,
+                    cx,
                     &self.get_type_refs().first().unwrap().ref_
                 );
 
@@ -308,7 +308,7 @@ impl FixIndicesImpl for CanonicalFunction {
             }
             CanonicalFunction::FutureNew { .. } => {
                 let new_tid = ids.lookup_actual_id_or_panic(
-                    scope_stack,
+                    cx,
                     &self.get_type_refs().first().unwrap().ref_
                 );
 
@@ -318,14 +318,14 @@ impl FixIndicesImpl for CanonicalFunction {
             }
             CanonicalFunction::FutureRead { options: options_orig, .. } => {
                 let new_tid = ids.lookup_actual_id_or_panic(
-                    scope_stack,
+                    cx,
                     &self.get_type_refs().first().unwrap().ref_
                 );
 
 
                 let mut fixed_options = vec![];
                 for opt in options_orig.iter() {
-                    fixed_options.push(opt.fix(ids, scope_stack));
+                    fixed_options.push(opt.fix(ids, cx));
                 }
                 CanonicalFunction::FutureRead {
                     ty: new_tid as u32,
@@ -334,14 +334,14 @@ impl FixIndicesImpl for CanonicalFunction {
             }
             CanonicalFunction::FutureWrite { options: options_orig, .. } => {
                 let new_tid = ids.lookup_actual_id_or_panic(
-                    scope_stack,
+                    cx,
                     &self.get_type_refs().first().unwrap().ref_
                 );
 
 
                 let mut fixed_options = vec![];
                 for opt in options_orig.iter() {
-                    fixed_options.push(opt.fix(ids, scope_stack));
+                    fixed_options.push(opt.fix(ids, cx));
                 }
                 CanonicalFunction::FutureWrite {
                     ty: new_tid as u32,
@@ -350,7 +350,7 @@ impl FixIndicesImpl for CanonicalFunction {
             }
             CanonicalFunction::FutureCancelRead { async_, .. } => {
                 let new_tid = ids.lookup_actual_id_or_panic(
-                    scope_stack,
+                    cx,
                     &self.get_type_refs().first().unwrap().ref_
                 );
 
@@ -361,7 +361,7 @@ impl FixIndicesImpl for CanonicalFunction {
             }
             CanonicalFunction::FutureCancelWrite { async_, .. } => {
                 let new_tid = ids.lookup_actual_id_or_panic(
-                    scope_stack,
+                    cx,
                     &self.get_type_refs().first().unwrap().ref_
                 );
 
@@ -373,7 +373,7 @@ impl FixIndicesImpl for CanonicalFunction {
             CanonicalFunction::ErrorContextNew { options: options_orig } => {
                 let mut fixed_options = vec![];
                 for opt in options_orig.iter() {
-                    fixed_options.push(opt.fix(ids, scope_stack));
+                    fixed_options.push(opt.fix(ids, cx));
                 }
                 CanonicalFunction::ErrorContextNew {
                     options: fixed_options.into_boxed_slice()
@@ -382,7 +382,7 @@ impl FixIndicesImpl for CanonicalFunction {
             CanonicalFunction::ErrorContextDebugMessage { options: options_orig } => {
                 let mut fixed_options = vec![];
                 for opt in options_orig.iter() {
-                    fixed_options.push(opt.fix(ids, scope_stack));
+                    fixed_options.push(opt.fix(ids, cx));
                 }
                 CanonicalFunction::ErrorContextDebugMessage {
                     options: fixed_options.into_boxed_slice()
@@ -390,7 +390,7 @@ impl FixIndicesImpl for CanonicalFunction {
             }
             CanonicalFunction::ThreadSpawnRef { .. } => {
                 let new_tid = ids.lookup_actual_id_or_panic(
-                    scope_stack,
+                    cx,
                     &self.get_type_refs().first().unwrap().ref_
                 );
 
@@ -400,11 +400,11 @@ impl FixIndicesImpl for CanonicalFunction {
             }
             CanonicalFunction::ThreadSpawnIndirect { .. } => {
                 let new_tid = ids.lookup_actual_id_or_panic(
-                    scope_stack,
+                    cx,
                     &self.get_type_refs().first().unwrap().ref_
                 );
                 let new_tbl_id = ids.lookup_actual_id_or_panic(
-                    scope_stack,
+                    cx,
                     &self.get_tbl_refs().first().unwrap().ref_
                 );
 
@@ -415,11 +415,11 @@ impl FixIndicesImpl for CanonicalFunction {
             }
             CanonicalFunction::ThreadNewIndirect { .. } => {
                 let new_tid = ids.lookup_actual_id_or_panic(
-                    scope_stack,
+                    cx,
                     &self.get_type_refs().first().unwrap().ref_
                 );
                 let new_tbl_id = ids.lookup_actual_id_or_panic(
-                    scope_stack,
+                    cx,
                     &self.get_tbl_refs().first().unwrap().ref_
                 );
 
@@ -430,7 +430,7 @@ impl FixIndicesImpl for CanonicalFunction {
             }
             CanonicalFunction::StreamDropReadable { .. } => {
                 let new_tid = ids.lookup_actual_id_or_panic(
-                    scope_stack,
+                    cx,
                     &self.get_type_refs().first().unwrap().ref_
                 );
 
@@ -440,7 +440,7 @@ impl FixIndicesImpl for CanonicalFunction {
             }
             CanonicalFunction::StreamDropWritable { .. } => {
                 let new_tid = ids.lookup_actual_id_or_panic(
-                    scope_stack,
+                    cx,
                     &self.get_type_refs().first().unwrap().ref_
                 );
 
@@ -450,7 +450,7 @@ impl FixIndicesImpl for CanonicalFunction {
             }
             CanonicalFunction::FutureDropReadable { .. } => {
                 let new_tid = ids.lookup_actual_id_or_panic(
-                    scope_stack,
+                    cx,
                     &self.get_type_refs().first().unwrap().ref_
                 );
 
@@ -460,7 +460,7 @@ impl FixIndicesImpl for CanonicalFunction {
             }
             CanonicalFunction::FutureDropWritable { .. } => {
                 let new_tid = ids.lookup_actual_id_or_panic(
-                    scope_stack,
+                    cx,
                     &self.get_type_refs().first().unwrap().ref_
                 );
 
@@ -493,17 +493,17 @@ impl FixIndicesImpl for CanonicalFunction {
 impl sealed::Sealed for Instance<'_> {}
 #[rustfmt::skip]
 impl FixIndicesImpl for Instance<'_> {
-    fn fixme<'a>(&self, ids: &ActualIds, scope_stack: &ScopeStack) -> Self {
+    fn fixme<'a>(&self, ids: &ActualIds, cx: &VisitCtxInner) -> Self {
         match self {
             Instance::Instantiate { args: args_orig, .. } => {
                 let new_id = ids.lookup_actual_id_or_panic(
-                    scope_stack,
+                    cx,
                     &self.get_module_refs().first().unwrap().ref_
                 );
 
                 let mut args = vec![];
                 for arg in args_orig.iter() {
-                    args.push(arg.fix(ids, scope_stack));
+                    args.push(arg.fix(ids, cx));
                 }
                 Instance::Instantiate {
                     module_index: new_id as u32,
@@ -513,7 +513,7 @@ impl FixIndicesImpl for Instance<'_> {
             Instance::FromExports(exports_orig) => {
                 let mut exports = vec![];
                 for export in exports_orig.iter() {
-                    exports.push(export.fix(ids, scope_stack));
+                    exports.push(export.fix(ids, cx));
                 }
                 Instance::FromExports(exports.into_boxed_slice())
             }
@@ -524,16 +524,16 @@ impl FixIndicesImpl for Instance<'_> {
 impl sealed::Sealed for ComponentStartFunction {}
 #[rustfmt::skip]
 impl FixIndicesImpl for ComponentStartFunction {
-    fn fixme<'a>(&self, ids: &ActualIds, scope_stack: &ScopeStack) -> Self {
+    fn fixme<'a>(&self, ids: &ActualIds, cx: &VisitCtxInner) -> Self {
         let new_fid = ids.lookup_actual_id_or_panic(
-            scope_stack,
+            cx,
             &self.get_func_ref().ref_
         );
 
         let mut new_args = vec![];
         for r in self.get_arg_refs().iter() {
             let new_arg = ids.lookup_actual_id_or_panic(
-                scope_stack,
+                cx,
                 &r.ref_
             );
             new_args.push(new_arg as u32)
@@ -550,7 +550,7 @@ impl FixIndicesImpl for ComponentStartFunction {
 impl sealed::Sealed for CustomSection<'_> {}
 #[rustfmt::skip]
 impl FixIndicesImpl for CustomSection<'_> {
-    fn fixme<'a>(&self, _: &ActualIds, _: &ScopeStack) -> Self {
+    fn fixme<'a>(&self, _: &ActualIds, _: &VisitCtxInner) -> Self {
         self.clone()
     }
 }
@@ -558,58 +558,58 @@ impl FixIndicesImpl for CustomSection<'_> {
 impl sealed::Sealed for ComponentDefinedType<'_> {}
 #[rustfmt::skip]
 impl FixIndicesImpl for ComponentDefinedType<'_> {
-    fn fixme<'a>(&self, ids: &ActualIds, scope_stack: &ScopeStack) -> Self {
+    fn fixme<'a>(&self, ids: &ActualIds, cx: &VisitCtxInner) -> Self {
         match self {
             ComponentDefinedType::Flags(_)
             | ComponentDefinedType::Enum(_) => self.clone(),
-            ComponentDefinedType::Primitive(ty) => ComponentDefinedType::Primitive(ty.fix(ids, scope_stack)),
+            ComponentDefinedType::Primitive(ty) => ComponentDefinedType::Primitive(ty.fix(ids, cx)),
             ComponentDefinedType::Record(tys) => {
                 let mut new_tys = vec![];
                 for (s, ty) in tys.iter() {
-                    new_tys.push((*s, ty.fix(ids, scope_stack)))
+                    new_tys.push((*s, ty.fix(ids, cx)))
                 }
                 ComponentDefinedType::Record(new_tys.into_boxed_slice())
             },
             ComponentDefinedType::Variant(tys) => {
                 let mut new_tys = vec![];
                 for ty in tys.iter() {
-                    new_tys.push(ty.fix(ids, scope_stack))
+                    new_tys.push(ty.fix(ids, cx))
                 }
                 ComponentDefinedType::Variant(new_tys.into_boxed_slice())
             },
-            ComponentDefinedType::List(ty) => ComponentDefinedType::List(ty.fix(ids, scope_stack)),
-            ComponentDefinedType::FixedSizeList(ty, len) => ComponentDefinedType::FixedSizeList(ty.fix(ids, scope_stack), *len),
+            ComponentDefinedType::List(ty) => ComponentDefinedType::List(ty.fix(ids, cx)),
+            ComponentDefinedType::FixedSizeList(ty, len) => ComponentDefinedType::FixedSizeList(ty.fix(ids, cx), *len),
             ComponentDefinedType::Tuple(tys) => {
                 let mut new_tys = vec![];
                 for t in tys.iter() {
-                    new_tys.push(t.fix(ids, scope_stack))
+                    new_tys.push(t.fix(ids, cx))
                 }
                 ComponentDefinedType::Tuple(new_tys.into_boxed_slice())
             }
-            ComponentDefinedType::Option(ty) => ComponentDefinedType::Option(ty.fix(ids, scope_stack)),
+            ComponentDefinedType::Option(ty) => ComponentDefinedType::Option(ty.fix(ids, cx)),
             ComponentDefinedType::Result { ok, err } => ComponentDefinedType::Result {
-                ok: ok.as_ref().map(|ok| ok.fix(ids, scope_stack)),
-                err: err.as_ref().map(|err| err.fix(ids, scope_stack))
+                ok: ok.as_ref().map(|ok| ok.fix(ids, cx)),
+                err: err.as_ref().map(|err| err.fix(ids, cx))
             },
             ComponentDefinedType::Own(_) => {
                 let new_tid = ids.lookup_actual_id_or_panic(
-                    scope_stack,
+                    cx,
                     &self.get_type_refs().first().unwrap().ref_
                 );
                 ComponentDefinedType::Own(new_tid as u32)
             },
             ComponentDefinedType::Borrow(_) => {
                 let new_tid = ids.lookup_actual_id_or_panic(
-                    scope_stack,
+                    cx,
                     &self.get_type_refs().first().unwrap().ref_
                 );
                 ComponentDefinedType::Borrow(new_tid as u32)
             },
-            ComponentDefinedType::Future(ty) => ComponentDefinedType::Future(ty.as_ref().map(|ty| ty.fix(ids, scope_stack))),
-            ComponentDefinedType::Stream(ty) => ComponentDefinedType::Stream(ty.as_ref().map(|ty| ty.fix(ids, scope_stack))),
+            ComponentDefinedType::Future(ty) => ComponentDefinedType::Future(ty.as_ref().map(|ty| ty.fix(ids, cx))),
+            ComponentDefinedType::Stream(ty) => ComponentDefinedType::Stream(ty.as_ref().map(|ty| ty.fix(ids, cx))),
             ComponentDefinedType::Map(key_ty, val_ty) => ComponentDefinedType::Map(
-                key_ty.fix(ids, scope_stack),
-                val_ty.fix(ids, scope_stack)
+                key_ty.fix(ids, cx),
+                val_ty.fix(ids, cx)
             ),
         }
     }
@@ -618,7 +618,7 @@ impl FixIndicesImpl for ComponentDefinedType<'_> {
 impl sealed::Sealed for PrimitiveValType {}
 #[rustfmt::skip]
 impl FixIndicesImpl for PrimitiveValType {
-    fn fixme<'a>(&self, _: &ActualIds, _: &ScopeStack) -> Self {
+    fn fixme<'a>(&self, _: &ActualIds, _: &VisitCtxInner) -> Self {
         *self
     }
 }
@@ -626,13 +626,13 @@ impl FixIndicesImpl for PrimitiveValType {
 impl sealed::Sealed for VariantCase<'_> {}
 #[rustfmt::skip]
 impl FixIndicesImpl for VariantCase<'_> {
-    fn fixme<'a>(&self, ids: &ActualIds, scope_stack: &ScopeStack) -> Self {
+    fn fixme<'a>(&self, ids: &ActualIds, cx: &VisitCtxInner) -> Self {
         Self {
             name: self.name,
-            ty: self.ty.map(|ty| ty.fix(ids, scope_stack)),
+            ty: self.ty.map(|ty| ty.fix(ids, cx)),
             refines: self.refines.map(|_| {
                 ids.lookup_actual_id_or_panic(
-                    scope_stack,
+                    cx,
                     &self.get_type_refs().first().unwrap().ref_
                 ) as u32
             }),
@@ -643,13 +643,13 @@ impl FixIndicesImpl for VariantCase<'_> {
 impl sealed::Sealed for ComponentFuncType<'_> {}
 #[rustfmt::skip]
 impl FixIndicesImpl for ComponentFuncType<'_> {
-    fn fixme<'a>(&self, ids: &ActualIds, scope_stack: &ScopeStack) -> Self {
+    fn fixme<'a>(&self, ids: &ActualIds, cx: &VisitCtxInner) -> Self {
         let mut new_params = vec![];
         for (orig_name, orig_ty) in self.params.iter() {
-            new_params.push((*orig_name, orig_ty.fix(ids, scope_stack)));
+            new_params.push((*orig_name, orig_ty.fix(ids, cx)));
         }
 
-        let new_res = self.result.map(|res| res.fix(ids, scope_stack));
+        let new_res = self.result.map(|res| res.fix(ids, cx));
 
         Self {
             async_: self.async_,
@@ -662,19 +662,19 @@ impl FixIndicesImpl for ComponentFuncType<'_> {
 impl sealed::Sealed for SubType {}
 #[rustfmt::skip]
 impl FixIndicesImpl for SubType {
-    fn fixme<'a>(&self, ids: &ActualIds, scope_stack: &ScopeStack) -> Self {
+    fn fixme<'a>(&self, ids: &ActualIds, cx: &VisitCtxInner) -> Self {
         Self {
             is_final: self.is_final,
             supertype_idx: if self.supertype_idx.is_some() {
                 let new_tid = ids.lookup_actual_id_or_panic(
-                    scope_stack,
+                    cx,
                     &self.get_type_refs().first().unwrap().ref_
                 );
                 Some(PackedIndex::from_module_index(new_tid as u32).unwrap())
             } else {
                 None
             },
-            composite_type: self.composite_type.fix(ids, scope_stack)
+            composite_type: self.composite_type.fix(ids, cx)
         }
     }
 }
@@ -682,9 +682,9 @@ impl FixIndicesImpl for SubType {
 impl sealed::Sealed for CompositeType {}
 #[rustfmt::skip]
 impl FixIndicesImpl for CompositeType {
-    fn fixme<'a>(&self, ids: &ActualIds, scope_stack: &ScopeStack) -> Self {
+    fn fixme<'a>(&self, ids: &ActualIds, cx: &VisitCtxInner) -> Self {
         Self {
-            inner: self.inner.fix(ids, scope_stack),
+            inner: self.inner.fix(ids, cx),
             shared: false,
             descriptor_idx: None,
             describes_idx: None,
@@ -695,14 +695,14 @@ impl FixIndicesImpl for CompositeType {
 impl sealed::Sealed for CompositeInnerType {}
 #[rustfmt::skip]
 impl FixIndicesImpl for CompositeInnerType {
-    fn fixme<'a>(&self, ids: &ActualIds, scope_stack: &ScopeStack) -> Self {
+    fn fixme<'a>(&self, ids: &ActualIds, cx: &VisitCtxInner) -> Self {
         match self {
-            CompositeInnerType::Func(ty) => CompositeInnerType::Func(ty.fix(ids, scope_stack)),
-            CompositeInnerType::Array(ty) => CompositeInnerType::Array(ArrayType(ty.0.fix(ids, scope_stack))),
-            CompositeInnerType::Struct(s) => CompositeInnerType::Struct(s.fix(ids, scope_stack)),
+            CompositeInnerType::Func(ty) => CompositeInnerType::Func(ty.fix(ids, cx)),
+            CompositeInnerType::Array(ty) => CompositeInnerType::Array(ArrayType(ty.0.fix(ids, cx))),
+            CompositeInnerType::Struct(s) => CompositeInnerType::Struct(s.fix(ids, cx)),
             CompositeInnerType::Cont(_) => {
                 let new_tid = ids.lookup_actual_id_or_panic(
-                    scope_stack,
+                    cx,
                     &self.get_type_refs().first().unwrap().ref_
                 );
                 CompositeInnerType::Cont(ContType(PackedIndex::from_module_index(new_tid as u32).unwrap()))
@@ -714,14 +714,14 @@ impl FixIndicesImpl for CompositeInnerType {
 impl sealed::Sealed for FuncType {}
 #[rustfmt::skip]
 impl FixIndicesImpl for FuncType {
-    fn fixme<'a>(&self, ids: &ActualIds, scope_stack: &ScopeStack) -> Self {
+    fn fixme<'a>(&self, ids: &ActualIds, cx: &VisitCtxInner) -> Self {
         let mut new_params = vec![];
         for p in self.params() {
-            new_params.push(p.fix(ids, scope_stack));
+            new_params.push(p.fix(ids, cx));
         }
         let mut new_results = vec![];
         for r in self.results() {
-            new_results.push(r.fix(ids, scope_stack));
+            new_results.push(r.fix(ids, cx));
         }
 
         Self::new(new_params, new_results)
@@ -731,9 +731,9 @@ impl FixIndicesImpl for FuncType {
 impl sealed::Sealed for FieldType {}
 #[rustfmt::skip]
 impl FixIndicesImpl for FieldType {
-    fn fixme<'a>(&self, ids: &ActualIds, scope_stack: &ScopeStack) -> Self {
+    fn fixme<'a>(&self, ids: &ActualIds, cx: &VisitCtxInner) -> Self {
         Self {
-            element_type: self.element_type.fix(ids, scope_stack),
+            element_type: self.element_type.fix(ids, cx),
             mutable: self.mutable,
         }
     }
@@ -742,11 +742,11 @@ impl FixIndicesImpl for FieldType {
 impl sealed::Sealed for StorageType {}
 #[rustfmt::skip]
 impl FixIndicesImpl for StorageType {
-    fn fixme<'a>(&self, ids: &ActualIds, scope_stack: &ScopeStack) -> Self {
+    fn fixme<'a>(&self, ids: &ActualIds, cx: &VisitCtxInner) -> Self {
         match self {
             StorageType::I8
             | StorageType::I16 => *self,
-            StorageType::Val(value) => StorageType::Val(value.fix(ids, scope_stack))
+            StorageType::Val(value) => StorageType::Val(value.fix(ids, cx))
         }
     }
 }
@@ -754,10 +754,10 @@ impl FixIndicesImpl for StorageType {
 impl sealed::Sealed for StructType {}
 #[rustfmt::skip]
 impl FixIndicesImpl for StructType {
-    fn fixme<'a>(&self, ids: &ActualIds, scope_stack: &ScopeStack) -> Self {
+    fn fixme<'a>(&self, ids: &ActualIds, cx: &VisitCtxInner) -> Self {
         let mut new_fields = vec![];
         for f in self.fields.iter() {
-            new_fields.push(f.fix(ids, scope_stack));
+            new_fields.push(f.fix(ids, cx));
         }
 
         Self {
@@ -769,15 +769,15 @@ impl FixIndicesImpl for StructType {
 impl sealed::Sealed for ComponentTypeDeclaration<'_> {}
 #[rustfmt::skip]
 impl FixIndicesImpl for ComponentTypeDeclaration<'_> {
-    fn fixme<'a>(&self, ids: &ActualIds, scope_stack: &ScopeStack) -> Self {
+    fn fixme<'a>(&self, ids: &ActualIds, cx: &VisitCtxInner) -> Self {
         match self {
-            ComponentTypeDeclaration::CoreType(ty) => ComponentTypeDeclaration::CoreType(ty.fix(ids, scope_stack)),
-            ComponentTypeDeclaration::Type(ty) => ComponentTypeDeclaration::Type(ty.fix(ids, scope_stack)),
-            ComponentTypeDeclaration::Alias(a) => ComponentTypeDeclaration::Alias(a.fix(ids, scope_stack)),
-            ComponentTypeDeclaration::Import(i) => ComponentTypeDeclaration::Import(i.fix(ids, scope_stack)),
+            ComponentTypeDeclaration::CoreType(ty) => ComponentTypeDeclaration::CoreType(ty.fix(ids, cx)),
+            ComponentTypeDeclaration::Type(ty) => ComponentTypeDeclaration::Type(ty.fix(ids, cx)),
+            ComponentTypeDeclaration::Alias(a) => ComponentTypeDeclaration::Alias(a.fix(ids, cx)),
+            ComponentTypeDeclaration::Import(i) => ComponentTypeDeclaration::Import(i.fix(ids, cx)),
             ComponentTypeDeclaration::Export { name, ty } => ComponentTypeDeclaration::Export {
                 name: *name,
-                ty: ty.fix(ids, scope_stack)
+                ty: ty.fix(ids, cx)
             },
         }
     }
@@ -786,14 +786,14 @@ impl FixIndicesImpl for ComponentTypeDeclaration<'_> {
 impl sealed::Sealed for ValType {}
 #[rustfmt::skip]
 impl FixIndicesImpl for ValType {
-    fn fixme<'a>(&self, ids: &ActualIds, scope_stack: &ScopeStack) -> Self {
+    fn fixme<'a>(&self, ids: &ActualIds, cx: &VisitCtxInner) -> Self {
         match self {
             ValType::I32
             | ValType::I64
             | ValType::F32
             | ValType::F64
             | ValType::V128 => *self,
-            ValType::Ref(r) => ValType::Ref(r.fix(ids, scope_stack)),
+            ValType::Ref(r) => ValType::Ref(r.fix(ids, cx)),
         }
     }
 }
@@ -801,13 +801,13 @@ impl FixIndicesImpl for ValType {
 impl sealed::Sealed for RefType {}
 #[rustfmt::skip]
 impl FixIndicesImpl for RefType {
-    fn fixme<'a>(&self, ids: &ActualIds, scope_stack: &ScopeStack) -> Self {
+    fn fixme<'a>(&self, ids: &ActualIds, cx: &VisitCtxInner) -> Self {
         let refs = self.get_type_refs();
         if !refs.is_empty() {
             let new_heap = match self.heap_type() {
                 HeapType::Concrete(_) => {
                     let new_tid = ids.lookup_actual_id_or_panic(
-                        scope_stack,
+                        cx,
                         &refs.first().unwrap().ref_
                     );
                     HeapType::Concrete(UnpackedIndex::Module(new_tid as u32))
@@ -815,7 +815,7 @@ impl FixIndicesImpl for RefType {
 
                 HeapType::Exact(_) => {
                     let new_tid = ids.lookup_actual_id_or_panic(
-                        scope_stack,
+                        cx,
                         &refs.first().unwrap().ref_
                     );
                     HeapType::Exact(UnpackedIndex::Module(new_tid as u32))
@@ -837,10 +837,10 @@ impl FixIndicesImpl for RefType {
 impl sealed::Sealed for CoreType<'_> {}
 #[rustfmt::skip]
 impl FixIndicesImpl for CoreType<'_> {
-    fn fixme<'a>(&self, ids: &ActualIds, scope_stack: &ScopeStack) -> Self {
+    fn fixme<'a>(&self, ids: &ActualIds, cx: &VisitCtxInner) -> Self {
         match &self {
             CoreType::Rec(group) => {
-                CoreType::Rec(group.fix(ids, scope_stack))
+                CoreType::Rec(group.fix(ids, cx))
             }
             CoreType::Module(_) => unreachable!("Should never be called on this variant.")
         }
@@ -849,21 +849,21 @@ impl FixIndicesImpl for CoreType<'_> {
 
 impl sealed::Sealed for ModuleTypeDeclaration<'_> {}
 impl FixIndicesImpl for ModuleTypeDeclaration<'_> {
-    fn fixme<'a>(&self, ids: &ActualIds, scope_stack: &ScopeStack) -> Self {
+    fn fixme<'a>(&self, ids: &ActualIds, cx: &VisitCtxInner) -> Self {
         match self {
             ModuleTypeDeclaration::Type(group) => {
-                ModuleTypeDeclaration::Type(group.fix(ids, scope_stack))
+                ModuleTypeDeclaration::Type(group.fix(ids, cx))
             }
             ModuleTypeDeclaration::Export { name, ty } => ModuleTypeDeclaration::Export {
                 name,
-                ty: ty.fix(ids, scope_stack),
+                ty: ty.fix(ids, cx),
             },
             ModuleTypeDeclaration::Import(import) => {
-                ModuleTypeDeclaration::Import(import.fix(ids, scope_stack))
+                ModuleTypeDeclaration::Import(import.fix(ids, cx))
             }
             ModuleTypeDeclaration::OuterAlias { kind, count, .. } => {
                 let new_tid = ids.lookup_actual_id_or_panic(
-                    scope_stack,
+                    cx,
                     &self.get_type_refs().first().unwrap().ref_,
                 );
 
@@ -880,11 +880,11 @@ impl FixIndicesImpl for ModuleTypeDeclaration<'_> {
 impl sealed::Sealed for Import<'_> {}
 #[rustfmt::skip]
 impl FixIndicesImpl for Import<'_> {
-    fn fixme<'a>(&self, ids: &ActualIds, scope_stack: &ScopeStack) -> Self {
+    fn fixme<'a>(&self, ids: &ActualIds, cx: &VisitCtxInner) -> Self {
         Self {
             module: self.module,
             name: self.name,
-            ty: self.ty.fix(ids, scope_stack),
+            ty: self.ty.fix(ids, cx),
         }
     }
 }
@@ -892,7 +892,7 @@ impl FixIndicesImpl for Import<'_> {
 impl sealed::Sealed for RecGroup {}
 #[rustfmt::skip]
 impl FixIndicesImpl for RecGroup {
-    fn fixme<'a>(&self, _: &ActualIds, _: &ScopeStack) -> Self {
+    fn fixme<'a>(&self, _: &ActualIds, _: &VisitCtxInner) -> Self {
         // NOTE: This is kept as an opaque IR node (indices not fixed here)
         // This is because wasmparser does not allow library users to create
         // a new RecGroup.
@@ -904,10 +904,10 @@ impl FixIndicesImpl for RecGroup {
 impl sealed::Sealed for ComponentImport<'_> {}
 #[rustfmt::skip]
 impl FixIndicesImpl for ComponentImport<'_> {
-    fn fixme<'a>(&self, ids: &ActualIds, scope_stack: &ScopeStack) -> Self {
+    fn fixme<'a>(&self, ids: &ActualIds, cx: &VisitCtxInner) -> Self {
         Self {
             name: self.name,
-            ty: self.ty.fix(ids, scope_stack)
+            ty: self.ty.fix(ids, cx)
         }
     }
 }
@@ -915,10 +915,10 @@ impl FixIndicesImpl for ComponentImport<'_> {
 impl sealed::Sealed for ComponentValType {}
 #[rustfmt::skip]
 impl FixIndicesImpl for ComponentValType {
-    fn fixme<'a>(&self, ids: &ActualIds, scope_stack: &ScopeStack) -> Self {
+    fn fixme<'a>(&self, ids: &ActualIds, cx: &VisitCtxInner) -> Self {
         if let ComponentValType::Type(_) = self {
             let new_tid = ids.lookup_actual_id_or_panic(
-                scope_stack,
+                cx,
                 &self.get_type_refs().first().unwrap().ref_
             );
             ComponentValType::Type(new_tid as u32)
@@ -931,11 +931,11 @@ impl FixIndicesImpl for ComponentValType {
 impl sealed::Sealed for ComponentAlias<'_> {}
 #[rustfmt::skip]
 impl FixIndicesImpl for ComponentAlias<'_> {
-    fn fixme<'a>(&self, ids: &ActualIds, scope_stack: &ScopeStack) -> Self {
+    fn fixme<'a>(&self, ids: &ActualIds, cx: &VisitCtxInner) -> Self {
         match self {
             ComponentAlias::InstanceExport { kind, name, .. } => {
                 let new_id = ids.lookup_actual_id_or_panic(
-                    scope_stack,
+                    cx,
                     &self.get_item_ref().ref_
                 );
 
@@ -947,7 +947,7 @@ impl FixIndicesImpl for ComponentAlias<'_> {
             }
             ComponentAlias::CoreInstanceExport { kind, name, .. } => {
                 let new_id = ids.lookup_actual_id_or_panic(
-                    scope_stack,
+                    cx,
                     &self.get_item_ref().ref_
                 );
 
@@ -959,7 +959,7 @@ impl FixIndicesImpl for ComponentAlias<'_> {
             }
             ComponentAlias::Outer { kind, count, .. } => {
                 let new_id = ids.lookup_actual_id_or_panic(
-                    scope_stack,
+                    cx,
                     &self.get_item_ref().ref_
                 );
 
@@ -976,36 +976,36 @@ impl FixIndicesImpl for ComponentAlias<'_> {
 impl sealed::Sealed for ComponentTypeRef {}
 #[rustfmt::skip]
 impl FixIndicesImpl for ComponentTypeRef {
-    fn fixme<'a>(&self, ids: &ActualIds, scope_stack: &ScopeStack) -> Self {
+    fn fixme<'a>(&self, ids: &ActualIds, cx: &VisitCtxInner) -> Self {
         match self {
             ComponentTypeRef::Module(_) => {
                 let new_id = ids.lookup_actual_id_or_panic(
-                    scope_stack,
+                    cx,
                     &self.get_type_refs().first().unwrap().ref_
                 );
 
                 ComponentTypeRef::Module(new_id as u32)
             }
             ComponentTypeRef::Value(ty) => {
-                ComponentTypeRef::Value(ty.fix(ids, scope_stack))
+                ComponentTypeRef::Value(ty.fix(ids, cx))
             }
             ComponentTypeRef::Func(_) => {
                 let new_id = ids.lookup_actual_id_or_panic(
-                    scope_stack,
+                    cx,
                     &self.get_type_refs().first().unwrap().ref_
                 );
                 ComponentTypeRef::Func(new_id as u32)
             }
             ComponentTypeRef::Instance(_) => {
                 let new_id = ids.lookup_actual_id_or_panic(
-                    scope_stack,
+                    cx,
                     &self.get_type_refs().first().unwrap().ref_
                 );
                 ComponentTypeRef::Instance(new_id as u32)
             }
             ComponentTypeRef::Component(_) => {
                 let new_id = ids.lookup_actual_id_or_panic(
-                    scope_stack,
+                    cx,
                     &self.get_type_refs().first().unwrap().ref_
                 );
                 ComponentTypeRef::Component(new_id as u32)
@@ -1018,13 +1018,13 @@ impl FixIndicesImpl for ComponentTypeRef {
 impl sealed::Sealed for CanonicalOption {}
 #[rustfmt::skip]
 impl FixIndicesImpl for CanonicalOption {
-    fn fixme<'a>(&self, ids: &ActualIds, scope_stack: &ScopeStack) -> Self {
+    fn fixme<'a>(&self, ids: &ActualIds, cx: &VisitCtxInner) -> Self {
         match self {
             CanonicalOption::Realloc(_)
             | CanonicalOption::PostReturn(_)
             | CanonicalOption::Callback(_) => {
                 let new_fid = ids.lookup_actual_id_or_panic(
-                    scope_stack,
+                    cx,
                     &self.get_func_refs().first().unwrap().ref_
                 );
 
@@ -1037,7 +1037,7 @@ impl FixIndicesImpl for CanonicalOption {
             }
             CanonicalOption::CoreType(_) => {
                 let new_tid = ids.lookup_actual_id_or_panic(
-                    scope_stack,
+                    cx,
                     &self.get_type_refs().first().unwrap().ref_
                 );
                 CanonicalOption::CoreType(new_tid as u32)
@@ -1045,7 +1045,7 @@ impl FixIndicesImpl for CanonicalOption {
 
             CanonicalOption::Memory(_) => {
                 let new_mid = ids.lookup_actual_id_or_panic(
-                    scope_stack,
+                    cx,
                     &self.get_mem_refs().first().unwrap().ref_
                 );
                 CanonicalOption::Memory(new_mid as u32)
@@ -1062,9 +1062,9 @@ impl FixIndicesImpl for CanonicalOption {
 impl sealed::Sealed for InstantiationArg<'_> {}
 #[rustfmt::skip]
 impl FixIndicesImpl for InstantiationArg<'_> {
-    fn fixme<'a>(&self, ids: &ActualIds, scope_stack: &ScopeStack) -> Self {
+    fn fixme<'a>(&self, ids: &ActualIds, cx: &VisitCtxInner) -> Self {
         let new_id = ids.lookup_actual_id_or_panic(
-            scope_stack,
+            cx,
             &self.get_item_ref().ref_
         );
         Self {
@@ -1078,9 +1078,9 @@ impl FixIndicesImpl for InstantiationArg<'_> {
 impl sealed::Sealed for Export<'_> {}
 #[rustfmt::skip]
 impl FixIndicesImpl for Export<'_> {
-    fn fixme<'a>(&self, ids: &ActualIds, scope_stack: &ScopeStack) -> Self {
+    fn fixme<'a>(&self, ids: &ActualIds, cx: &VisitCtxInner) -> Self {
         let new_id = ids.lookup_actual_id_or_panic(
-            scope_stack,
+            cx,
             &self.get_item_ref().ref_
         );
 
@@ -1095,14 +1095,14 @@ impl FixIndicesImpl for Export<'_> {
 impl sealed::Sealed for InstanceTypeDeclaration<'_> {}
 #[rustfmt::skip]
 impl FixIndicesImpl for InstanceTypeDeclaration<'_> {
-    fn fixme<'a>(&self, ids: &ActualIds, scope_stack: &ScopeStack) -> Self {
+    fn fixme<'a>(&self, ids: &ActualIds, cx: &VisitCtxInner) -> Self {
         match self {
-            InstanceTypeDeclaration::CoreType(core_type) => InstanceTypeDeclaration::CoreType(core_type.fix(ids, scope_stack)),
-            InstanceTypeDeclaration::Type(ty) => InstanceTypeDeclaration::Type(ty.fix(ids, scope_stack)),
-            InstanceTypeDeclaration::Alias(alias) => InstanceTypeDeclaration::Alias(alias.fix(ids, scope_stack)),
+            InstanceTypeDeclaration::CoreType(core_type) => InstanceTypeDeclaration::CoreType(core_type.fix(ids, cx)),
+            InstanceTypeDeclaration::Type(ty) => InstanceTypeDeclaration::Type(ty.fix(ids, cx)),
+            InstanceTypeDeclaration::Alias(alias) => InstanceTypeDeclaration::Alias(alias.fix(ids, cx)),
             InstanceTypeDeclaration::Export { name, ty } => InstanceTypeDeclaration::Export {
                 name: *name,
-                ty: ty.fix(ids, scope_stack)
+                ty: ty.fix(ids, cx)
             },
         }
     }
@@ -1111,11 +1111,11 @@ impl FixIndicesImpl for InstanceTypeDeclaration<'_> {
 impl sealed::Sealed for TypeRef {}
 #[rustfmt::skip]
 impl FixIndicesImpl for TypeRef {
-    fn fixme<'a>(&self, ids: &ActualIds, scope_stack: &ScopeStack) -> Self {
+    fn fixme<'a>(&self, ids: &ActualIds, cx: &VisitCtxInner) -> Self {
         match self {
             TypeRef::Func(_) => {
                 let new_id = ids.lookup_actual_id_or_panic(
-                    scope_stack,
+                    cx,
                     &self.get_type_refs().first().unwrap().ref_
                 );
 
@@ -1123,7 +1123,7 @@ impl FixIndicesImpl for TypeRef {
             }
             TypeRef::Tag(TagType { kind, .. }) => {
                 let new_id = ids.lookup_actual_id_or_panic(
-                    scope_stack,
+                    cx,
                     &self.get_type_refs().first().unwrap().ref_
                 );
                 TypeRef::Tag(TagType {
@@ -1133,7 +1133,7 @@ impl FixIndicesImpl for TypeRef {
             }
             TypeRef::FuncExact(_) => {
                 let new_id = ids.lookup_actual_id_or_panic(
-                    scope_stack,
+                    cx,
                     &self.get_type_refs().first().unwrap().ref_
                 );
                 TypeRef::FuncExact(new_id as u32)

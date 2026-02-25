@@ -22,6 +22,7 @@ pub fn drive_event<'ir, V: ComponentVisitor<'ir>>(
 
         VisitEvent::ExitRootComp { component } => {
             visitor.exit_root_component(ctx, component);
+            ctx.inner.pop_component();
         }
         VisitEvent::EnterComp { component, idx, .. } => {
             ctx.inner.push_component(component);
@@ -35,8 +36,8 @@ pub fn drive_event<'ir, V: ComponentVisitor<'ir>>(
             let id = ctx
                 .inner
                 .lookup_id_for(&Space::Comp, &ComponentSection::Component, *idx);
-            ctx.inner.pop_component();
             visitor.exit_component(ctx, id, component);
+            ctx.inner.pop_component();
         }
 
         VisitEvent::Module { idx, module } => {

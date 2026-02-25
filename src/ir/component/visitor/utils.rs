@@ -96,7 +96,7 @@ impl<'a> VisitCtxInner<'a> {
         let mut nested = false;
         if let Some(scope_entry) = self.registry.borrow().scope_entry(node) {
             nested = true;
-            self.scope_stack.enter_space(scope_entry.space);
+            self.scope_stack.enter_scope(scope_entry.space);
         }
         self.node_has_nested_scope.push(nested);
     }
@@ -106,7 +106,7 @@ impl<'a> VisitCtxInner<'a> {
         if let Some(scope_entry) = self.registry.borrow().scope_entry(node) {
             // Exit the nested index space...should be equivalent to the ID
             // of the scope that was entered by this node
-            let exited_from = self.scope_stack.exit_space();
+            let exited_from = self.scope_stack.exit_scope();
             debug_assert!(nested);
             debug_assert_eq!(scope_entry.space, exited_from);
         } else {
@@ -120,14 +120,14 @@ impl<'a> VisitCtxInner<'a> {
         };
         self.node_has_nested_scope
             .push(!self.scope_stack.stack.is_empty());
-        self.scope_stack.enter_space(scope_id);
+        self.scope_stack.enter_scope(scope_id);
     }
 
     pub(crate) fn exit_comp_scope(&mut self, comp_id: ComponentId) {
         let Some(scope_id) = self.registry.borrow().scope_of_comp(comp_id) else {
             panic!("no scope found for component {:?}", comp_id);
         };
-        let exited_from = self.scope_stack.exit_space();
+        let exited_from = self.scope_stack.exit_scope();
         debug_assert_eq!(scope_id, exited_from);
     }
 
@@ -149,6 +149,8 @@ impl<'a> VisitCtxInner<'a> {
 // ===============================================
 
 impl VisitCtxInner<'_> {
+    /// When looking up the ID of some node, we MUST consider whether the node we're assigning an ID for
+    /// has a nested scope! If it does, this node's ID lives in its parent index space.
     pub(crate) fn lookup_id_for(
         &self,
         space: &Space,
@@ -157,10 +159,9 @@ impl VisitCtxInner<'_> {
     ) -> u32 {
         let nested = self.node_has_nested_scope.last().unwrap_or(&false);
         let scope_id = if *nested {
-            self.scope_stack.space_at_depth(&Depth::parent())
-            // self.scope_stack.curr_space_id()
+            self.scope_stack.scope_at_depth(&Depth::parent())
         } else {
-            self.scope_stack.curr_space_id()
+            self.scope_stack.curr_scope_id()
         };
         self.store
             .borrow()
@@ -169,6 +170,8 @@ impl VisitCtxInner<'_> {
             .unwrap()
             .lookup_assumed_id(space, section, vec_idx) as u32
     }
+    /// When looking up the ID of some node, we MUST consider whether the node we're assigning an ID for
+    /// has a nested scope! If it does, this node's ID lives in its parent index space.
     pub(crate) fn lookup_id_with_subvec_for(
         &self,
         space: &Space,
@@ -178,10 +181,9 @@ impl VisitCtxInner<'_> {
     ) -> u32 {
         let nested = self.node_has_nested_scope.last().unwrap_or(&false);
         let scope_id = if *nested {
-            self.scope_stack.space_at_depth(&Depth::parent())
-            // self.scope_stack.curr_space_id()
+            self.scope_stack.scope_at_depth(&Depth::parent())
         } else {
-            self.scope_stack.curr_space_id()
+            self.scope_stack.curr_scope_id()
         };
         self.store
             .borrow()
@@ -191,11 +193,13 @@ impl VisitCtxInner<'_> {
             .lookup_assumed_id_with_subvec(space, section, vec_idx, subvec_idx) as u32
     }
 
+    /// Looking up a reference should always be relative to the scope of the node that
+    /// contained the reference! No need to think about whether the node has a nested scope.
     pub(crate) fn index_from_assumed_id_no_cache(
         &self,
         r: &IndexedRef,
     ) -> (SpaceSubtype, usize, Option<usize>) {
-        let scope_id = self.scope_stack.space_at_depth(&r.depth);
+        let scope_id = self.scope_stack.scope_at_depth(&r.depth);
         self.store
             .borrow()
             .scopes
@@ -204,11 +208,13 @@ impl VisitCtxInner<'_> {
             .index_from_assumed_id_no_cache(r)
     }
 
+    /// Looking up a reference should always be relative to the scope of the node that
+    /// contained the reference! No need to think about whether the node has a nested scope.
     pub(crate) fn index_from_assumed_id(
         &mut self,
         r: &IndexedRef,
     ) -> (SpaceSubtype, usize, Option<usize>) {
-        let scope_id = self.scope_stack.space_at_depth(&r.depth);
+        let scope_id = self.scope_stack.scope_at_depth(&r.depth);
         self.store
             .borrow_mut()
             .scopes
@@ -329,10 +335,10 @@ impl ScopeStack {
     fn new() -> Self {
         Self { stack: vec![] }
     }
-    pub(crate) fn curr_space_id(&self) -> ScopeId {
+    pub(crate) fn curr_scope_id(&self) -> ScopeId {
         self.stack.last().cloned().unwrap()
     }
-    pub(crate) fn space_at_depth(&self, depth: &Depth) -> ScopeId {
+    pub(crate) fn scope_at_depth(&self, depth: &Depth) -> ScopeId {
         *self
             .stack
             .get(self.stack.len() - depth.val() - 1)
@@ -344,12 +350,10 @@ impl ScopeStack {
                 )
             })
     }
-
-    pub fn enter_space(&mut self, id: ScopeId) {
+    pub fn enter_scope(&mut self, id: ScopeId) {
         self.stack.push(id)
     }
-
-    pub fn exit_space(&mut self) -> ScopeId {
+    pub fn exit_scope(&mut self) -> ScopeId {
         self.stack.pop().unwrap()
     }
 }
