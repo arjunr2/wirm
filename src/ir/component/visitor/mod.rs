@@ -509,6 +509,24 @@ impl<'a> VisitCtx<'a> {
     ///
     /// The returned [`ResolvedItem`] represents the semantic target
     /// referenced by the index.
+    ///
+    /// To pull such references from an IR node, use one of the following traits
+    /// (only the applicable traits have been defined per node):
+    /// - [`crate::ir::component::refs::ReferencedIndices`]: to pull ALL refs
+    /// - [`crate::ir::component::refs::GetCompRefs`]: to pull component refs
+    /// - [`crate::ir::component::refs::GetModuleRefs`]: to pull module refs
+    /// - [`crate::ir::component::refs::GetTypeRefs`]: to pull type refs
+    /// - [`crate::ir::component::refs::GetFuncRefs`]: to pull func refs
+    /// - [`crate::ir::component::refs::GetFuncRef`]: if a node only has a single func ref
+    /// - [`crate::ir::component::refs::GetMemRefs`]: to pull memory refs
+    /// - [`crate::ir::component::refs::GetTableRefs`]: to pull table refs
+    /// - [`crate::ir::component::refs::GetItemRefs`]: to pull refs to items
+    /// - [`crate::ir::component::refs::GetItemRef`]: if a node only has a single item ref
+    /// - [`crate::ir::component::refs::GetParamRefs`]: to pull refs of parameters
+    /// - [`crate::ir::component::refs::GetResultRefs`]: to pull refs of results
+    /// - [`crate::ir::component::refs::GetArgRefs`]: to pull refs of args
+    /// - [`crate::ir::component::refs::GetDescriptorRefs`]: to pull refs of descriptors
+    /// - [`crate::ir::component::refs::GetDescribesRefs`]: to pull refs of describes
     pub fn resolve(&self, ref_: &IndexedRef) -> ResolvedItem<'_, '_> {
         self.inner.resolve(ref_)
     }
@@ -516,6 +534,8 @@ impl<'a> VisitCtx<'a> {
     ///
     /// This is a convenience helper for bulk resolution when a node exposes
     /// multiple referenced indices.
+    ///
+    /// Read through [`VisitCtx::resolve`] for how to pull such references from IR nodes.
     pub fn resolve_all(&self, refs: &[RefKind]) -> Vec<ResolvedItem<'_, '_>> {
         self.inner.resolve_all(refs)
     }

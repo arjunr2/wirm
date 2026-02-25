@@ -18,8 +18,21 @@ use wasmparser::{
 /// Implementations typically delegate to one or more of the
 /// `Get*Refs` traits depending on the node's structure.
 ///
-/// The `depth` parameter specifies the base depth at which
-/// references should be interpreted.
+/// References contained within inner nested scopes are not included.
+/// For example, the references inside the nested core type in
+/// the following WAT will not be returned:
+///   (type (;0;)           ;; << outer component type
+///     (instance
+///       (core type (;0;)  ;; << inner core type (nested scope)
+///         (module
+///           ( . . . )     ;; << nodes within core type that could hold refs
+///         )
+///       )
+///     )
+///   )
+/// This design decision simplifies reasoning about reference resolution.
+/// If such references are needed, reference lookup must be performed on
+/// those inner IR nodes.
 pub trait ReferencedIndices {
     /// Returns all referenced indices contained within this node.
     ///
@@ -29,59 +42,73 @@ pub trait ReferencedIndices {
     /// - The semantic role of the reference
     fn referenced_indices(&self) -> Vec<RefKind>;
 }
-/// Extracts references to `components` from a node.
+/// Extracts references to `components` from a node. References within inner
+/// scopes are not included, see [`ReferencedIndices`];
 pub trait GetCompRefs {
     fn get_comp_refs(&self) -> Vec<RefKind>;
 }
-/// Extracts references to `modules` from a node.
+/// Extracts references to `modules` from a node. References within inner
+/// scopes are not included, see [`ReferencedIndices`];
 pub trait GetModuleRefs {
     fn get_module_refs(&self) -> Vec<RefKind>;
 }
-/// Extracts references to component OR core `types` from a node.
+/// Extracts references to component OR core `types` from a node. References within inner
+/// scopes are not included, see [`ReferencedIndices`];
 pub trait GetTypeRefs {
     fn get_type_refs(&self) -> Vec<RefKind>;
 }
-/// Extracts references to component OR core `functions` from a node.
+/// Extracts references to component OR core `functions` from a node. References within inner
+/// scopes are not included, see [`ReferencedIndices`];
 pub trait GetFuncRefs {
     fn get_func_refs(&self) -> Vec<RefKind>;
 }
-/// Extracts the single reference to a component OR core `function` the node has.
+/// Extracts the single reference to a component OR core `function` the node has. References within inner
+/// scopes are not included, see [`ReferencedIndices`];
 pub trait GetFuncRef {
     fn get_func_ref(&self) -> RefKind;
 }
-/// Extracts references to `memories` from a node.
+/// Extracts references to `memories` from a node. References within inner
+/// scopes are not included, see [`ReferencedIndices`];
 pub trait GetMemRefs {
     fn get_mem_refs(&self) -> Vec<RefKind>;
 }
-/// Extracts references to `tables` from a node.
+/// Extracts references to `tables` from a node. References within inner
+/// scopes are not included, see [`ReferencedIndices`];
 pub trait GetTableRefs {
     fn get_tbl_refs(&self) -> Vec<RefKind>;
 }
-/// Extracts references to any `item` from a node.
+/// Extracts references to any `item` from a node. References within inner
+/// scopes are not included, see [`ReferencedIndices`];
 pub trait GetItemRefs {
     fn get_item_refs(&self) -> Vec<RefKind>;
 }
-/// Extracts the single reference to an `item` that the node has.
+/// Extracts the single reference to an `item` that the node has. References within inner
+/// scopes are not included, see [`ReferencedIndices`];
 pub trait GetItemRef {
     fn get_item_ref(&self) -> RefKind;
 }
-/// Extracts references to `parameters` from a node.
+/// Extracts references to `parameters` from a node. References within inner
+/// scopes are not included, see [`ReferencedIndices`];
 pub trait GetParamRefs {
     fn get_param_refs(&self) -> Vec<RefKind>;
 }
-/// Extracts references to `results` from a node.
+/// Extracts references to `results` from a node. References within inner
+/// scopes are not included, see [`ReferencedIndices`];
 pub trait GetResultRefs {
     fn get_result_refs(&self) -> Vec<RefKind>;
 }
-/// Extracts references to `arguments` from a node.
+/// Extracts references to `arguments` from a node. References within inner
+/// scopes are not included, see [`ReferencedIndices`];
 pub trait GetArgRefs {
     fn get_arg_refs(&self) -> Vec<RefKind>;
 }
-/// Extracts references to `descriptors` from a node.
+/// Extracts references to `descriptors` from a node. References within inner
+/// scopes are not included, see [`ReferencedIndices`];
 pub trait GetDescriptorRefs {
     fn get_descriptor_refs(&self) -> Vec<RefKind>;
 }
-/// Extracts references to `describes` from a node.
+/// Extracts references to `describes` from a node. References within inner
+/// scopes are not included, see [`ReferencedIndices`];
 pub trait GetDescribesRefs {
     fn get_describes_refs(&self) -> Vec<RefKind>;
 }
