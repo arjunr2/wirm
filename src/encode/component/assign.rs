@@ -1,362 +1,229 @@
-use crate::encode::component::collect::{ComponentItem, ComponentPlan, SubItemPlan};
-use crate::ir::component::idx_spaces::IndexSpaceOf;
-use crate::ir::component::section::ComponentSection;
-use crate::{assert_registered, Component, Module};
-use wasmparser::{
-    CanonicalFunction, ComponentAlias, ComponentExport, ComponentImport, ComponentInstance,
-    ComponentType, ComponentTypeDeclaration, CoreType, Instance, InstanceTypeDeclaration,
-    ModuleTypeDeclaration,
-};
-use crate::ir::component::visitor::VisitCtx;
+use std::collections::HashMap;
+use wasmparser::{CanonicalFunction, ComponentAlias, ComponentExport, ComponentImport, ComponentInstance, ComponentType, ComponentTypeDeclaration, CoreType, Instance, InstanceTypeDeclaration, ModuleTypeDeclaration, SubType};
+use crate::{Component, Module};
+use crate::ir::component::idx_spaces::{IndexSpaceOf, ScopeId, Space};
+use crate::ir::component::refs::IndexedRef;
+use crate::ir::component::visitor::{walk_topological, ComponentVisitor, ItemKind, VisitCtx};
+use crate::ir::component::visitor::utils::ScopeStack;
 
-/// # Phase 2: ASSIGN #
-/// ## Safety of Alias Index Assignment
-///
-/// During the assign phase, the encoder determines the final index
-/// (or "actual id") of each component item based on the order in which
-/// items will be emitted into the binary. This includes alias entries,
-/// which reference previously defined external items.
-///
-/// This match arm performs an `unsafe` dereference of a raw pointer
-/// (`*const ComponentAlias`) in order to inspect the alias and compute
-/// its section and external item kind.
-///
-/// ### Invariants
-///
-/// The following invariants guarantee that this operation is sound:
-///
-/// 1. **The raw pointer refers to a live IR node**
-///
-///    The `node` pointer stored in `ComponentItem::Alias` originates
-///    from a `&ComponentAlias` reference obtained during the collect
-///    phase. The encode plan does not outlive the IR that owns this
-///    alias, and the assign phase executes while the IR is still alive.
-///    Therefore, dereferencing `node` cannot observe freed memory.
-///
-/// 2. **The IR is immutable during assignment**
-///
-///    No mutable references to component IR nodes exist during the
-///    assign phase. All IR structures are treated as read-only while
-///    indices are being assigned. This ensures that dereferencing a
-///    `*const ComponentAlias` does not violate Rust’s aliasing rules.
-///
-/// 3. **The pointer has the correct provenance and type**
-///
-///    The `node` pointer is never cast from an unrelated type. It is
-///    created exclusively from a `&ComponentAlias` reference and stored
-///    as a `*const ComponentAlias`. As a result, reinterpreting the
-///    pointer as `&ComponentAlias` is well-defined.
-///
-/// 4. **Alias metadata is sufficient for index assignment**
-///
-///    The assign phase does not rely on alias indices being final or
-///    globally unique at this point. It only uses alias metadata
-///    (section and external item kind) to assign an actual index within
-///    the appropriate component section. This metadata is stable and
-///    independent of the eventual binary encoding order.
-///
-/// ### Why this happens in the assign phase
-///
-/// Alias entries may reference items defined earlier in the component,
-/// and their indices depend on the final emission order. The assign
-/// phase is responsible for:
-///
-/// - Determining the canonical order of component items
-/// - Assigning section-local indices
-/// - Building the mapping from original IR indices to encoded indices
-///
-/// Dereferencing the alias node here is necessary to compute the
-/// correct `ExternalItemKind` for index assignment.
-///
-/// ### Safety boundary
-///
-/// The `unsafe` block marks the point where the encoder relies on the
-/// invariants above. As long as the encode plan does not outlive the IR
-/// and the IR remains immutable during assignment, this dereference is
-/// sound.
-///
-/// Any future change that allows IR nodes to be dropped, moved, or
-/// mutably borrowed during the assign phase must re-evaluate this
-/// safety argument.
-///
-/// ### Summary
-///
-/// - The alias pointer always refers to a live, immutable IR node
-/// - The pointer has correct type provenance
-/// - The assign phase only performs read-only inspection
-///
-/// Therefore, dereferencing `*const ComponentAlias` during index
-/// assignment is safe.
-pub(crate) fn assign_indices(plan: &mut ComponentPlan, ctx: &mut VisitCtx) {
-    for item in &mut plan.items {
-        match item {
-            ComponentItem::Component {
-                node,
-                plan: subplan,
-                idx,
-            } => unsafe {
-                let ptr: &Component = &**node;
+pub(crate) fn assign_indices(component: &Component) -> ActualIds {
+    let mut assigner = Assigner::default();
+    // TODO: Just pull the event vector to keep from generating 2x
+    walk_topological(component, &mut assigner);
 
-                // Visit this component's internals
-                let scope_id = ctx.inner.registry.borrow().scope_of_comp(ptr.id).unwrap();
-                ctx.inner.store.borrow_mut().reset_ids(&scope_id);
-                ctx.inner.scope_stack.enter_space(scope_id);
-                assign_indices(subplan, ctx);
-                ctx.inner.scope_stack.exit_space();
+    assigner.ids
+}
 
-                ctx.inner.store.borrow_mut().assign_actual_id(
-                    &ctx.inner.scope_stack.curr_space_id(),
-                    &ptr.index_space_of(),
-                    &ComponentSection::Component,
-                    *idx,
-                );
-            },
-            ComponentItem::Module { node, idx } => unsafe {
-                let ptr: &Module = &**node;
-                ctx.inner.store.borrow_mut().assign_actual_id(
-                    &ctx.inner.scope_stack.curr_space_id(),
-                    &ptr.index_space_of(),
-                    &ComponentSection::Module,
-                    *idx,
-                );
-            },
-            ComponentItem::CompType {
-                node,
-                idx,
-                subitem_plan,
-            } => unsafe {
-                let ptr: &ComponentType = &**node;
-                assignments_for_comp_ty(ptr, subitem_plan, ctx);
-
-                ctx.inner.store.borrow_mut().assign_actual_id(
-                    &ctx.inner.scope_stack.curr_space_id(),
-                    &ptr.index_space_of(),
-                    &ComponentSection::ComponentType,
-                    *idx,
-                );
-            },
-            ComponentItem::CompInst { node, idx } => unsafe {
-                let ptr: &ComponentInstance = &**node;
-                ctx.inner.store.borrow_mut().assign_actual_id(
-                    &ctx.inner.scope_stack.curr_space_id(),
-                    &ptr.index_space_of(),
-                    &ComponentSection::ComponentInstance,
-                    *idx,
-                );
-            },
-            ComponentItem::CanonicalFunc { node, idx } => unsafe {
-                let ptr: &CanonicalFunction = &**node;
-                ctx.inner.store.borrow_mut().assign_actual_id(
-                    &ctx.inner.scope_stack.curr_space_id(),
-                    &ptr.index_space_of(),
-                    &ComponentSection::Canon,
-                    *idx,
-                );
-            },
-            ComponentItem::Alias { node, idx } => unsafe {
-                let ptr: &ComponentAlias = &**node;
-                ctx.inner.store.borrow_mut().assign_actual_id(
-                    &ctx.inner.scope_stack.curr_space_id(),
-                    &ptr.index_space_of(),
-                    &ComponentSection::Alias,
-                    *idx,
-                );
-            },
-            ComponentItem::Import { node, idx } => unsafe {
-                let ptr: &ComponentImport = &**node;
-                ctx.inner.store.borrow_mut().assign_actual_id(
-                    &ctx.inner.scope_stack.curr_space_id(),
-                    &ptr.index_space_of(),
-                    &ComponentSection::ComponentImport,
-                    *idx,
-                );
-            },
-            ComponentItem::CoreType {
-                node,
-                idx,
-                subitem_plan,
-            } => unsafe {
-                let ptr: &CoreType = &**node;
-                assignments_for_core_ty(ptr, *idx, subitem_plan, ctx);
-
-                if matches!(ptr, CoreType::Module(_)) {
-                    // only want to do this flat space assignment for a core type Module
-                    ctx.inner.store.borrow_mut().assign_actual_id(
-                        &ctx.inner.scope_stack.curr_space_id(),
-                        &ptr.index_space_of(),
-                        &ComponentSection::CoreType,
-                        *idx,
-                    );
-                }
-            },
-            ComponentItem::Inst { node, idx } => unsafe {
-                let ptr: &Instance = &**node;
-                ctx.inner.store.borrow_mut().assign_actual_id(
-                    &ctx.inner.scope_stack.curr_space_id(),
-                    &ptr.index_space_of(),
-                    &ComponentSection::CoreInstance,
-                    *idx,
-                );
-            },
-            ComponentItem::Export { node, idx } => unsafe {
-                let ptr: &ComponentExport = &**node;
-                ctx.inner.store.borrow_mut().assign_actual_id(
-                    &ctx.inner.scope_stack.curr_space_id(),
-                    &ptr.index_space_of(),
-                    &ComponentSection::ComponentExport,
-                    *idx,
-                );
-            },
-            ComponentItem::Start { .. } => {
-                // NA: Start sections don't get IDs
-            }
-            ComponentItem::CustomSection { .. } => {
-                // NA: Custom sections don't get IDs
-            }
+#[derive(Default)]
+struct Assigner {
+    ids: ActualIds
+}
+impl Assigner {
+    fn assign_actual_id(&mut self, cx: &VisitCtx<'_>, space: &Space, assumed_id: u32) {
+        let curr_scope = cx.inner.scope_stack.curr_space_id();
+        self.ids.assign_actual_id(curr_scope, space, assumed_id as usize)
+    }
+}
+impl ComponentVisitor<'_> for Assigner {
+    fn exit_component(&mut self, cx: &VisitCtx<'_>, id: u32, component: &Component<'_>) {
+        self.assign_actual_id(cx, &component.index_space_of(), id)
+    }
+    fn visit_module(&mut self, cx: &VisitCtx<'_>, id: u32, module: &Module<'_>) {
+        self.assign_actual_id(cx, &module.index_space_of(), id)
+    }
+    fn visit_comp_type_decl(&mut self, cx: &VisitCtx<'_>, _decl_idx: usize, id: u32, _parent: &ComponentType<'_>, decl: &ComponentTypeDeclaration<'_>) {
+        if matches!(decl, ComponentTypeDeclaration::CoreType(_)
+                        | ComponentTypeDeclaration::Type(_)) {
+            // this ID assignment will be handled by the type handler!
+            return;
         }
+        self.assign_actual_id(cx, &decl.index_space_of(), id)
+    }
+    fn visit_inst_type_decl(&mut self, cx: &VisitCtx<'_>, _decl_idx: usize, id: u32, _parent: &ComponentType<'_>, decl: &InstanceTypeDeclaration<'_>) {
+        if matches!(decl, InstanceTypeDeclaration::CoreType(_)
+                        | InstanceTypeDeclaration::Type(_)) {
+            // this ID assignment will be handled by the type handler!
+            return;
+        }
+
+        self.assign_actual_id(cx, &decl.index_space_of(), id)
+    }
+    fn exit_comp_type(&mut self, cx: &VisitCtx<'_>, id: u32, ty: &ComponentType<'_>) {
+        self.assign_actual_id(cx, &ty.index_space_of(), id)
+    }
+    fn visit_comp_instance(&mut self, cx: &VisitCtx<'_>, id: u32, instance: &ComponentInstance<'_>) {
+        self.assign_actual_id(cx, &instance.index_space_of(), id)
+    }
+    fn visit_canon(&mut self, cx: &VisitCtx<'_>, _kind: ItemKind, id: u32, canon: &CanonicalFunction) {
+        self.assign_actual_id(cx, &canon.index_space_of(), id)
+    }
+    fn visit_alias(&mut self, cx: &VisitCtx<'_>, _kind: ItemKind, id: u32, alias: &ComponentAlias<'_>) {
+        self.assign_actual_id(cx, &alias.index_space_of(), id)
+    }
+    fn visit_comp_import(&mut self, cx: &VisitCtx<'_>, _kind: ItemKind, id: u32, import: &ComponentImport<'_>) {
+        self.assign_actual_id(cx, &import.index_space_of(), id)
+    }
+    fn visit_comp_export(&mut self, cx: &VisitCtx<'_>, _kind: ItemKind, id: u32, export: &ComponentExport<'_>) {
+        self.assign_actual_id(cx, &export.index_space_of(), id)
+    }
+    fn visit_module_type_decl(&mut self, cx: &VisitCtx<'_>, _decl_idx: usize, id: u32, _parent: &CoreType<'_>, decl: &ModuleTypeDeclaration<'_>) {
+        self.assign_actual_id(cx, &decl.index_space_of(), id)
+    }
+    fn enter_core_rec_group(&mut self, cx: &VisitCtx<'_>, _count: usize, _core_type: &CoreType<'_>) {
+        // just need to make sure there's a scope built :)
+        // this is relevant for: (component (core rec) )
+        self.ids.add_scope(cx.inner.scope_stack.curr_space_id());
+    }
+    fn visit_core_subtype(&mut self, cx: &VisitCtx<'_>, id: u32, subtype: &SubType) {
+        self.assign_actual_id(cx, &subtype.index_space_of(), id)
+    }
+    fn exit_core_type(&mut self, cx: &VisitCtx<'_>, id: u32, core_type: &CoreType<'_>) {
+        self.assign_actual_id(cx, &core_type.index_space_of(), id)
+    }
+    fn visit_core_instance(&mut self, cx: &VisitCtx<'_>, id: u32, inst: &Instance<'_>) {
+        self.assign_actual_id(cx, &inst.index_space_of(), id)
     }
 }
 
-pub(crate) fn assignments_for_comp_ty(
-    ty: &ComponentType,
-    subitem_plan: &Option<SubItemPlan>,
-    ctx: &mut VisitCtx,
-) -> ComponentSection {
-    match ty {
-        ComponentType::Component(decls) => {
-            ctx.inner.maybe_enter_scope(ty);
-            assert_registered!(ctx.inner.registry, ty);
-
-            let section = ComponentSection::ComponentType;
-            for (idx, subplan) in subitem_plan.as_ref().unwrap().order().iter() {
-                let decl = &decls[*idx];
-                assignments_for_comp_ty_comp_decl(*idx, subplan, decl, &section, ctx);
-            }
-
-            ctx.inner.maybe_exit_scope(ty);
-            section
-        }
-        ComponentType::Instance(decls) => {
-            ctx.inner.maybe_enter_scope(ty);
-            assert_registered!(ctx.inner.registry, ty);
-
-            let section = ComponentSection::ComponentType;
-            if let Some(subplan) = subitem_plan {
-                for (idx, subplan) in subplan.order().iter() {
-                    let decl = &decls[*idx];
-                    assignments_for_comp_ty_inst_decl(*idx, subplan, decl, &section, ctx);
-                }
-            }
-
-            ctx.inner.maybe_exit_scope(ty);
-            section
-        }
-        _ => ComponentSection::ComponentType,
+#[derive(Clone, Default)]
+pub struct ActualIds {
+    scopes: HashMap<ScopeId, IdsForScope>
+}
+impl ActualIds {
+    pub fn add_scope(&mut self, id: ScopeId) {
+        self.scopes.entry(id).or_default();
+    }
+    pub fn assign_actual_id(&mut self, id: ScopeId, space: &Space, assumed_id: usize) {
+        let ids = self.scopes.entry(id).or_insert(IdsForScope::default());
+        ids.assign_actual_id(space, assumed_id)
+    }
+    pub fn lookup_actual_id_or_panic(&self, scope_stack: &ScopeStack, r: &IndexedRef) -> usize {
+        let scope_id = scope_stack.space_at_depth(&r.depth);
+        let ids = self.scopes.get(&scope_id).unwrap_or_else(|| {
+            panic!("Attempted to assign a non-existent scope: {scope_id}");
+        });
+        ids.lookup_actual_id_or_panic(r)
     }
 }
 
-fn assignments_for_comp_ty_comp_decl(
-    decl_idx: usize,
-    subitem_plan: &Option<SubItemPlan>,
-    decl: &ComponentTypeDeclaration,
-    section: &ComponentSection,
-    ctx: &mut VisitCtx,
-) {
-    let space = decl.index_space_of();
-    ctx.inner.store.borrow_mut().assign_actual_id(
-        &ctx.inner.scope_stack.curr_space_id(),
-        &space,
-        section,
-        decl_idx,
-    );
+/// This is used at encode time. It tracks the actual ID that has been assigned
+/// to some item by allowing for lookup of the assumed ID: `assumed_id -> actual_id`
+/// This is important since we know what ID should be associated with something only at encode time,
+/// since instrumentation has finished at that point and encoding of component items
+/// can be done out-of-order to satisfy possible forward-references injected during instrumentation.
+#[derive(Clone, Default)]
+pub struct IdsForScope {
+    // Component-level spaces
+    comp: IdTracker,
+    comp_func: IdTracker,
+    comp_val: IdTracker,
+    comp_type: IdTracker,
+    comp_inst: IdTracker,
 
-    match decl {
-        ComponentTypeDeclaration::CoreType(ty) => {
-            assignments_for_core_ty(ty, decl_idx, subitem_plan, ctx);
-        }
-        ComponentTypeDeclaration::Type(ty) => {
-            assignments_for_comp_ty(ty, subitem_plan, ctx);
-        }
-        ComponentTypeDeclaration::Alias(_)
-        | ComponentTypeDeclaration::Export { .. }
-        | ComponentTypeDeclaration::Import(_) => {}
-    }
+    // Core space (added by component model)
+    core_inst: IdTracker, // (these are module instances)
+    module: IdTracker,
+
+    // Core spaces that exist at the component-level
+    core_type: IdTracker,
+    core_func: IdTracker, // these are canonical function decls!
+    core_memory: IdTracker,
+    core_table: IdTracker,
+    core_global: IdTracker,
+    core_tag: IdTracker,
 }
-
-fn assignments_for_comp_ty_inst_decl(
-    decl_idx: usize,
-    subitem_plan: &Option<SubItemPlan>,
-    decl: &InstanceTypeDeclaration,
-    section: &ComponentSection,
-    ctx: &mut VisitCtx,
-) {
-    let space = decl.index_space_of();
-    ctx.inner.store.borrow_mut().assign_actual_id(
-        &ctx.inner.scope_stack.curr_space_id(),
-        &space,
-        section,
-        decl_idx,
-    );
-
-    match decl {
-        InstanceTypeDeclaration::CoreType(ty) => {
-            assignments_for_core_ty(ty, decl_idx, subitem_plan, ctx);
+impl IdsForScope {
+    pub fn assign_actual_id(&mut self, space: &Space, assumed_id: usize) {
+        if let Some(space) = self.get_space_mut(space) {
+            space.assign_actual_id(assumed_id);
         }
-        InstanceTypeDeclaration::Type(ty) => {
-            assignments_for_comp_ty(ty, subitem_plan, ctx);
-        }
-        InstanceTypeDeclaration::Alias(_) | InstanceTypeDeclaration::Export { .. } => {}
     }
-}
 
-pub(crate) fn assignments_for_core_ty(
-    ty: &CoreType,
-    ty_idx: usize,
-    subitem_plan: &Option<SubItemPlan>,
-    ctx: &mut VisitCtx,
-) -> ComponentSection {
-    let section = ComponentSection::CoreType;
-    match ty {
-        CoreType::Module(decls) => {
-            ctx.inner.maybe_enter_scope(ty);
-            assert_registered!(ctx.inner.registry, ty);
+    fn get_space_mut(&mut self, space: &Space) -> Option<&mut IdTracker> {
+        let s = match space {
+            Space::Comp => &mut self.comp,
+            Space::CompFunc => &mut self.comp_func,
+            Space::CompVal => &mut self.comp_val,
+            Space::CompType => &mut self.comp_type,
+            Space::CompInst => &mut self.comp_inst,
+            Space::CoreInst => &mut self.core_inst,
+            Space::CoreModule => &mut self.module,
+            Space::CoreType => &mut self.core_type,
+            Space::CoreFunc => &mut self.core_func,
+            Space::CoreMemory => &mut self.core_memory,
+            Space::CoreTable => &mut self.core_table,
+            Space::CoreGlobal => &mut self.core_global,
+            Space::CoreTag => &mut self.core_tag,
+            Space::NA => return None,
+        };
+        Some(s)
+    }
 
-            for (idx, subplan) in subitem_plan.as_ref().unwrap().order().iter() {
-                assert!(subplan.is_none());
-                let decl = &decls[*idx];
-                assignments_for_core_module_decl(*idx, decl, &section, ctx);
+    fn get_space(&self, space: &Space) -> Option<&IdTracker> {
+        let s = match space {
+            Space::Comp => &self.comp,
+            Space::CompFunc => &self.comp_func,
+            Space::CompVal => &self.comp_val,
+            Space::CompType => &self.comp_type,
+            Space::CompInst => &self.comp_inst,
+            Space::CoreInst => &self.core_inst,
+            Space::CoreModule => &self.module,
+            Space::CoreType => &self.core_type,
+            Space::CoreFunc => &self.core_func,
+            Space::CoreMemory => &self.core_memory,
+            Space::CoreTable => &self.core_table,
+            Space::CoreGlobal => &self.core_global,
+            Space::CoreTag => &self.core_tag,
+            Space::NA => return None,
+        };
+        Some(s)
+    }
+
+    pub(crate) fn lookup_actual_id_or_panic(&self, r: &IndexedRef) -> usize {
+        if let Some(space) = self.get_space(&r.space) {
+            if let Some(actual_id) = space.lookup_actual_id(r.index as usize) {
+                return *actual_id;
             }
-
-            ctx.inner.maybe_exit_scope(ty);
-            section
         }
-        CoreType::Rec(recgroup) => {
-            for (subty_idx, subty) in recgroup.types().enumerate() {
-                ctx.inner.store.borrow_mut().assign_actual_id_with_subvec(
-                    &ctx.inner.scope_stack.curr_space_id(),
-                    &subty.index_space_of(),
-                    &section,
-                    ty_idx,
-                    subty_idx,
-                );
-            }
-
-            ComponentSection::CoreType
-        }
+        panic!(
+            "[{:?}] Can't find assumed id {} in id-tracker",
+            r.space, r.index
+        );
     }
 }
 
-fn assignments_for_core_module_decl(
-    decl_idx: usize,
-    decl: &ModuleTypeDeclaration,
-    section: &ComponentSection,
-    ctx: &mut VisitCtx,
-) {
-    let space = decl.index_space_of();
-    ctx.inner.store.borrow_mut().assign_actual_id(
-        &ctx.inner.scope_stack.curr_space_id(),
-        &space,
-        section,
-        decl_idx,
-    );
+#[derive(Clone, Default)]
+struct IdTracker {
+    /// This is used at encode time. It tracks the actual ID that has been assigned
+    /// to some item by allowing for lookup of the assumed ID: `assumed_id -> actual_id`
+    /// This is important since we know what ID should be associated with something only at encode time,
+    /// since instrumentation has finished at that point and encoding of component items
+    /// can be done out-of-order to satisfy possible forward-references injected during instrumentation.
+    actual_ids: HashMap<usize, usize>,
+
+    /// This is the current ID that we've reached associated with this index space.
+    current_id: usize,
+}
+impl IdTracker {
+    pub fn curr_id(&self) -> usize {
+        // This returns the ID that we've reached thus far while encoding
+        self.current_id
+    }
+
+    pub fn assign_actual_id(&mut self, assumed_id: usize) {
+        let id = self.curr_id();
+
+        self.actual_ids.insert(assumed_id, id);
+        self.next();
+    }
+
+    fn next(&mut self) -> usize {
+        let curr = self.current_id;
+        self.current_id += 1;
+        curr
+    }
+
+    pub fn lookup_actual_id(&self, id: usize) -> Option<&usize> {
+        self.actual_ids.get(&id)
+    }
 }

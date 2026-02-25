@@ -210,31 +210,6 @@ impl VisitCtxInner<'_> {
             .unwrap()
             .index_from_assumed_id(r)
     }
-
-    /// Assign the actual ID for the specified item in the IR.
-    pub fn assign_actual_id(
-        &mut self,
-        space: &Space,
-        section: ComponentSection,
-        vec_idx: usize,
-    ) {
-        self.store.borrow_mut().assign_actual_id(
-            &self.scope_stack.curr_space_id(),
-            space,
-            &section,
-            vec_idx
-        );
-    }
-
-    pub(crate) fn lookup_actual_id_or_panic(&self, r: &IndexedRef) -> usize {
-        let scope_id = self.scope_stack.space_at_depth(&r.depth);
-        self.store
-            .borrow()
-            .scopes
-            .get(&scope_id)
-            .unwrap()
-            .lookup_actual_id_or_panic(r)
-    }
 }
 
 // =================================================

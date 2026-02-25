@@ -27,18 +27,6 @@ impl IndexStore {
 
         id
     }
-    /// Reset the used indices in all scopes.
-    pub fn reset_indices(&mut self) {
-        for scope in self.scopes.values_mut() {
-            scope.reset_ids();
-        }
-    }
-    /// Fully reset the trackers in all scopes.
-    pub fn reset(&mut self) {
-        for scope in self.scopes.values_mut() {
-            scope.reset_ids();
-        }
-    }
     /// Lookup where to find an item in the component IR based on its assumed ID
     /// (the ID given to the item at parse and IR-injection time). This is done WITHOUT
     /// caching the found result, which is helpful when performing an operation when the
@@ -67,33 +55,6 @@ impl IndexStore {
         r: &IndexedRef,
     ) -> (SpaceSubtype, usize, Option<usize>) {
         self.get_mut(id).index_from_assumed_id(r)
-    }
-    /// Reset the used IDs for the specified scope.
-    pub fn reset_ids(&mut self, id: &ScopeId) {
-        self.get_mut(id).reset_ids()
-    }
-    /// Assign the actual ID for the specified item in the IR.
-    pub fn assign_actual_id(
-        &mut self,
-        id: &ScopeId,
-        space: &Space,
-        section: &ComponentSection,
-        vec_idx: usize,
-    ) {
-        self.get_mut(id).assign_actual_id(space, section, vec_idx)
-    }
-    /// Assign the actual ID for the specified item in the IR.
-    /// This part of the IR also has a subvector (as in a recgroup)
-    pub fn assign_actual_id_with_subvec(
-        &mut self,
-        id: &ScopeId,
-        space: &Space,
-        section: &ComponentSection,
-        vec_idx: usize,
-        subvec_idx: usize,
-    ) {
-        self.get_mut(id)
-            .assign_actual_id_with_subvec(space, section, vec_idx, subvec_idx)
     }
     /// Give an assumed ID for some IR item (done at parse and IR-injection time).
     pub fn assign_assumed_id(
@@ -351,56 +312,6 @@ impl IndexScope {
         )
     }
 
-    pub fn assign_actual_id(&mut self, space: &Space, section: &ComponentSection, vec_idx: usize) {
-        let assumed_id = self.lookup_assumed_id(space, section, vec_idx);
-        if let Some(space) = self.get_space_mut(space) {
-            space.assign_actual_id(assumed_id);
-        }
-    }
-
-    pub fn assign_actual_id_with_subvec(
-        &mut self,
-        space: &Space,
-        section: &ComponentSection,
-        vec_idx: usize,
-        subvec_idx: usize,
-    ) {
-        let assumed_id = self.lookup_assumed_id_with_subvec(space, section, vec_idx, subvec_idx);
-        if let Some(space) = self.get_space_mut(space) {
-            space.assign_actual_id(assumed_id);
-        }
-    }
-
-    pub fn lookup_actual_id_or_panic(&self, r: &IndexedRef) -> usize {
-        if let Some(space) = self.get_space(&r.space) {
-            if let Some(actual_id) = space.lookup_actual_id(r.index as usize) {
-                return *actual_id;
-            }
-        }
-        panic!(
-            "[{:?}] Can't find assumed id {} in id-tracker",
-            r.space, r.index
-        );
-    }
-
-    pub fn reset_ids(&mut self) {
-        self.comp.reset_ids();
-        self.comp_func.reset_ids();
-        self.comp_val.reset_ids();
-        self.comp_type.reset_ids();
-        self.comp_inst.reset_ids();
-
-        self.core_inst.reset_ids();
-        self.module.reset_ids();
-
-        self.core_type.reset_ids();
-        self.core_func.reset_ids();
-        self.core_table.reset_ids();
-        self.core_memory.reset_ids();
-        self.core_global.reset_ids();
-        self.core_tag.reset_ids();
-    }
-
     // ===================
     // ==== UTILITIES ====
     // ===================
@@ -500,13 +411,6 @@ pub(crate) struct IdxSpace {
     /// This is the current ID that we've reached associated with this index space.
     current_id: usize,
 
-    /// This is used at encode time. It tracks the actual ID that has been assigned
-    /// to some item by allowing for lookup of the assumed ID: `assumed_id -> actual_id`
-    /// This is important since we know what ID should be associated with something only at encode time,
-    /// since instrumentation has finished at that point and encoding of component items
-    /// can be done out-of-order to satisfy possible forward-references injected during instrumentation.
-    actual_ids: HashMap<usize, usize>,
-
     /// Tracks the index in the MAIN item vector to the ID we've assumed for it: `main_idx -> assumed_id`
     /// This ID will be used to reference that item in the IR.
     main_assumed_ids: HashMap<usize, AssumedIdForIdx>,
@@ -525,20 +429,9 @@ pub(crate) struct IdxSpace {
     index_from_assumed_id_cache: HashMap<usize, (SpaceSubtype, usize, Option<usize>)>,
 }
 impl IdxSpace {
-    pub fn reset_ids(&mut self) {
-        self.current_id = 0;
-    }
-
     pub fn curr_id(&self) -> usize {
         // This returns the ID that we've reached thus far while encoding
         self.current_id
-    }
-
-    pub fn assign_actual_id(&mut self, assumed_id: usize) {
-        let id = self.curr_id();
-
-        self.actual_ids.insert(assumed_id, id);
-        self.next();
     }
 
     fn next(&mut self) -> usize {
@@ -688,10 +581,6 @@ impl IdxSpace {
             .or_insert(AssumedIdForIdx::Single(assumed_id));
 
         assumed_id
-    }
-
-    pub fn lookup_actual_id(&self, id: usize) -> Option<&usize> {
-        self.actual_ids.get(&id)
     }
 }
 

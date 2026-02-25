@@ -432,24 +432,10 @@ impl GetTypeRefs for ComponentDefinedType<'_> {
 impl ReferencedIndices for ComponentTypeDeclaration<'_> {
     fn referenced_indices(&self, _: Depth) -> Vec<RefKind> {
         let mut refs = vec![];
-        refs.extend(self.get_func_refs());
         refs.extend(self.get_type_refs());
-        refs.extend(self.get_param_refs());
-        refs.extend(self.get_result_refs());
         refs.extend(self.get_item_refs());
 
         refs
-    }
-}
-impl GetFuncRefs for ComponentTypeDeclaration<'_> {
-    fn get_func_refs(&self) -> Vec<RefKind> {
-        match self {
-            ComponentTypeDeclaration::Type(_)       // these are inner refs
-            | ComponentTypeDeclaration::CoreType(_) // these are inner refs
-            | ComponentTypeDeclaration::Alias(_)
-            | ComponentTypeDeclaration::Export { .. }
-            | ComponentTypeDeclaration::Import(_) => vec![],
-        }
     }
 }
 impl GetTypeRefs for ComponentTypeDeclaration<'_> {
@@ -460,28 +446,6 @@ impl GetTypeRefs for ComponentTypeDeclaration<'_> {
             ComponentTypeDeclaration::CoreType(_) // these are inner refs
             | ComponentTypeDeclaration::Type(_)   // these are inner refs
             | ComponentTypeDeclaration::Alias(_) => vec![],
-        }
-    }
-}
-impl GetParamRefs for ComponentTypeDeclaration<'_> {
-    fn get_param_refs(&self) -> Vec<RefKind> {
-        match self {
-            ComponentTypeDeclaration::Type(_)       // these are inner refs
-            | ComponentTypeDeclaration::CoreType(_) // these are inner refs
-            | ComponentTypeDeclaration::Alias(_)
-            | ComponentTypeDeclaration::Export { .. }
-            | ComponentTypeDeclaration::Import(_) => vec![],
-        }
-    }
-}
-impl GetResultRefs for ComponentTypeDeclaration<'_> {
-    fn get_result_refs(&self) -> Vec<RefKind> {
-        match self {
-            ComponentTypeDeclaration::Type(_)       // these are inner refs
-            | ComponentTypeDeclaration::CoreType(_) // these are inner refs
-            | ComponentTypeDeclaration::Alias(_)
-            | ComponentTypeDeclaration::Export { .. }
-            | ComponentTypeDeclaration::Import(_) => vec![],
         }
     }
 }
@@ -500,52 +464,19 @@ impl GetItemRefs for ComponentTypeDeclaration<'_> {
 impl ReferencedIndices for InstanceTypeDeclaration<'_> {
     fn referenced_indices(&self, _: Depth) -> Vec<RefKind> {
         let mut refs = vec![];
-        refs.extend(self.get_func_refs());
         refs.extend(self.get_type_refs());
-        refs.extend(self.get_param_refs());
-        refs.extend(self.get_result_refs());
         refs.extend(self.get_item_refs());
 
         refs
     }
 }
-impl GetFuncRefs for InstanceTypeDeclaration<'_> {
-    fn get_func_refs(&self) -> Vec<RefKind> {
-        match self {
-            InstanceTypeDeclaration::Type(ty) => vec![],
-            InstanceTypeDeclaration::CoreType(_)
-            | InstanceTypeDeclaration::Alias(_)
-            | InstanceTypeDeclaration::Export { .. } => vec![],
-        }
-    }
-}
 impl GetTypeRefs for InstanceTypeDeclaration<'_> {
     fn get_type_refs(&self) -> Vec<RefKind> {
         match self {
-            InstanceTypeDeclaration::CoreType(ty) => vec![],
-            InstanceTypeDeclaration::Type(ty) => vec![],
             InstanceTypeDeclaration::Export { ty, .. } => ty.get_type_refs(),
-            InstanceTypeDeclaration::Alias(_) => vec![],
-        }
-    }
-}
-impl GetParamRefs for InstanceTypeDeclaration<'_> {
-    fn get_param_refs(&self) -> Vec<RefKind> {
-        match self {
-            InstanceTypeDeclaration::Type(ty) => ty.get_param_refs(),
-            InstanceTypeDeclaration::CoreType(_)
-            | InstanceTypeDeclaration::Alias(_)
-            | InstanceTypeDeclaration::Export { .. } => vec![],
-        }
-    }
-}
-impl GetResultRefs for InstanceTypeDeclaration<'_> {
-    fn get_result_refs(&self) -> Vec<RefKind> {
-        match self {
-            InstanceTypeDeclaration::Type(ty) => ty.get_result_refs(),
-            InstanceTypeDeclaration::CoreType(_)
-            | InstanceTypeDeclaration::Alias(_)
-            | InstanceTypeDeclaration::Export { .. } => vec![],
+            InstanceTypeDeclaration::CoreType(_)         // these are inner refs
+            | InstanceTypeDeclaration::Type(_)           // these are inner refs
+            | InstanceTypeDeclaration::Alias(_) => vec![],
         }
     }
 }
@@ -553,8 +484,8 @@ impl GetItemRefs for InstanceTypeDeclaration<'_> {
     fn get_item_refs(&self) -> Vec<RefKind> {
         match self {
             InstanceTypeDeclaration::Alias(ty) => vec![ty.get_item_ref()],
-            InstanceTypeDeclaration::CoreType(_)
-            | InstanceTypeDeclaration::Type(_)
+            InstanceTypeDeclaration::CoreType(_)    // these are inner refs
+            | InstanceTypeDeclaration::Type(_)      // these are inner refs
             | InstanceTypeDeclaration::Export { .. } => vec![],
         }
     }
@@ -569,17 +500,7 @@ impl GetTypeRefs for CoreType<'_> {
     fn get_type_refs(&self) -> Vec<RefKind> {
         match self {
             CoreType::Rec(group) => group.get_type_refs(),
-            CoreType::Module(tys) => {
-                // let mut refs = vec![];
-                // for ty in tys.iter() {
-                //     // TODO: Technically these are in an `inner` depth space...
-                //              CORRECT -- i need to remove all get_type_refs that do this!
-                //     // refs.extend(ty.get_type_refs());
-                // }
-                //
-                // refs
-                vec![]
-            }
+            CoreType::Module(_) => vec![]       // these are inner refs
         }
     }
 }
