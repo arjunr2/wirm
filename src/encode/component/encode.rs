@@ -68,7 +68,7 @@ impl<'a> Encoder<'a> {
         if let Some(comp_name) = &comp.component_name {
             name_sec.component(comp_name);
         }
-        
+
         name_sec.core_funcs(&encode_name_section(
             &comp.core_func_names,
             Space::CoreFunc,
@@ -177,29 +177,31 @@ impl ComponentVisitor<'_> for Encoder<'_> {
         let section = curr_comp_ty_sect_mut(&mut self.comp_stack);
         match self.type_stack.last_mut() {
             Some(TypeFrame::InstTy { ty: ity }) => {
-                let new_frame = encode_comp_ty_in_inst_ty(
+                if let Some(new_frame) = encode_comp_ty_in_inst_ty(
                     ty,
                     ity,
                     &mut self.reencode,
                     self.ids,
                     &cx.inner
-                );
-                self.type_stack.push(new_frame);
+                ) {
+                    self.type_stack.push(new_frame)
+                }
                 return;
             }
             Some(TypeFrame::CompTy { ty: cty }) => {
-                let new_frame = encode_comp_ty_in_comp_ty(
+                if let Some(new_frame) = encode_comp_ty_in_comp_ty(
                     ty,
                     cty,
                     &mut self.reencode,
                     self.ids,
                     &cx.inner
-                );
-                self.type_stack.push(new_frame);
+                ) {
+                    self.type_stack.push(new_frame)
+                }
                 return;
             }
             Some(TypeFrame::ModTy { .. }) => unreachable!(),
-            Some(TypeFrame::Nop) | None => {}
+            None => {}
         }
 
         match ty {
@@ -211,7 +213,6 @@ impl ComponentVisitor<'_> for Encoder<'_> {
                     self.ids,
                     &cx.inner
                 );
-                self.type_stack.push(TypeFrame::Nop);
             }
             ComponentType::Func(func_ty) => {
                 encode_comp_func_ty(
@@ -221,22 +222,15 @@ impl ComponentVisitor<'_> for Encoder<'_> {
                     self.ids,
                     &cx.inner
                 );
-                self.type_stack.push(TypeFrame::Nop);
             }
             ComponentType::Resource { rep, dtor } => {
                 section.resource(self.reencode.val_type(*rep).unwrap(), *dtor);
-                self.type_stack.push(TypeFrame::Nop);
             }
-            ComponentType::Component(_) => {
-                self.type_stack.push(TypeFrame::CompTy {
-                    ty: wasm_encoder::ComponentType::new(),
-                });
-            }
-            ComponentType::Instance(_) => {
-                self.type_stack.push(TypeFrame::InstTy {
-                    ty: wasm_encoder::InstanceType::new(),
-                });
-            }
+            ComponentType::Component(_)
+            | ComponentType::Instance(_) => {}
+        }
+        if let Some(new_frame) = frame_for_comp_ty(ty) {
+            self.type_stack.push(new_frame);
         }
     }
     fn visit_comp_type_decl(
@@ -257,7 +251,7 @@ impl ComponentVisitor<'_> for Encoder<'_> {
                     &cx.inner
                 );
             }
-            TypeFrame::InstTy { .. } | TypeFrame::ModTy { .. } | TypeFrame::Nop => unreachable!(),
+            TypeFrame::InstTy { .. } | TypeFrame::ModTy { .. } => unreachable!(),
         }
     }
     fn visit_inst_type_decl(
@@ -278,38 +272,35 @@ impl ComponentVisitor<'_> for Encoder<'_> {
                     &cx.inner
                 );
             }
-            TypeFrame::CompTy { .. } | TypeFrame::ModTy { .. } | TypeFrame::Nop => unreachable!(),
+            TypeFrame::CompTy { .. } | TypeFrame::ModTy { .. } => unreachable!(),
         }
     }
-    fn exit_comp_type(&mut self, _: &VisitCtx<'_>, _: u32, _: &ComponentType<'_>) {
+    fn exit_comp_type(&mut self, _: &VisitCtx<'_>, _: u32, ty: &ComponentType<'_>) {
         let CompFrame {
             comp_type_section,
             component,
             ..
         } = curr_comp_frame(&mut self.comp_stack);
         let section = comp_type_section.as_mut().unwrap();
-        match self.type_stack.pop() {
-            Some(TypeFrame::CompTy { ty }) => {
-                if let Some(TypeFrame::CompTy { ty: parent }) = self.type_stack.last_mut() {
-                    parent.ty().component(&ty);
-                } else if let Some(TypeFrame::InstTy { ty: parent }) = self.type_stack.last_mut() {
-                    parent.ty().component(&ty);
-                } else {
-                    section.component(&ty);
+        if frame_for_comp_ty(ty).is_some() {
+            match self.type_stack.pop().unwrap() {
+                TypeFrame::CompTy { ty } => {
+                    if let Some(parent) = self.type_stack.last_mut() {
+                        parent.attach_component_type(&ty);
+                    } else {
+                        section.component(&ty);
+                    }
                 }
-            }
-            Some(TypeFrame::InstTy { ty }) => {
-                if let Some(TypeFrame::InstTy { ty: parent }) = self.type_stack.last_mut() {
-                    parent.ty().instance(&ty); // attach to parent instance
-                } else if let Some(TypeFrame::CompTy { ty: parent }) = self.type_stack.last_mut() {
-                    parent.ty().instance(&ty); // attach to enclosing ComponentType
-                } else {
-                    // top-level type, attach to comp_type_section
-                    section.instance(&ty);
+                TypeFrame::InstTy { ty } => {
+                    if let Some(parent) = self.type_stack.last_mut() {
+                        parent.attach_instance_type(&ty);
+                    } else {
+                        // top-level type, attach to comp_type_section
+                        section.instance(&ty);
+                    }
                 }
+                TypeFrame::ModTy { .. } => unreachable!(),
             }
-            Some(TypeFrame::ModTy { .. }) => unreachable!(),
-            Some(TypeFrame::Nop) | None => {}
         }
 
         if self.type_stack.is_empty() {
@@ -379,29 +370,31 @@ impl ComponentVisitor<'_> for Encoder<'_> {
         let section = curr_core_ty_sect_mut(&mut self.comp_stack);
         match self.type_stack.last_mut() {
             Some(TypeFrame::InstTy { ty: ity }) => {
-                let new_frame = encode_core_ty_from_inst_ty(
+                if let Some(new_frame) = encode_core_ty_from_inst_ty(
                     ty,
                     ity,
                     &mut self.reencode,
                     self.ids,
                     &cx.inner
-                );
-                self.type_stack.push(new_frame);
+                ) {
+                    self.type_stack.push(new_frame)
+                }
                 return;
             }
             Some(TypeFrame::CompTy { ty: cty }) => {
-                let new_frame = encode_core_ty_from_comp_ty(
+                if let Some(new_frame) = encode_core_ty_from_comp_ty(
                     ty,
                     cty,
                     &mut self.reencode,
                     self.ids,
                     &cx.inner
-                );
-                self.type_stack.push(new_frame);
+                ) {
+                    self.type_stack.push(new_frame)
+                }
                 return;
             }
             Some(TypeFrame::ModTy { .. }) => unreachable!(),
-            Some(TypeFrame::Nop) | None => {}
+            None => {}
         }
 
         match ty {
@@ -433,38 +426,35 @@ impl ComponentVisitor<'_> for Encoder<'_> {
         curr_core_ty_sect_mut(&mut self.comp_stack);
         match self.type_stack.last_mut() {
             Some(TypeFrame::InstTy { ty: ity }) => {
-                let new_frame = encode_core_ty_from_inst_ty(
+                if let Some(new_frame) = encode_core_ty_from_inst_ty(
                     ty,
                     ity,
                     &mut self.reencode,
                     self.ids,
                     &cx.inner
-                );
-                self.type_stack.push(new_frame);
+                ) {
+                    self.type_stack.push(new_frame)
+                }
                 return;
             }
             Some(TypeFrame::CompTy { ty: cty }) => {
-                let new_frame = encode_core_ty_from_comp_ty(
+                if let Some(new_frame) = encode_core_ty_from_comp_ty(
                     ty,
                     cty,
                     &mut self.reencode,
                     self.ids,
                     &cx.inner
-                );
-                self.type_stack.push(new_frame);
+                ) {
+                    self.type_stack.push(new_frame)
+                }
                 return;
             }
             Some(TypeFrame::ModTy { .. }) => unreachable!(),
-            Some(TypeFrame::Nop) | None => {}
+            None => {}
         }
 
-        match ty {
-            CoreType::Rec(_) => unreachable!(),
-            CoreType::Module(_) => {
-                self.type_stack.push(TypeFrame::ModTy {
-                    ty: wasm_encoder::ModuleType::new(),
-                });
-            }
+        if let Some(new_frame) = frame_for_core_ty(ty) {
+            self.type_stack.push(new_frame)
         }
     }
     fn visit_module_type_decl(
@@ -485,28 +475,29 @@ impl ComponentVisitor<'_> for Encoder<'_> {
                     &cx.inner
                 );
             }
-            TypeFrame::CompTy { .. } | TypeFrame::InstTy { .. } | TypeFrame::Nop => unreachable!(),
+            TypeFrame::CompTy { .. } | TypeFrame::InstTy { .. } => unreachable!(),
         }
     }
-    fn exit_core_type(&mut self, _cx: &VisitCtx<'_>, _id: u32, _core_type: &CoreType<'_>) {
+    fn exit_core_type(&mut self, _cx: &VisitCtx<'_>, _id: u32, ty: &CoreType<'_>) {
         let CompFrame {
             core_type_section,
             component,
             ..
         } = curr_comp_frame(&mut self.comp_stack);
         let section = core_type_section.as_mut().unwrap();
-        match self.type_stack.pop() {
-            Some(TypeFrame::ModTy { ty }) => {
-                if let Some(TypeFrame::CompTy { ty: parent }) = self.type_stack.last_mut() {
-                    parent.core_type().module(&ty);
-                } else if let Some(TypeFrame::InstTy { ty: parent }) = self.type_stack.last_mut() {
-                    parent.core_type().module(&ty);
-                } else {
-                    section.ty().module(&ty);
+        if frame_for_core_ty(ty).is_some() {
+            match self.type_stack.pop().unwrap() {
+                TypeFrame::ModTy { ty } => {
+                    if let Some(TypeFrame::CompTy { ty: parent }) = self.type_stack.last_mut() {
+                        parent.core_type().module(&ty);
+                    } else if let Some(TypeFrame::InstTy { ty: parent }) = self.type_stack.last_mut() {
+                        parent.core_type().module(&ty);
+                    } else {
+                        section.ty().module(&ty);
+                    }
                 }
+                TypeFrame::CompTy { .. } | TypeFrame::InstTy { .. } => unreachable!(),
             }
-            Some(TypeFrame::CompTy { .. }) | Some(TypeFrame::InstTy { .. }) => unreachable!(),
-            Some(TypeFrame::Nop) | None => {}
         }
 
         if self.type_stack.is_empty() {
@@ -560,28 +551,68 @@ impl CompFrame {
 enum TypeFrame {
     CompTy { ty: wasm_encoder::ComponentType },
     InstTy { ty: wasm_encoder::InstanceType },
-    ModTy { ty: wasm_encoder::ModuleType },
-    Nop,
+    ModTy { ty: wasm_encoder::ModuleType }
+}
+impl TypeFrame {
+    fn attach_component_type(
+        &mut self,
+        ty: &wasm_encoder::ComponentType,
+    ) {
+        match self {
+            TypeFrame::CompTy { ty: parent } => {
+                parent.ty().component(ty);  // attach to enclosing ComponentType
+            }
+            TypeFrame::InstTy { ty: parent } => {
+                parent.ty().component(ty);  // attach to parent instance
+            }
+            _ => unreachable!(),
+        }
+    }
+
+    fn attach_instance_type(
+        &mut self,
+        ty: &wasm_encoder::InstanceType,
+    ) {
+        match self {
+            TypeFrame::CompTy { ty: parent } => {
+                parent.ty().instance(ty);   // attach to enclosing ComponentType
+            }
+            TypeFrame::InstTy { ty: parent } => {
+                parent.ty().instance(ty);   // attach to parent instance
+            }
+            _ => unreachable!(),
+        }
+    }
+}
+fn frame_for_comp_ty(ty: &ComponentType) -> Option<TypeFrame> {
+    match ty {
+        ComponentType::Component(_) => Some(TypeFrame::CompTy {
+            ty: wasm_encoder::ComponentType::new(),
+        }),
+        ComponentType::Instance(_) => Some(TypeFrame::InstTy {
+            ty: wasm_encoder::InstanceType::new(),
+        }),
+        ComponentType::Defined(_)
+        | ComponentType::Func(_)
+        | ComponentType::Resource { .. } => None
+    }
+}
+fn frame_for_core_ty(core_ty: &CoreType) -> Option<TypeFrame> {
+    match core_ty {
+        CoreType::Rec(r) => {
+            None
+        }
+        CoreType::Module(_) => Some(TypeFrame::ModTy {
+            ty: wasm_encoder::ModuleType::new(),
+        }),
+    }
 }
 
-// fn encode_name_section(names: &Names) -> NameMap {
-//     let mut enc_names = NameMap::default();
-//
-//     for (idx, name) in names.names.iter() {
-//         enc_names.append(*idx, name)
-//     }
-//     enc_names
-// }
-
+/// Reworking the names assigned to nodes are ALWAYS the nodes WITHIN a component.
+/// Since this is true, we don't have to worry about whether the node has a nested scope!
+/// We're already looking up the node's ID within its containing scope :)
 fn encode_name_section(names: &Names, space: Space, cx: &VisitCtx, ids: &ActualIds) -> NameMap {
-    let nested = cx.inner.node_has_nested_scope.last().unwrap_or(&false);
-    let curr_scope_id = if *nested {
-        // cx.inner.scope_stack.scope_at_depth(&Depth::parent())
-        cx.inner.scope_stack.curr_scope_id()
-    } else {
-        cx.inner.scope_stack.curr_scope_id()
-    };
-    // let curr_scope_id = cx.inner.scope_stack.curr_scope_id();
+    let curr_scope_id = cx.inner.scope_stack.curr_scope_id();
     let actual_ids = if let Some(scope) = ids.get_scope(curr_scope_id) {
         // Sometimes the scope doesn't get created (if there are no immediate IR nodes that would populate
         // its own scope)
@@ -1174,19 +1205,18 @@ fn encode_core_ty_from_inst_ty(
     reencode: &mut RoundtripReencoder,
     ids: &ActualIds,
     cx: &VisitCtxInner
-) -> TypeFrame {
+) -> Option<TypeFrame> {
     match core_ty {
         CoreType::Rec(r) => {
             let recgroup = r.fix(ids, cx);
             for sub in recgroup.types() {
                 encode_subtype(sub, inst_ty.core_type().core(), reencode);
             }
-            TypeFrame::Nop
         }
-        CoreType::Module(_) => TypeFrame::ModTy {
-            ty: wasm_encoder::ModuleType::new(),
-        },
+        CoreType::Module(_) => {},
     }
+
+    frame_for_core_ty(core_ty)
 }
 fn encode_core_ty_from_comp_ty(
     core_ty: &CoreType,
@@ -1194,19 +1224,18 @@ fn encode_core_ty_from_comp_ty(
     reencode: &mut RoundtripReencoder,
     ids: &ActualIds,
     cx: &VisitCtxInner
-) -> TypeFrame {
+) -> Option<TypeFrame> {
     match core_ty {
         CoreType::Rec(r) => {
             let recgroup = r.fix(ids, cx);
             for sub in recgroup.types() {
                 encode_subtype(sub, comp_ty.core_type().core(), reencode);
             }
-            TypeFrame::Nop
         }
-        CoreType::Module(_) => TypeFrame::ModTy {
-            ty: wasm_encoder::ModuleType::new(),
-        },
+        CoreType::Module(_) => {},
     }
+
+    frame_for_core_ty(core_ty)
 }
 fn encode_module_type_decl(
     d: &ModuleTypeDeclaration,
@@ -1259,16 +1288,11 @@ fn encode_comp_ty_in_inst_ty(
     reencode: &mut RoundtripReencoder,
     ids: &ActualIds,
     cx: &VisitCtxInner
-) -> TypeFrame {
-    // special case for components and instances
-    if let ComponentType::Component(_) = t {
-        return TypeFrame::CompTy {
-            ty: wasm_encoder::ComponentType::new(),
-        };
-    } else if let ComponentType::Instance(_) = t {
-        return TypeFrame::InstTy {
-            ty: wasm_encoder::InstanceType::new(),
-        };
+) -> Option<TypeFrame> {
+    let frame = frame_for_comp_ty(t);
+    if frame.is_some() {
+        // special case for components and instances
+        return frame;
     }
 
     let ty = t.fix(ids, cx);
@@ -1281,18 +1305,17 @@ fn encode_comp_ty_in_inst_ty(
                 ids,
                 cx,
             );
-            TypeFrame::Nop
         }
         ComponentType::Func(func_ty) => {
             encode_comp_func_ty(&func_ty, ity.ty().function(), reencode, ids, cx);
-            TypeFrame::Nop
         }
         ComponentType::Resource { rep, dtor } => {
             ity.ty().resource(reencode.val_type(rep).unwrap(), dtor);
-            TypeFrame::Nop
         }
         ComponentType::Component(_) | ComponentType::Instance(_) => unreachable!(),
     }
+
+    frame
 }
 
 fn encode_comp_ty_in_comp_ty(
@@ -1301,16 +1324,11 @@ fn encode_comp_ty_in_comp_ty(
     reencode: &mut RoundtripReencoder,
     ids: &ActualIds,
     cx: &VisitCtxInner
-) -> TypeFrame {
-    // special case for components and instances
-    if let ComponentType::Component(_) = t {
-        return TypeFrame::CompTy {
-            ty: wasm_encoder::ComponentType::new(),
-        };
-    } else if let ComponentType::Instance(_) = t {
-        return TypeFrame::InstTy {
-            ty: wasm_encoder::InstanceType::new(),
-        };
+) -> Option<TypeFrame> {
+    let frame = frame_for_comp_ty(t);
+    if frame.is_some() {
+        // special case for components and instances
+        return frame;
     }
 
     let ty = t.fix(ids, cx);
@@ -1323,18 +1341,17 @@ fn encode_comp_ty_in_comp_ty(
                 ids,
                 cx,
             );
-            TypeFrame::Nop
         }
         ComponentType::Func(func_ty) => {
             encode_comp_func_ty(&func_ty, cty.ty().function(), reencode, ids, cx);
-            TypeFrame::Nop
         }
         ComponentType::Resource { rep, dtor } => {
             cty.ty().resource(reencode.val_type(rep).unwrap(), dtor);
-            TypeFrame::Nop
         }
         ComponentType::Component(_) | ComponentType::Instance(_) => unreachable!(),
     }
+
+    frame
 }
 
 /// NOTE: The alias passed here should already be FIXED
