@@ -198,6 +198,7 @@ pub fn drive_event<'ir, V: ComponentVisitor<'ir>>(
     }
 }
 
+#[derive(Debug)]
 pub(crate) enum VisitEvent<'ir> {
     EnterRootComp {
         component: &'ir Component<'ir>,

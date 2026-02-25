@@ -54,7 +54,7 @@ pub fn configure_component_libraries<'a>(
             }
         }
     }
-    if let Some(_) = wasi_instance {
+    if wasi_instance.is_some() {
         configure_lib(target_module_id, component, WHAMM_CORE_LIB_NAME, core_lib);
     } else {
         panic!(
@@ -104,7 +104,7 @@ pub fn configure_component_libraries<'a>(
         for ComponentExport { name, kind, .. } in lib_wasm.exports.iter() {
             let (alias_func_id, ..) = wasm.add_alias_func(ComponentAlias::InstanceExport {
                 name: name.0,
-                kind: kind.clone(),
+                kind: *kind,
                 instance_index: inst_id,
             });
             let canon_id = wasm.add_canon_func(CanonicalFunction::Lower {

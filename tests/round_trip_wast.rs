@@ -111,7 +111,7 @@ const WASM_TOOLS_TEST_COMP_INPUTS: &str = "./tests/wasm-tools/component-model";
 
 #[test]
 fn test_wast_components() {
-    let path_str = format!("{WASM_TOOLS_TEST_COMP_INPUTS}");
+    let path_str = WASM_TOOLS_TEST_COMP_INPUTS.to_string();
     test_wast(Path::new(&path_str), true);
 }
 

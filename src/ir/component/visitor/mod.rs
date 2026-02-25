@@ -434,7 +434,7 @@ pub trait ComponentVisitor<'a> {
     fn visit_start_section(&mut self, _cx: &VisitCtx<'a>, _start: &ComponentStartFunction) {}
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ItemKind {
     Comp,
     CompFunc,
