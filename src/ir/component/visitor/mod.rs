@@ -289,11 +289,30 @@ pub trait ComponentVisitor<'a> {
     ) {
     }
 
-    // ------------------------
-    // Core WebAssembly items
-    // ------------------------
+    // ============================================================
+    // Core Recursion Groups (`core rec`)
+    // ============================================================
 
-    /// Enter a core recursion group (`core rec`)
+    /// Called when entering a core recursion group (`core rec`).
+    ///
+    /// A recursion group defines one or more mutually recursive core
+    /// subtypes that are allocated as a unit in the core type index
+    /// space. All subtypes belonging to this group will be reported
+    /// via subsequent `visit_core_subtype` calls, followed by a single
+    /// `exit_core_rec_group`.
+    ///
+    /// Parameters:
+    /// - `count`: The total number of subtypes in this recursion group.
+    /// - `core_type`: The enclosing `CoreType` that owns this group.
+    ///
+    /// Ordering guarantees:
+    /// - Exactly `count` calls to `visit_core_subtype` will occur
+    ///   before `exit_core_rec_group` is invoked.
+    /// - No other recursion group callbacks will be interleaved.
+    ///
+    /// Indexing semantics:
+    /// - Each subtype reported within this group corresponds to a
+    ///   consecutive allocation in the core type index space.
     fn enter_core_rec_group(
         &mut self,
         _cx: &VisitCtx<'a>,
@@ -301,28 +320,76 @@ pub trait ComponentVisitor<'a> {
         _core_type: &CoreType<'a>,
     ) {
     }
+
+    /// Called for each subtype within the current recursion group.
+    ///
+    /// This callback is emitted between `enter_core_rec_group` and
+    /// `exit_core_rec_group`.
+    ///
+    /// Parameters:
+    /// - `id`: The resolved core type index assigned to this subtype.
+    ///   These indices are contiguous within the enclosing recursion group.
+    /// - `subtype`: The subtype definition, including finality,
+    ///   supertype information, and its composite type.
+    ///
+    /// Invariants:
+    /// - This is only invoked while a recursion group is active.
+    /// - The `id` is stable and corresponds to the canonical core
+    ///   type namespace for the enclosing module.
     fn visit_core_subtype(&mut self, _cx: &VisitCtx<'a>, _id: u32, _subtype: &SubType) {}
-    /// Exit the current recursion group
+
+    /// Called after all subtypes in the current recursion group
+    /// have been reported.
+    ///
+    /// Always paired with a prior `enter_core_rec_group`. No additional
+    /// `visit_core_subtype` calls will occur after this callback.
+    ///
+    /// At this point, the full set of types in the group is known and
+    /// may be finalized or encoded as a unit.
     fn exit_core_rec_group(&mut self, _cx: &VisitCtx<'a>) {}
 
-    /// Invoked when entering a core WebAssembly type definition.
+    // ============================================================
+    // Core Type Definitions
+    // ============================================================
+
+    /// Called when entering a core type definition.
     ///
-    /// The `id` corresponds to the resolved type index within the
-    /// core type namespace.
+    /// This corresponds to a type allocated in the core type namespace
+    /// (e.g., a module type). The `id` is the resolved index within that
+    /// namespace.
     ///
-    /// This callback is paired with `exit_core_type`, and nested module
-    /// type declarations (if any) will be reported between the enter/exit
-    /// calls.
+    /// This callback forms a structured pair with `exit_core_type`.
+    /// Any nested structure associated with this type (such as module
+    /// type declarations) will be reported between these two calls.
+    ///
+    /// Ordering guarantees:
+    /// `enter_core_type(id, ...)`
+    ///   → zero or more `visit_module_type_decl(...)`
+    ///   → `exit_core_type(id, ...)`
+    ///
+    /// The same `id` is passed to both enter and exit.
     fn enter_core_type(&mut self, _cx: &VisitCtx<'a>, _id: u32, _core_type: &CoreType<'a>) {}
 
-    /// Invoked for each declaration within a core module type.
+    /// Called for each declaration inside a core module type.
     ///
-    /// The `decl_idx` is the index of the declaration within the parent
-    /// module type’s declaration list. The `parent` is the enclosing
-    /// `CoreType`, and `decl` is the specific module type declaration.
+    /// Emitted only while visiting a core type whose underlying
+    /// definition is a module type.
     ///
-    /// These callbacks are emitted between `enter_core_type` and
-    /// `exit_core_type` for the enclosing type.
+    /// Parameters:
+    /// - `decl_idx`: The declaration’s ordinal position within the
+    ///   parent module type.
+    /// - `id`: The resolved core type index of the enclosing type.
+    /// - `parent`: The enclosing `CoreType`.
+    /// - `decl`: The specific module type declaration.
+    ///
+    /// Ordering guarantees:
+    /// - These callbacks occur strictly between `enter_core_type`
+    ///   and `exit_core_type` for the same `id`.
+    /// - Declarations are visited in source order.
+    ///
+    /// Indexing semantics:
+    /// - `decl_idx` is local to the parent type and does not refer
+    ///   to a global index space.
     fn visit_module_type_decl(
         &mut self,
         _cx: &VisitCtx<'a>,
@@ -333,10 +400,15 @@ pub trait ComponentVisitor<'a> {
     ) {
     }
 
-    /// Invoked after all nested declarations within a core type have
-    /// been visited.
+    /// Called after all nested declarations for a core type
+    /// have been visited.
     ///
-    /// Always paired with a prior `enter_core_type` call for the same `id`.
+    /// Always paired with a prior `enter_core_type` for the same `id`.
+    /// No additional callbacks related to this type will occur after
+    /// this point.
+    ///
+    /// Implementations may use this as a finalization hook once the
+    /// full structural contents of the type are known.
     fn exit_core_type(&mut self, _cx: &VisitCtx<'a>, _id: u32, _core_type: &CoreType<'a>) {}
 
     /// Invoked for each core WebAssembly instance.

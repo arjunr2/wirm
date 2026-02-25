@@ -25,9 +25,6 @@ pub fn drive_event<'ir, V: ComponentVisitor<'ir>>(
         }
         VisitEvent::EnterComp { component, idx, .. } => {
             ctx.inner.push_component(component);
-
-            // TODO: This seems like the wrong time to do the lookup
-            //       (should it be before `push_component`?)
             let id = ctx
                 .inner
                 .lookup_id_for(&Space::Comp, &ComponentSection::Component, *idx);
