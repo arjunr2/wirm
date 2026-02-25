@@ -9,6 +9,7 @@ use wasmparser::{
     Instance, InstanceTypeDeclaration, InstantiationArg, ModuleTypeDeclaration, RecGroup, RefType,
     StorageType, SubType, TagType, TypeBounds, TypeRef, ValType, VariantCase,
 };
+use crate::ir::component::visitor::VisitCtx;
 
 /// A trait for extracting all referenced indices from an IR node.
 ///
@@ -224,7 +225,7 @@ impl Depth {
 /// A raw indexed reference into a specific index space.
 ///
 /// This represents an unresolved reference that must be interpreted
-/// relative to a [`VisitCtx`].
+/// relative to a [`crate::ir::component::visitor::VisitCtx`].
 ///
 /// Fields:
 ///
@@ -232,7 +233,7 @@ impl Depth {
 /// - `space` → The index namespace (component, module, type, etc.)
 /// - `index` → The numeric index within that namespace
 ///
-/// Resolution is performed via [`VisitCtx::resolve`].
+/// Resolution is performed via [`crate::ir::component::visitor::VisitCtx::resolve`].
 #[derive(Copy, Clone, Debug)]
 pub struct IndexedRef {
     /// The depth of the index space scope to look this up in.

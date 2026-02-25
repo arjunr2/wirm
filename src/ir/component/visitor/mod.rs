@@ -486,7 +486,7 @@ impl From<Space> for ItemKind {
 /// - Resolves references across component and core index spaces
 ///
 /// This type is opaque and cannot be constructed by users. It is only
-/// available during traversal via [`traverse_component`].
+/// available during traversal via [`walk_topological`] or [`walk_structural`].
 ///
 /// All resolution operations are read-only and reflect the *semantic*
 /// structure of the component, not its internal storage layout.
