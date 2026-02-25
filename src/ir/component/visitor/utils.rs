@@ -28,10 +28,10 @@ use crate::ir::component::scopes::{
     build_component_store, ComponentStore, GetScopeKind, RegistryHandle,
 };
 use crate::ir::component::section::ComponentSection;
-use crate::ir::id::ComponentId;
-use crate::Component;
 use crate::ir::component::visitor::driver::VisitEvent;
 use crate::ir::component::visitor::{ItemKind, ResolvedItem};
+use crate::ir::id::ComponentId;
+use crate::Component;
 
 pub struct VisitCtxInner<'a> {
     pub(crate) registry: RegistryHandle,
@@ -191,7 +191,10 @@ impl VisitCtxInner<'_> {
             .lookup_assumed_id_with_subvec(space, section, vec_idx, subvec_idx) as u32
     }
 
-    pub(crate) fn index_from_assumed_id_no_cache(&self, r: &IndexedRef) -> (SpaceSubtype, usize, Option<usize>) {
+    pub(crate) fn index_from_assumed_id_no_cache(
+        &self,
+        r: &IndexedRef,
+    ) -> (SpaceSubtype, usize, Option<usize>) {
         let scope_id = self.scope_stack.space_at_depth(&r.depth);
         self.store
             .borrow()
@@ -201,7 +204,10 @@ impl VisitCtxInner<'_> {
             .index_from_assumed_id_no_cache(r)
     }
 
-    pub(crate) fn index_from_assumed_id(&mut self, r: &IndexedRef) -> (SpaceSubtype, usize, Option<usize>) {
+    pub(crate) fn index_from_assumed_id(
+        &mut self,
+        r: &IndexedRef,
+    ) -> (SpaceSubtype, usize, Option<usize>) {
         let scope_id = self.scope_stack.space_at_depth(&r.depth);
         self.store
             .borrow_mut()
@@ -245,21 +251,15 @@ impl VisitCtxInner<'_> {
         let space = r.space;
         match vec {
             SpaceSubtype::Main => match space {
-                Space::Comp => {
-                    ResolvedItem::Component(r.index, &referenced_comp.components[idx])
-                }
+                Space::Comp => ResolvedItem::Component(r.index, &referenced_comp.components[idx]),
                 Space::CompType => {
                     ResolvedItem::CompType(r.index, &referenced_comp.component_types.items[idx])
                 }
                 Space::CompInst => {
                     ResolvedItem::CompInst(r.index, &referenced_comp.component_instance[idx])
                 }
-                Space::CoreInst => {
-                    ResolvedItem::CoreInst(r.index, &referenced_comp.instances[idx])
-                }
-                Space::CoreModule => {
-                    ResolvedItem::Module(r.index, &referenced_comp.modules[idx])
-                }
+                Space::CoreInst => ResolvedItem::CoreInst(r.index, &referenced_comp.instances[idx]),
+                Space::CoreModule => ResolvedItem::Module(r.index, &referenced_comp.modules[idx]),
                 Space::CoreType => {
                     ResolvedItem::CoreType(r.index, &referenced_comp.core_types[idx])
                 }
@@ -275,15 +275,9 @@ impl VisitCtxInner<'_> {
                     "This spaces don't exist in a main vector on the component IR: {vec:?}"
                 ),
             },
-            SpaceSubtype::Export => {
-                ResolvedItem::Export(r.index, &referenced_comp.exports[idx])
-            }
-            SpaceSubtype::Import => {
-                ResolvedItem::Import(r.index, &referenced_comp.imports[idx])
-            }
-            SpaceSubtype::Alias => {
-                ResolvedItem::Alias(r.index, &referenced_comp.alias.items[idx])
-            }
+            SpaceSubtype::Export => ResolvedItem::Export(r.index, &referenced_comp.exports[idx]),
+            SpaceSubtype::Import => ResolvedItem::Import(r.index, &referenced_comp.imports[idx]),
+            SpaceSubtype::Alias => ResolvedItem::Alias(r.index, &referenced_comp.alias.items[idx]),
         }
     }
 }
@@ -390,4 +384,3 @@ pub fn emit_indexed<'ir, T: IndexSpaceOf>(
 ) {
     out.push(make(item.index_space_of().into(), idx, item));
 }
-

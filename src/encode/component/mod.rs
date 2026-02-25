@@ -1,6 +1,6 @@
-use crate::Component;
 use crate::encode::component::assign::assign_indices;
 use crate::encode::component::encode::encode_internal_new;
+use crate::Component;
 
 mod assign;
 pub(crate) mod encode;

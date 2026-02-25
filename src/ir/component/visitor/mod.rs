@@ -1,5 +1,3 @@
-use wasmparser::{CanonicalFunction, ComponentAlias, ComponentExport, ComponentImport, ComponentInstance, ComponentStartFunction, ComponentType, ComponentTypeDeclaration, CoreType, Instance, InstanceTypeDeclaration, ModuleTypeDeclaration, SubType};
-use crate::{Component, Module};
 use crate::ir::component::idx_spaces::Space;
 use crate::ir::component::refs::{IndexedRef, RefKind};
 use crate::ir::component::visitor::driver::{drive_event, VisitEvent};
@@ -7,11 +5,17 @@ use crate::ir::component::visitor::events_structural::get_structural_events;
 use crate::ir::component::visitor::events_topological::get_topological_events;
 use crate::ir::component::visitor::utils::VisitCtxInner;
 use crate::ir::types::CustomSection;
+use crate::{Component, Module};
+use wasmparser::{
+    CanonicalFunction, ComponentAlias, ComponentExport, ComponentImport, ComponentInstance,
+    ComponentStartFunction, ComponentType, ComponentTypeDeclaration, CoreType, Instance,
+    InstanceTypeDeclaration, ModuleTypeDeclaration, SubType,
+};
 
 mod driver;
 mod events_structural;
-pub(crate) mod utils;
 mod events_topological;
+pub(crate) mod utils;
 
 /// Walk a [`Component`] using its *structural* (in-file) order.
 ///
@@ -41,10 +45,7 @@ mod events_topological;
 /// - `enter_component` / `exit_component` callbacks are properly paired.
 ///
 /// See also [`walk_topological`] for a dependency-ordered traversal.
-pub fn walk_structural<'ir, V: ComponentVisitor<'ir>>(
-    root: &'ir Component<'ir>,
-    visitor: &mut V,
-) {
+pub fn walk_structural<'ir, V: ComponentVisitor<'ir>>(root: &'ir Component<'ir>, visitor: &mut V) {
     walk(get_structural_events, root, visitor);
 }
 
@@ -80,15 +81,12 @@ pub fn walk_structural<'ir, V: ComponentVisitor<'ir>>(
 /// - `enter_component` / `exit_component` callbacks are properly paired.
 ///
 /// See also [`walk_structural`] for lexical-order traversal.
-pub fn walk_topological<'ir, V: ComponentVisitor<'ir>>(
-    root: &'ir Component<'ir>,
-    visitor: &mut V,
-) {
+pub fn walk_topological<'ir, V: ComponentVisitor<'ir>>(root: &'ir Component<'ir>, visitor: &mut V) {
     walk(get_topological_events, root, visitor);
 }
 
 fn walk<'ir, V: ComponentVisitor<'ir>>(
-    get_evts: fn (&'ir Component<'ir>, &mut VisitCtx<'ir>, &mut Vec<VisitEvent<'ir>>),
+    get_evts: fn(&'ir Component<'ir>, &mut VisitCtx<'ir>, &mut Vec<VisitEvent<'ir>>),
     root: &'ir Component<'ir>,
     visitor: &mut V,
 ) {
@@ -183,7 +181,8 @@ pub trait ComponentVisitor<'a> {
         _id: u32,
         _parent: &ComponentType<'a>,
         _decl: &ComponentTypeDeclaration<'a>,
-    ) {}
+    ) {
+    }
 
     /// Invoked for each declaration within a `ComponentType::Instance`.
     ///
@@ -201,7 +200,8 @@ pub trait ComponentVisitor<'a> {
         _id: u32,
         _parent: &ComponentType<'a>,
         _decl: &InstanceTypeDeclaration<'a>,
-    ) {}
+    ) {
+    }
 
     /// Invoked after all nested declarations within a component-level
     /// type have been visited.
@@ -218,7 +218,8 @@ pub trait ComponentVisitor<'a> {
         _cx: &VisitCtx<'a>,
         _id: u32,
         _instance: &ComponentInstance<'a>,
-    ) {}
+    ) {
+    }
 
     // ------------------------------------------------
     // Items with multiple possible resolved namespaces
@@ -252,7 +253,8 @@ pub trait ComponentVisitor<'a> {
         _kind: ItemKind,
         _id: u32,
         _alias: &ComponentAlias<'a>,
-    ) {}
+    ) {
+    }
 
     /// Invoked for component imports.
     ///
@@ -290,13 +292,14 @@ pub trait ComponentVisitor<'a> {
     // ------------------------
 
     /// Enter a core recursion group (`core rec`)
-    fn enter_core_rec_group(&mut self, _cx: &VisitCtx<'a>, _count: usize, _core_type: &CoreType<'a>) {}
-    fn visit_core_subtype(
+    fn enter_core_rec_group(
         &mut self,
         _cx: &VisitCtx<'a>,
-        _id: u32,
-        _subtype: &SubType,
-    ) {}
+        _count: usize,
+        _core_type: &CoreType<'a>,
+    ) {
+    }
+    fn visit_core_subtype(&mut self, _cx: &VisitCtx<'a>, _id: u32, _subtype: &SubType) {}
     /// Exit the current recursion group
     fn exit_core_rec_group(&mut self, _cx: &VisitCtx<'a>) {}
 
@@ -325,7 +328,8 @@ pub trait ComponentVisitor<'a> {
         _id: u32,
         _parent: &CoreType<'a>,
         _decl: &ModuleTypeDeclaration<'a>,
-    ) {}
+    ) {
+    }
 
     /// Invoked after all nested declarations within a core type have
     /// been visited.
@@ -337,12 +341,7 @@ pub trait ComponentVisitor<'a> {
     ///
     /// The `id` corresponds to the resolved instance index within the
     /// core instance namespace.
-    fn visit_core_instance(
-        &mut self,
-        _cx: &VisitCtx<'a>,
-        _id: u32,
-        _inst: &Instance<'a>,
-    ) {}
+    fn visit_core_instance(&mut self, _cx: &VisitCtx<'a>, _id: u32, _inst: &Instance<'a>) {}
 
     // ------------------------
     // Sections
@@ -375,7 +374,7 @@ pub enum ItemKind {
     CoreTable,
     CoreGlobal,
     CoreTag,
-    NA
+    NA,
 }
 impl From<Space> for ItemKind {
     fn from(space: Space) -> Self {

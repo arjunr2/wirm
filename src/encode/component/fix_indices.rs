@@ -1,10 +1,12 @@
 // I want this file to be a bunch of oneliners (easier to read)!
 
+use crate::encode::component::assign::ActualIds;
 use crate::ir::component::refs::{
     GetArgRefs, GetCompRefs, GetFuncRef, GetFuncRefs, GetItemRef, GetMemRefs, GetModuleRefs,
     GetTableRefs, GetTypeRefs,
 };
 use crate::ir::component::scopes::GetScopeKind;
+use crate::ir::component::visitor::utils::ScopeStack;
 use crate::ir::types::CustomSection;
 use wasmparser::{
     ArrayType, CanonicalFunction, CanonicalOption, ComponentAlias, ComponentDefinedType,
@@ -15,8 +17,6 @@ use wasmparser::{
     InstantiationArg, ModuleTypeDeclaration, PackedIndex, PrimitiveValType, RecGroup, RefType,
     StorageType, StructType, SubType, TagType, TypeRef, UnpackedIndex, ValType, VariantCase,
 };
-use crate::encode::component::assign::ActualIds;
-use crate::ir::component::visitor::utils::ScopeStack;
 
 mod sealed {
     pub trait Sealed {}
@@ -38,9 +38,7 @@ where
     where
         Self: Sized,
     {
-        let fixed = self.fixme(ids, scope_stack);
-
-        fixed
+        self.fixme(ids, scope_stack)
     }
 }
 
@@ -853,7 +851,9 @@ impl sealed::Sealed for ModuleTypeDeclaration<'_> {}
 impl FixIndicesImpl for ModuleTypeDeclaration<'_> {
     fn fixme<'a>(&self, ids: &ActualIds, scope_stack: &ScopeStack) -> Self {
         match self {
-            ModuleTypeDeclaration::Type(group) => ModuleTypeDeclaration::Type(group.fix(ids, scope_stack)),
+            ModuleTypeDeclaration::Type(group) => {
+                ModuleTypeDeclaration::Type(group.fix(ids, scope_stack))
+            }
             ModuleTypeDeclaration::Export { name, ty } => ModuleTypeDeclaration::Export {
                 name,
                 ty: ty.fix(ids, scope_stack),
@@ -862,11 +862,10 @@ impl FixIndicesImpl for ModuleTypeDeclaration<'_> {
                 ModuleTypeDeclaration::Import(import.fix(ids, scope_stack))
             }
             ModuleTypeDeclaration::OuterAlias { kind, count, .. } => {
-                let new_tid =
-                    ids.lookup_actual_id_or_panic(
-                        scope_stack,
-                        &self.get_type_refs().first().unwrap().ref_
-                    );
+                let new_tid = ids.lookup_actual_id_or_panic(
+                    scope_stack,
+                    &self.get_type_refs().first().unwrap().ref_,
+                );
 
                 ModuleTypeDeclaration::OuterAlias {
                     kind: *kind,

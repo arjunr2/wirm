@@ -1,10 +1,14 @@
-use std::collections::HashMap;
-use wasmparser::{CanonicalFunction, ComponentAlias, ComponentExport, ComponentImport, ComponentInstance, ComponentType, ComponentTypeDeclaration, CoreType, Instance, InstanceTypeDeclaration, ModuleTypeDeclaration, SubType};
-use crate::{Component, Module};
 use crate::ir::component::idx_spaces::{IndexSpaceOf, ScopeId, Space};
 use crate::ir::component::refs::IndexedRef;
-use crate::ir::component::visitor::{walk_topological, ComponentVisitor, ItemKind, VisitCtx};
 use crate::ir::component::visitor::utils::ScopeStack;
+use crate::ir::component::visitor::{walk_topological, ComponentVisitor, ItemKind, VisitCtx};
+use crate::{Component, Module};
+use std::collections::HashMap;
+use wasmparser::{
+    CanonicalFunction, ComponentAlias, ComponentExport, ComponentImport, ComponentInstance,
+    ComponentType, ComponentTypeDeclaration, CoreType, Instance, InstanceTypeDeclaration,
+    ModuleTypeDeclaration, SubType,
+};
 
 pub(crate) fn assign_indices(component: &Component) -> ActualIds {
     let mut assigner = Assigner::default();
@@ -16,12 +20,13 @@ pub(crate) fn assign_indices(component: &Component) -> ActualIds {
 
 #[derive(Default)]
 struct Assigner {
-    ids: ActualIds
+    ids: ActualIds,
 }
 impl Assigner {
     fn assign_actual_id(&mut self, cx: &VisitCtx<'_>, space: &Space, assumed_id: u32) {
         let curr_scope = cx.inner.scope_stack.curr_space_id();
-        self.ids.assign_actual_id(curr_scope, space, assumed_id as usize)
+        self.ids
+            .assign_actual_id(curr_scope, space, assumed_id as usize)
     }
 }
 impl ComponentVisitor<'_> for Assigner {
@@ -31,17 +36,35 @@ impl ComponentVisitor<'_> for Assigner {
     fn visit_module(&mut self, cx: &VisitCtx<'_>, id: u32, module: &Module<'_>) {
         self.assign_actual_id(cx, &module.index_space_of(), id)
     }
-    fn visit_comp_type_decl(&mut self, cx: &VisitCtx<'_>, _decl_idx: usize, id: u32, _parent: &ComponentType<'_>, decl: &ComponentTypeDeclaration<'_>) {
-        if matches!(decl, ComponentTypeDeclaration::CoreType(_)
-                        | ComponentTypeDeclaration::Type(_)) {
+    fn visit_comp_type_decl(
+        &mut self,
+        cx: &VisitCtx<'_>,
+        _decl_idx: usize,
+        id: u32,
+        _parent: &ComponentType<'_>,
+        decl: &ComponentTypeDeclaration<'_>,
+    ) {
+        if matches!(
+            decl,
+            ComponentTypeDeclaration::CoreType(_) | ComponentTypeDeclaration::Type(_)
+        ) {
             // this ID assignment will be handled by the type handler!
             return;
         }
         self.assign_actual_id(cx, &decl.index_space_of(), id)
     }
-    fn visit_inst_type_decl(&mut self, cx: &VisitCtx<'_>, _decl_idx: usize, id: u32, _parent: &ComponentType<'_>, decl: &InstanceTypeDeclaration<'_>) {
-        if matches!(decl, InstanceTypeDeclaration::CoreType(_)
-                        | InstanceTypeDeclaration::Type(_)) {
+    fn visit_inst_type_decl(
+        &mut self,
+        cx: &VisitCtx<'_>,
+        _decl_idx: usize,
+        id: u32,
+        _parent: &ComponentType<'_>,
+        decl: &InstanceTypeDeclaration<'_>,
+    ) {
+        if matches!(
+            decl,
+            InstanceTypeDeclaration::CoreType(_) | InstanceTypeDeclaration::Type(_)
+        ) {
             // this ID assignment will be handled by the type handler!
             return;
         }
@@ -51,25 +74,66 @@ impl ComponentVisitor<'_> for Assigner {
     fn exit_comp_type(&mut self, cx: &VisitCtx<'_>, id: u32, ty: &ComponentType<'_>) {
         self.assign_actual_id(cx, &ty.index_space_of(), id)
     }
-    fn visit_comp_instance(&mut self, cx: &VisitCtx<'_>, id: u32, instance: &ComponentInstance<'_>) {
+    fn visit_comp_instance(
+        &mut self,
+        cx: &VisitCtx<'_>,
+        id: u32,
+        instance: &ComponentInstance<'_>,
+    ) {
         self.assign_actual_id(cx, &instance.index_space_of(), id)
     }
-    fn visit_canon(&mut self, cx: &VisitCtx<'_>, _kind: ItemKind, id: u32, canon: &CanonicalFunction) {
+    fn visit_canon(
+        &mut self,
+        cx: &VisitCtx<'_>,
+        _kind: ItemKind,
+        id: u32,
+        canon: &CanonicalFunction,
+    ) {
         self.assign_actual_id(cx, &canon.index_space_of(), id)
     }
-    fn visit_alias(&mut self, cx: &VisitCtx<'_>, _kind: ItemKind, id: u32, alias: &ComponentAlias<'_>) {
+    fn visit_alias(
+        &mut self,
+        cx: &VisitCtx<'_>,
+        _kind: ItemKind,
+        id: u32,
+        alias: &ComponentAlias<'_>,
+    ) {
         self.assign_actual_id(cx, &alias.index_space_of(), id)
     }
-    fn visit_comp_import(&mut self, cx: &VisitCtx<'_>, _kind: ItemKind, id: u32, import: &ComponentImport<'_>) {
+    fn visit_comp_import(
+        &mut self,
+        cx: &VisitCtx<'_>,
+        _kind: ItemKind,
+        id: u32,
+        import: &ComponentImport<'_>,
+    ) {
         self.assign_actual_id(cx, &import.index_space_of(), id)
     }
-    fn visit_comp_export(&mut self, cx: &VisitCtx<'_>, _kind: ItemKind, id: u32, export: &ComponentExport<'_>) {
+    fn visit_comp_export(
+        &mut self,
+        cx: &VisitCtx<'_>,
+        _kind: ItemKind,
+        id: u32,
+        export: &ComponentExport<'_>,
+    ) {
         self.assign_actual_id(cx, &export.index_space_of(), id)
     }
-    fn visit_module_type_decl(&mut self, cx: &VisitCtx<'_>, _decl_idx: usize, id: u32, _parent: &CoreType<'_>, decl: &ModuleTypeDeclaration<'_>) {
+    fn visit_module_type_decl(
+        &mut self,
+        cx: &VisitCtx<'_>,
+        _decl_idx: usize,
+        id: u32,
+        _parent: &CoreType<'_>,
+        decl: &ModuleTypeDeclaration<'_>,
+    ) {
         self.assign_actual_id(cx, &decl.index_space_of(), id)
     }
-    fn enter_core_rec_group(&mut self, cx: &VisitCtx<'_>, _count: usize, _core_type: &CoreType<'_>) {
+    fn enter_core_rec_group(
+        &mut self,
+        cx: &VisitCtx<'_>,
+        _count: usize,
+        _core_type: &CoreType<'_>,
+    ) {
         // just need to make sure there's a scope built :)
         // this is relevant for: (component (core rec) )
         self.ids.add_scope(cx.inner.scope_stack.curr_space_id());
@@ -87,14 +151,14 @@ impl ComponentVisitor<'_> for Assigner {
 
 #[derive(Clone, Default)]
 pub struct ActualIds {
-    scopes: HashMap<ScopeId, IdsForScope>
+    scopes: HashMap<ScopeId, IdsForScope>,
 }
 impl ActualIds {
     pub fn add_scope(&mut self, id: ScopeId) {
         self.scopes.entry(id).or_default();
     }
     pub fn assign_actual_id(&mut self, id: ScopeId, space: &Space, assumed_id: usize) {
-        let ids = self.scopes.entry(id).or_insert(IdsForScope::default());
+        let ids = self.scopes.entry(id).or_default();
         ids.assign_actual_id(space, assumed_id)
     }
     pub fn lookup_actual_id_or_panic(&self, scope_stack: &ScopeStack, r: &IndexedRef) -> usize {

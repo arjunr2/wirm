@@ -1,6 +1,3 @@
-use std::collections::HashSet;
-use wasmparser::{CanonicalFunction, ComponentAlias, ComponentExport, ComponentImport, ComponentInstance, ComponentStartFunction, ComponentType, ComponentTypeDeclaration, CoreType, Instance, InstanceTypeDeclaration, ModuleTypeDeclaration};
-use crate::{Component, Module};
 use crate::ir::component::idx_spaces::{IndexSpaceOf, Space, SpaceSubtype};
 use crate::ir::component::refs::{Depth, RefKind, ReferencedIndices};
 use crate::ir::component::scopes::GetScopeKind;
@@ -8,32 +5,35 @@ use crate::ir::component::section::ComponentSection;
 use crate::ir::component::visitor::driver::VisitEvent;
 use crate::ir::component::visitor::VisitCtx;
 use crate::ir::types::CustomSection;
+use crate::{Component, Module};
+use std::collections::HashSet;
+use wasmparser::{
+    CanonicalFunction, ComponentAlias, ComponentExport, ComponentImport, ComponentInstance,
+    ComponentStartFunction, ComponentType, ComponentTypeDeclaration, CoreType, Instance,
+    InstanceTypeDeclaration, ModuleTypeDeclaration,
+};
 
 pub(crate) fn get_topological_events<'ir>(
     component: &'ir Component<'ir>,
     ctx: &mut VisitCtx<'ir>,
-    out: &mut Vec<VisitEvent<'ir>>
+    out: &mut Vec<VisitEvent<'ir>>,
 ) {
     let mut topo = TopoCtx::default();
 
     ctx.inner.push_component(component);
-    out.push(VisitEvent::enter_root_comp(
-        component
-    ));
+    out.push(VisitEvent::enter_root_comp(component));
 
     topo.collect_component(component, None, ctx);
     out.extend(topo.events);
 
-    out.push(VisitEvent::exit_root_comp(
-        component
-    ));
+    out.push(VisitEvent::exit_root_comp(component));
     ctx.inner.pop_component();
 }
 
 #[derive(Default)]
 struct TopoCtx<'ir> {
     seen: HashSet<NodeKey>,
-    events: Vec<VisitEvent<'ir>>
+    events: Vec<VisitEvent<'ir>>,
 }
 impl<'ir> TopoCtx<'ir> {
     fn collect_component(
@@ -54,38 +54,24 @@ impl<'ir> TopoCtx<'ir> {
 
         for (count, section) in comp.sections.iter() {
             let start_idx = ctx.inner.visit_section(section, *count as usize);
-            self.collect_section_items(
-                comp,
-                section,
-                start_idx,
-                *count as usize,
-                ctx,
-            );
+            self.collect_section_items(comp, section, start_idx, *count as usize, ctx);
         }
-
 
         if let Some(idx) = idx {
             ctx.inner.pop_component();
             self.events.push(VisitEvent::exit_comp(idx, comp));
         }
     }
-    fn collect_module(
-        &mut self,
-        module: &'ir Module<'ir>,
-        idx: usize,
-        ctx: &mut VisitCtx<'ir>,
-    ) {
+    fn collect_module(&mut self, module: &'ir Module<'ir>, idx: usize, ctx: &mut VisitCtx<'ir>) {
         self.collect_node(
             module,
             NodeKey::Module(id(module)),
             ctx,
             None,
-            VisitEvent::module(
-                module.index_space_of().into(), idx, module
-            ),
+            VisitEvent::module(module.index_space_of().into(), idx, module),
             |this, node, cx| {
                 this.collect_deps(node, cx);
-            }
+            },
         );
     }
     fn collect_component_type(
@@ -103,13 +89,9 @@ impl<'ir> TopoCtx<'ir> {
             Some(VisitEvent::enter_comp_type(
                 node.index_space_of().into(),
                 idx,
-                node
+                node,
             )),
-            VisitEvent::exit_comp_type(
-                node.index_space_of().into(),
-                idx,
-                node
-            ),
+            VisitEvent::exit_comp_type(node.index_space_of().into(), idx, node),
             |this, node, ctx| {
                 match node {
                     ComponentType::Component(decls) => {
@@ -122,7 +104,7 @@ impl<'ir> TopoCtx<'ir> {
                                 |inner_this, item, i, cx| {
                                     inner_this.collect_component_type_decl(node, item, i, cx);
                                 },
-                                ctx
+                                ctx,
                             );
                         }
                     }
@@ -137,13 +119,15 @@ impl<'ir> TopoCtx<'ir> {
                                 |inner_this, item, i, cx| {
                                     inner_this.collect_instance_type_decl(node, item, i, cx);
                                 },
-                                ctx
+                                ctx,
                             );
                         }
                     }
 
                     // no sub-scoping for the below variants
-                    ComponentType::Defined(_) | ComponentType::Func(_) | ComponentType::Resource { .. } => {}
+                    ComponentType::Defined(_)
+                    | ComponentType::Func(_)
+                    | ComponentType::Resource { .. } => {}
                 }
             },
         );
@@ -155,16 +139,11 @@ impl<'ir> TopoCtx<'ir> {
         idx: usize,
         ctx: &mut VisitCtx<'ir>,
     ) {
-        self.events.push(VisitEvent::comp_type_decl(
-            parent, idx, decl,
-        ));
+        self.events
+            .push(VisitEvent::comp_type_decl(parent, idx, decl));
         match decl {
-            ComponentTypeDeclaration::Type(ty) => self.collect_component_type(
-                ty, idx, ctx
-            ),
-            ComponentTypeDeclaration::CoreType(ty) => self.collect_core_type(
-                ty, idx, ctx
-            ),
+            ComponentTypeDeclaration::Type(ty) => self.collect_component_type(ty, idx, ctx),
+            ComponentTypeDeclaration::CoreType(ty) => self.collect_core_type(ty, idx, ctx),
             ComponentTypeDeclaration::Alias(_)
             | ComponentTypeDeclaration::Export { .. }
             | ComponentTypeDeclaration::Import(_) => {}
@@ -177,18 +156,12 @@ impl<'ir> TopoCtx<'ir> {
         idx: usize,
         ctx: &mut VisitCtx<'ir>,
     ) {
-        self.events.push(VisitEvent::inst_type_decl(
-            parent, idx, decl,
-        ));
+        self.events
+            .push(VisitEvent::inst_type_decl(parent, idx, decl));
         match decl {
-            InstanceTypeDeclaration::Type(ty) => self.collect_component_type(
-                ty, idx, ctx,
-            ),
-            InstanceTypeDeclaration::CoreType(ty) => self.collect_core_type(
-                ty, idx, ctx
-            ),
-            InstanceTypeDeclaration::Alias(_)
-            | InstanceTypeDeclaration::Export { .. } => {}
+            InstanceTypeDeclaration::Type(ty) => self.collect_component_type(ty, idx, ctx),
+            InstanceTypeDeclaration::CoreType(ty) => self.collect_core_type(ty, idx, ctx),
+            InstanceTypeDeclaration::Alias(_) | InstanceTypeDeclaration::Export { .. } => {}
         }
     }
     fn collect_comp_inst(
@@ -202,59 +175,37 @@ impl<'ir> TopoCtx<'ir> {
             NodeKey::ComponentInstance(id(inst)),
             ctx,
             None,
-            VisitEvent::comp_inst(
-                inst.index_space_of().into(), idx, inst
-            ),
+            VisitEvent::comp_inst(inst.index_space_of().into(), idx, inst),
             |this, node, cx| {
                 this.collect_deps(node, cx);
-            }
+            },
         );
     }
-    fn collect_core_inst(
-        &mut self,
-        inst: &'ir Instance<'ir>,
-        idx: usize,
-        ctx: &mut VisitCtx<'ir>,
-    ) {
+    fn collect_core_inst(&mut self, inst: &'ir Instance<'ir>, idx: usize, ctx: &mut VisitCtx<'ir>) {
         self.collect_node(
             inst,
             NodeKey::CoreInst(id(inst)),
             ctx,
             None,
-            VisitEvent::core_inst(
-                inst.index_space_of().into(), idx, inst
-            ),
+            VisitEvent::core_inst(inst.index_space_of().into(), idx, inst),
             |this, node, cx| {
                 this.collect_deps(node, cx);
-            }
+            },
         );
     }
 
-    fn collect_core_type(
-        &mut self,
-        node: &'ir CoreType<'ir>,
-        idx: usize,
-        ctx: &mut VisitCtx<'ir>,
-    ) {
+    fn collect_core_type(&mut self, node: &'ir CoreType<'ir>, idx: usize, ctx: &mut VisitCtx<'ir>) {
         let key = NodeKey::CoreType(id(node));
 
         let (enter_evt, exit_evt) = if let CoreType::Rec(group) = node {
             (
                 VisitEvent::enter_rec_group(group.types().len(), node),
-                VisitEvent::exit_rec_group()
+                VisitEvent::exit_rec_group(),
             )
         } else {
             (
-                VisitEvent::enter_core_type(
-                    node.index_space_of().into(),
-                    idx,
-                    node
-                ),
-                VisitEvent::exit_core_type(
-                    node.index_space_of().into(),
-                    idx,
-                    node
-                )
+                VisitEvent::enter_core_type(node.index_space_of().into(), idx, node),
+                VisitEvent::exit_core_type(node.index_space_of().into(), idx, node),
             )
         };
 
@@ -266,7 +217,7 @@ impl<'ir> TopoCtx<'ir> {
             exit_evt,
             |this, node, ctx| {
                 match node {
-                    CoreType::Module(decls ) => {
+                    CoreType::Module(decls) => {
                         for (i, item) in decls.iter().enumerate() {
                             this.collect_subitem(
                                 decls,
@@ -276,7 +227,7 @@ impl<'ir> TopoCtx<'ir> {
                                 |inner_this, item, i, cx| {
                                     inner_this.collect_module_type_decl(node, item, i, cx);
                                 },
-                                ctx
+                                ctx,
                             );
                         }
                     }
@@ -284,7 +235,8 @@ impl<'ir> TopoCtx<'ir> {
                     // no sub-scoping for the below variant
                     CoreType::Rec(group) => {
                         for (subvec_idx, item) in group.types().enumerate() {
-                            this.events.push(VisitEvent::core_subtype(idx, subvec_idx, item));
+                            this.events
+                                .push(VisitEvent::core_subtype(idx, subvec_idx, item));
                         }
                     }
                 }
@@ -298,9 +250,8 @@ impl<'ir> TopoCtx<'ir> {
         idx: usize,
         _: &mut VisitCtx<'ir>,
     ) {
-        self.events.push(VisitEvent::mod_type_decl(
-            parent, idx, decl
-        ))
+        self.events
+            .push(VisitEvent::mod_type_decl(parent, idx, decl))
     }
     fn collect_canon(
         &mut self,
@@ -313,12 +264,10 @@ impl<'ir> TopoCtx<'ir> {
             NodeKey::Canon(id(canon)),
             ctx,
             None,
-            VisitEvent::canon(
-                canon.index_space_of().into(), idx, canon
-            ),
+            VisitEvent::canon(canon.index_space_of().into(), idx, canon),
             |this, node, cx| {
                 this.collect_deps(node, cx);
-            }
+            },
         );
     }
     fn collect_export(
@@ -332,12 +281,10 @@ impl<'ir> TopoCtx<'ir> {
             NodeKey::Export(id(export)),
             ctx,
             None,
-            VisitEvent::export(
-                export.index_space_of().into(), idx, export
-            ),
+            VisitEvent::export(export.index_space_of().into(), idx, export),
             |this, node, cx| {
                 this.collect_deps(node, cx);
-            }
+            },
         );
     }
     fn collect_import(
@@ -351,12 +298,10 @@ impl<'ir> TopoCtx<'ir> {
             NodeKey::Import(id(import)),
             ctx,
             None,
-            VisitEvent::import(
-                import.index_space_of().into(), idx, import
-            ),
+            VisitEvent::import(import.index_space_of().into(), idx, import),
             |this, node, cx| {
                 this.collect_deps(node, cx);
-            }
+            },
         );
     }
     fn collect_alias(
@@ -370,12 +315,10 @@ impl<'ir> TopoCtx<'ir> {
             NodeKey::Alias(id(alias)),
             ctx,
             None,
-            VisitEvent::alias(
-                alias.index_space_of().into(), idx, alias
-            ),
+            VisitEvent::alias(alias.index_space_of().into(), idx, alias),
             |this, node, cx| {
                 this.collect_deps(node, cx);
-            }
+            },
         );
     }
     fn collect_custom_section(
@@ -389,12 +332,10 @@ impl<'ir> TopoCtx<'ir> {
             NodeKey::Custom(id(sect)),
             ctx,
             None,
-            VisitEvent::custom_sect(
-                sect.index_space_of().into(), idx, sect
-            ),
+            VisitEvent::custom_sect(sect.index_space_of().into(), idx, sect),
             |this, node, cx| {
                 this.collect_deps(node, cx);
-            }
+            },
         );
     }
     fn collect_start_section(
@@ -408,12 +349,10 @@ impl<'ir> TopoCtx<'ir> {
             NodeKey::Start(id(func)),
             ctx,
             None,
-            VisitEvent::start_func(
-                func.index_space_of().into(), idx, func
-            ),
+            VisitEvent::start_func(func.index_space_of().into(), idx, func),
             |this, node, cx| {
                 this.collect_deps(node, cx);
-            }
+            },
         );
     }
 
@@ -429,45 +368,49 @@ impl<'ir> TopoCtx<'ir> {
             let idx = start_idx + i;
 
             match section {
-                ComponentSection::Component =>
-                    self.collect_component(&comp.components[idx], Some(idx), ctx),
+                ComponentSection::Component => {
+                    self.collect_component(&comp.components[idx], Some(idx), ctx)
+                }
 
-                ComponentSection::Module =>
-                    self.collect_module(&comp.modules[idx], idx, ctx),
+                ComponentSection::Module => self.collect_module(&comp.modules[idx], idx, ctx),
 
-                ComponentSection::ComponentType =>
-                    self.collect_component_type(
-                        &comp.component_types.items[idx], idx, ctx),
+                ComponentSection::ComponentType => {
+                    self.collect_component_type(&comp.component_types.items[idx], idx, ctx)
+                }
 
-                ComponentSection::ComponentInstance =>
-                    self.collect_comp_inst(
-                        &comp.component_instance[idx], idx, ctx),
+                ComponentSection::ComponentInstance => {
+                    self.collect_comp_inst(&comp.component_instance[idx], idx, ctx)
+                }
 
-                ComponentSection::Canon =>
-                    self.collect_canon(&comp.canons.items[idx], idx, ctx),
+                ComponentSection::Canon => self.collect_canon(&comp.canons.items[idx], idx, ctx),
 
-                ComponentSection::Alias =>
-                    self.collect_alias(&comp.alias.items[idx], idx, ctx),
+                ComponentSection::Alias => self.collect_alias(&comp.alias.items[idx], idx, ctx),
 
-                ComponentSection::ComponentImport =>
-                    self.collect_import(&comp.imports[idx], idx, ctx),
+                ComponentSection::ComponentImport => {
+                    self.collect_import(&comp.imports[idx], idx, ctx)
+                }
 
-                ComponentSection::ComponentExport =>
-                    self.collect_export(&comp.exports[idx], idx, ctx),
+                ComponentSection::ComponentExport => {
+                    self.collect_export(&comp.exports[idx], idx, ctx)
+                }
 
-                ComponentSection::CoreType =>
-                    self.collect_core_type(&comp.core_types[idx], idx, ctx),
+                ComponentSection::CoreType => {
+                    self.collect_core_type(&comp.core_types[idx], idx, ctx)
+                }
 
-                ComponentSection::CoreInstance =>
-                    self.collect_core_inst(&comp.instances[idx], idx, ctx),
+                ComponentSection::CoreInstance => {
+                    self.collect_core_inst(&comp.instances[idx], idx, ctx)
+                }
 
-                ComponentSection::CustomSection =>
-                    self.collect_custom_section(
-                        &comp.custom_sections.custom_sections[idx], idx, ctx),
+                ComponentSection::CustomSection => self.collect_custom_section(
+                    &comp.custom_sections.custom_sections[idx],
+                    idx,
+                    ctx,
+                ),
 
-                ComponentSection::ComponentStartSection =>
-                    self.collect_start_section(
-                        &comp.start_section[idx], idx, ctx),
+                ComponentSection::ComponentStartSection => {
+                    self.collect_start_section(&comp.start_section[idx], idx, ctx)
+                }
             }
         }
     }
@@ -480,9 +423,8 @@ impl<'ir> TopoCtx<'ir> {
         enter_event: Option<VisitEvent<'ir>>,
         exit_event: VisitEvent<'ir>,
         walk: impl FnOnce(&mut Self, &'ir T, &mut VisitCtx<'ir>),
-    )
-    where
-        T: GetScopeKind + ReferencedIndices + 'ir
+    ) where
+        T: GetScopeKind + ReferencedIndices + 'ir,
     {
         if !self.visit_once(key) {
             return;
@@ -499,11 +441,7 @@ impl<'ir> TopoCtx<'ir> {
 
         self.events.push(exit_event);
     }
-    fn collect_deps<T: ReferencedIndices + 'ir>(
-        &mut self,
-        item: &'ir T,
-        ctx: &mut VisitCtx<'ir>,
-    ) {
+    fn collect_deps<T: ReferencedIndices + 'ir>(&mut self, item: &'ir T, ctx: &mut VisitCtx<'ir>) {
         let refs = item.referenced_indices(Depth::default());
         for RefKind { ref_, .. } in refs.iter() {
             let (vec, idx, subidx) = ctx.inner.index_from_assumed_id(ref_);
@@ -520,41 +458,29 @@ impl<'ir> TopoCtx<'ir> {
             let space = ref_.space;
             match vec {
                 SpaceSubtype::Main => match space {
-                    Space::Comp => self.collect_component(
-                        &referenced_comp.components[idx],
-                        Some(idx),
-                        ctx
-                    ),
+                    Space::Comp => {
+                        self.collect_component(&referenced_comp.components[idx], Some(idx), ctx)
+                    }
                     Space::CompType => self.collect_component_type(
                         &referenced_comp.component_types.items[idx],
                         idx,
-                        ctx
+                        ctx,
                     ),
-                    Space::CompInst => self.collect_comp_inst(
-                        &referenced_comp.component_instance[idx],
-                        idx,
-                        ctx
-                    ),
-                    Space::CoreInst => self.collect_core_inst(
-                        &referenced_comp.instances[idx],
-                        idx,
-                        ctx
-                    ),
-                    Space::CoreModule => self.collect_module(
-                        &referenced_comp.modules[idx],
-                        idx,
-                        ctx
-                    ),
-                    Space::CoreType => self.collect_core_type(
-                        &referenced_comp.core_types[idx],
-                        idx,
-                        ctx
-                    ),
-                    Space::CompFunc | Space::CoreFunc => self.collect_canon(
-                        &referenced_comp.canons.items[idx],
-                        idx,
-                        ctx
-                    ),
+                    Space::CompInst => {
+                        self.collect_comp_inst(&referenced_comp.component_instance[idx], idx, ctx)
+                    }
+                    Space::CoreInst => {
+                        self.collect_core_inst(&referenced_comp.instances[idx], idx, ctx)
+                    }
+                    Space::CoreModule => {
+                        self.collect_module(&referenced_comp.modules[idx], idx, ctx)
+                    }
+                    Space::CoreType => {
+                        self.collect_core_type(&referenced_comp.core_types[idx], idx, ctx)
+                    }
+                    Space::CompFunc | Space::CoreFunc => {
+                        self.collect_canon(&referenced_comp.canons.items[idx], idx, ctx)
+                    }
                     Space::CompVal
                     | Space::CoreMemory
                     | Space::CoreTable
@@ -564,21 +490,15 @@ impl<'ir> TopoCtx<'ir> {
                         "This spaces don't exist in a main vector on the component IR: {vec:?}"
                     ),
                 },
-                SpaceSubtype::Export => self.collect_export(
-                    &referenced_comp.exports[idx],
-                    idx,
-                    ctx
-                ),
-                SpaceSubtype::Import => self.collect_import(
-                    &referenced_comp.imports[idx],
-                    idx,
-                    ctx
-                ),
-                SpaceSubtype::Alias => self.collect_alias(
-                    &referenced_comp.alias.items[idx],
-                    idx,
-                    ctx
-                ),
+                SpaceSubtype::Export => {
+                    self.collect_export(&referenced_comp.exports[idx], idx, ctx)
+                }
+                SpaceSubtype::Import => {
+                    self.collect_import(&referenced_comp.imports[idx], idx, ctx)
+                }
+                SpaceSubtype::Alias => {
+                    self.collect_alias(&referenced_comp.alias.items[idx], idx, ctx)
+                }
             }
         }
     }
@@ -600,7 +520,9 @@ impl<'ir> TopoCtx<'ir> {
         ctx.inner.maybe_enter_scope(item);
         let refs = item.referenced_indices(Depth::default());
         for RefKind { ref_, .. } in refs.iter() {
-            if !ref_.depth.is_curr() { continue; }
+            if !ref_.depth.is_curr() {
+                continue;
+            }
             let (vec, idx, ..) = ctx.inner.index_from_assumed_id(ref_);
             assert_eq!(vec, SpaceSubtype::Main);
             let dep_item = &all[idx];
@@ -628,10 +550,10 @@ enum NodeKey {
     Component(*const ()),
     Module(*const ()),
     ComponentType(*const ()),
-    ComponentTypeDecl(*const (), usize),    // decl ptr + index
-    InstanceTypeDecl(*const (), usize),     // decl ptr + index
+    ComponentTypeDecl(*const (), usize), // decl ptr + index
+    InstanceTypeDecl(*const (), usize),  // decl ptr + index
     CoreType(*const ()),
-    ModuleTypeDecl(*const (), usize),       // decl ptr + index
+    ModuleTypeDecl(*const (), usize), // decl ptr + index
     ComponentInstance(*const ()),
     CoreInst(*const ()),
     Alias(*const ()),

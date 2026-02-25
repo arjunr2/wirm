@@ -1,12 +1,18 @@
 use crate::ir::component::refs::IndexedRef;
 use crate::ir::component::section::ComponentSection;
+use crate::ir::types::CustomSection;
 use crate::{Component, Module};
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::fmt::Debug;
 use std::rc::Rc;
-use wasmparser::{CanonicalFunction, ComponentAlias, ComponentExport, ComponentExternalKind, ComponentImport, ComponentInstance, ComponentOuterAliasKind, ComponentStartFunction, ComponentType, ComponentTypeDeclaration, ComponentTypeRef, CoreType, ExternalKind, Import, Instance, InstanceTypeDeclaration, InstantiationArgKind, ModuleTypeDeclaration, OuterAliasKind, RecGroup, SubType, TypeRef};
-use crate::ir::types::CustomSection;
+use wasmparser::{
+    CanonicalFunction, ComponentAlias, ComponentExport, ComponentExternalKind, ComponentImport,
+    ComponentInstance, ComponentOuterAliasKind, ComponentStartFunction, ComponentType,
+    ComponentTypeDeclaration, ComponentTypeRef, CoreType, ExternalKind, Import, Instance,
+    InstanceTypeDeclaration, InstantiationArgKind, ModuleTypeDeclaration, OuterAliasKind, RecGroup,
+    SubType, TypeRef,
+};
 
 pub(crate) type ScopeId = usize;
 
@@ -584,8 +590,7 @@ impl IdxSpace {
     }
 }
 
-#[derive(Clone, Copy, Debug)]
-#[derive(PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) enum SpaceSubtype {
     Export,
     Import,
@@ -614,7 +619,7 @@ pub enum Space {
     CoreTag,
 
     // isn't part of an index space
-    NA
+    NA,
 }
 
 // Trait for centralizing index space mapping

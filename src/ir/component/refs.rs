@@ -136,7 +136,7 @@ impl RefRole {
             Space::CoreTable => Self::Table,
             Space::CoreGlobal => Self::Global,
             Space::CoreTag => Self::Tag,
-            Space::NA => unreachable!()
+            Space::NA => unreachable!(),
         }
     }
 }
@@ -198,7 +198,9 @@ impl Depth {
     pub fn val(&self) -> i32 {
         self.0
     }
-    pub fn is_curr(&self) -> bool { self.0 == 0 }
+    pub fn is_curr(&self) -> bool {
+        self.0 == 0
+    }
     pub fn is_inner(&self) -> bool {
         self.0 < 0
     }
@@ -500,7 +502,7 @@ impl GetTypeRefs for CoreType<'_> {
     fn get_type_refs(&self) -> Vec<RefKind> {
         match self {
             CoreType::Rec(group) => group.get_type_refs(),
-            CoreType::Module(_) => vec![]       // these are inner refs
+            CoreType::Module(_) => vec![], // these are inner refs
         }
     }
 }

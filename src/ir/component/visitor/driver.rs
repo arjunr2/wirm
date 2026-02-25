@@ -1,9 +1,13 @@
-use wasmparser::{CanonicalFunction, ComponentAlias, ComponentExport, ComponentImport, ComponentInstance, ComponentStartFunction, ComponentType, ComponentTypeDeclaration, CoreType, Instance, InstanceTypeDeclaration, ModuleTypeDeclaration, SubType};
-use crate::{Component, Module};
 use crate::ir::component::idx_spaces::{IndexSpaceOf, Space};
 use crate::ir::component::section::ComponentSection;
 use crate::ir::component::visitor::{ComponentVisitor, ItemKind, VisitCtx};
 use crate::ir::types::CustomSection;
+use crate::{Component, Module};
+use wasmparser::{
+    CanonicalFunction, ComponentAlias, ComponentExport, ComponentImport, ComponentInstance,
+    ComponentStartFunction, ComponentType, ComponentTypeDeclaration, CoreType, Instance,
+    InstanceTypeDeclaration, ModuleTypeDeclaration, SubType,
+};
 
 pub fn drive_event<'ir, V: ComponentVisitor<'ir>>(
     event: VisitEvent<'ir>,
@@ -24,31 +28,25 @@ pub fn drive_event<'ir, V: ComponentVisitor<'ir>>(
 
             // TODO: This seems like the wrong time to do the lookup
             //       (should it be before `push_component`?)
-            let id = ctx.inner.lookup_id_for(
-                &Space::Comp,
-                &ComponentSection::Component,
-                idx,
-            );
+            let id = ctx
+                .inner
+                .lookup_id_for(&Space::Comp, &ComponentSection::Component, idx);
             visitor.enter_component(ctx, id, component);
         }
 
         VisitEvent::ExitComp { component, idx } => {
-            let id = ctx.inner.lookup_id_for(
-                &Space::Comp,
-                &ComponentSection::Component,
-                idx,
-            );
+            let id = ctx
+                .inner
+                .lookup_id_for(&Space::Comp, &ComponentSection::Component, idx);
             ctx.inner.pop_component();
             visitor.exit_component(ctx, id, component);
         }
 
         VisitEvent::Module { idx, module } => {
             ctx.inner.maybe_enter_scope(module);
-            let id = ctx.inner.lookup_id_for(
-                &Space::CoreModule,
-                &ComponentSection::Module,
-                idx,
-            );
+            let id = ctx
+                .inner
+                .lookup_id_for(&Space::CoreModule, &ComponentSection::Module, idx);
             visitor.visit_module(ctx, id, module);
             ctx.inner.maybe_exit_scope(module);
         }
@@ -64,17 +62,15 @@ pub fn drive_event<'ir, V: ComponentVisitor<'ir>>(
             ctx.inner.maybe_exit_scope(inst);
         }
 
-        VisitEvent::EnterCompType {idx, ty } => {
+        VisitEvent::EnterCompType { idx, ty } => {
             ctx.inner.maybe_enter_scope(ty);
-            let id = ctx.inner.lookup_id_for(
-                &Space::CompType,
-                &ComponentSection::ComponentType,
-                idx,
-            );
+            let id =
+                ctx.inner
+                    .lookup_id_for(&Space::CompType, &ComponentSection::ComponentType, idx);
             visitor.enter_comp_type(ctx, id, ty);
         }
 
-        VisitEvent::CompTypeDecl {idx, parent, decl } => {
+        VisitEvent::CompTypeDecl { idx, parent, decl } => {
             ctx.inner.maybe_enter_scope(decl);
             let id = ctx.inner.lookup_id_for(
                 &decl.index_space_of(),
@@ -85,7 +81,7 @@ pub fn drive_event<'ir, V: ComponentVisitor<'ir>>(
             ctx.inner.maybe_exit_scope(decl);
         }
 
-        VisitEvent::InstTypeDecl {idx, parent, decl } => {
+        VisitEvent::InstTypeDecl { idx, parent, decl } => {
             ctx.inner.maybe_enter_scope(decl);
             let id = ctx.inner.lookup_id_for(
                 &decl.index_space_of(),
@@ -96,12 +92,10 @@ pub fn drive_event<'ir, V: ComponentVisitor<'ir>>(
             ctx.inner.maybe_exit_scope(decl);
         }
 
-        VisitEvent::ExitCompType {idx, ty } => {
-            let id = ctx.inner.lookup_id_for(
-                &Space::CompType,
-                &ComponentSection::ComponentType,
-                idx,
-            );
+        VisitEvent::ExitCompType { idx, ty } => {
+            let id =
+                ctx.inner
+                    .lookup_id_for(&Space::CompType, &ComponentSection::ComponentType, idx);
             ctx.inner.maybe_exit_scope(ty);
             visitor.exit_comp_type(ctx, id, ty);
         }
@@ -109,51 +103,47 @@ pub fn drive_event<'ir, V: ComponentVisitor<'ir>>(
         VisitEvent::Canon { kind, idx, canon } => {
             ctx.inner.maybe_enter_scope(canon);
             let space = canon.index_space_of();
-            let id = ctx.inner.lookup_id_for(
-                &space,
-                &ComponentSection::Canon,
-                idx,
-            );
+            let id = ctx
+                .inner
+                .lookup_id_for(&space, &ComponentSection::Canon, idx);
             visitor.visit_canon(ctx, kind, id, canon);
             ctx.inner.maybe_exit_scope(canon);
         }
         VisitEvent::Alias { kind, idx, alias } => {
             ctx.inner.maybe_enter_scope(alias);
             let space = alias.index_space_of();
-            let id = ctx.inner.lookup_id_for(
-                &space,
-                &ComponentSection::Alias,
-                idx,
-            );
+            let id = ctx
+                .inner
+                .lookup_id_for(&space, &ComponentSection::Alias, idx);
             visitor.visit_alias(ctx, kind, id, alias);
             ctx.inner.maybe_exit_scope(alias);
         }
         VisitEvent::Import { kind, idx, imp } => {
             ctx.inner.maybe_enter_scope(imp);
             let space = imp.index_space_of();
-            let id = ctx.inner.lookup_id_for(
-                &space,
-                &ComponentSection::ComponentImport,
-                idx,
-            );
+            let id = ctx
+                .inner
+                .lookup_id_for(&space, &ComponentSection::ComponentImport, idx);
             visitor.visit_comp_import(ctx, kind, id, imp);
             ctx.inner.maybe_exit_scope(imp);
         }
         VisitEvent::Export { kind, idx, exp } => {
             ctx.inner.maybe_enter_scope(exp);
             let space = exp.index_space_of();
-            let id = ctx.inner.lookup_id_for(
-                &space,
-                &ComponentSection::ComponentExport,
-                idx,
-            );
+            let id = ctx
+                .inner
+                .lookup_id_for(&space, &ComponentSection::ComponentExport, idx);
             visitor.visit_comp_export(ctx, kind, id, exp);
             ctx.inner.maybe_exit_scope(exp);
         }
         VisitEvent::EnterCoreRecGroup { count, ty } => {
             visitor.enter_core_rec_group(ctx, count, ty);
         }
-        VisitEvent::CoreSubtype { parent_idx, subvec_idx, subtype } => {
+        VisitEvent::CoreSubtype {
+            parent_idx,
+            subvec_idx,
+            subtype,
+        } => {
             ctx.inner.maybe_enter_scope(subtype);
             let id = ctx.inner.lookup_id_with_subvec_for(
                 &Space::CoreType,
@@ -164,44 +154,36 @@ pub fn drive_event<'ir, V: ComponentVisitor<'ir>>(
             visitor.visit_core_subtype(ctx, id, subtype);
             ctx.inner.maybe_exit_scope(subtype);
         }
-        VisitEvent::ExitCoreRecGroup { } => {
+        VisitEvent::ExitCoreRecGroup {} => {
             visitor.exit_core_rec_group(ctx);
         }
         VisitEvent::EnterCoreType { idx, ty } => {
             ctx.inner.maybe_enter_scope(ty);
-            let id = ctx.inner.lookup_id_for(
-                &Space::CoreType,
-                &ComponentSection::CoreType,
-                idx,
-            );
+            let id = ctx
+                .inner
+                .lookup_id_for(&Space::CoreType, &ComponentSection::CoreType, idx);
             visitor.enter_core_type(ctx, id, ty);
         }
-        VisitEvent::ModuleTypeDecl {idx, parent, decl } => {
+        VisitEvent::ModuleTypeDecl { idx, parent, decl } => {
             ctx.inner.maybe_enter_scope(decl);
-            let id = ctx.inner.lookup_id_for(
-                &decl.index_space_of(),
-                &ComponentSection::CoreType,
-                idx,
-            );
+            let id =
+                ctx.inner
+                    .lookup_id_for(&decl.index_space_of(), &ComponentSection::CoreType, idx);
             visitor.visit_module_type_decl(ctx, idx, id, parent, decl);
             ctx.inner.maybe_exit_scope(decl);
         }
-        VisitEvent::ExitCoreType {idx, ty } => {
-            let id = ctx.inner.lookup_id_for(
-                &Space::CoreType,
-                &ComponentSection::CoreType,
-                idx,
-            );
+        VisitEvent::ExitCoreType { idx, ty } => {
+            let id = ctx
+                .inner
+                .lookup_id_for(&Space::CoreType, &ComponentSection::CoreType, idx);
             ctx.inner.maybe_exit_scope(ty);
             visitor.exit_core_type(ctx, id, ty);
         }
         VisitEvent::CoreInst { idx, inst } => {
             ctx.inner.maybe_enter_scope(inst);
-            let id = ctx.inner.lookup_id_for(
-                &Space::CoreInst,
-                &ComponentSection::CoreInstance,
-                idx,
-            );
+            let id =
+                ctx.inner
+                    .lookup_id_for(&Space::CoreInst, &ComponentSection::CoreInstance, idx);
             visitor.visit_core_instance(ctx, id, inst);
             ctx.inner.maybe_exit_scope(inst);
         }
@@ -241,7 +223,6 @@ pub enum VisitEvent<'ir> {
     // ------------------------
     // Component-level items
     // ------------------------
-
     EnterCompType {
         idx: usize,
         ty: &'ir ComponentType<'ir>,
@@ -303,7 +284,7 @@ pub enum VisitEvent<'ir> {
     CoreSubtype {
         parent_idx: usize,
         subvec_idx: usize,
-        subtype: &'ir SubType
+        subtype: &'ir SubType,
     },
     ExitCoreRecGroup {},
     EnterCoreType {
@@ -332,7 +313,7 @@ pub enum VisitEvent<'ir> {
         sect: &'ir CustomSection<'ir>,
     },
     StartFunc {
-        func: &'ir ComponentStartFunction
+        func: &'ir ComponentStartFunction,
     },
 }
 impl<'ir> VisitEvent<'ir> {
@@ -354,10 +335,18 @@ impl<'ir> VisitEvent<'ir> {
     pub fn enter_comp_type(_: ItemKind, idx: usize, ty: &'ir ComponentType<'ir>) -> Self {
         Self::EnterCompType { idx, ty }
     }
-    pub fn comp_type_decl(parent: &'ir ComponentType<'ir>, idx: usize, decl: &'ir ComponentTypeDeclaration<'ir>) -> Self {
+    pub fn comp_type_decl(
+        parent: &'ir ComponentType<'ir>,
+        idx: usize,
+        decl: &'ir ComponentTypeDeclaration<'ir>,
+    ) -> Self {
         Self::CompTypeDecl { parent, idx, decl }
     }
-    pub fn inst_type_decl(parent: &'ir ComponentType<'ir>, idx: usize, decl: &'ir InstanceTypeDeclaration<'ir>) -> Self {
+    pub fn inst_type_decl(
+        parent: &'ir ComponentType<'ir>,
+        idx: usize,
+        decl: &'ir InstanceTypeDeclaration<'ir>,
+    ) -> Self {
         Self::InstTypeDecl { parent, idx, decl }
     }
     pub fn exit_comp_type(_: ItemKind, idx: usize, ty: &'ir ComponentType<'ir>) -> Self {
@@ -382,7 +371,11 @@ impl<'ir> VisitEvent<'ir> {
         Self::EnterCoreRecGroup { count, ty }
     }
     pub fn core_subtype(parent_idx: usize, subvec_idx: usize, subtype: &'ir SubType) -> Self {
-        Self::CoreSubtype { parent_idx, subvec_idx, subtype }
+        Self::CoreSubtype {
+            parent_idx,
+            subvec_idx,
+            subtype,
+        }
     }
     pub fn exit_rec_group() -> Self {
         Self::ExitCoreRecGroup {}
@@ -390,7 +383,11 @@ impl<'ir> VisitEvent<'ir> {
     pub fn enter_core_type(_: ItemKind, idx: usize, ty: &'ir CoreType<'ir>) -> Self {
         Self::EnterCoreType { idx, ty }
     }
-    pub fn mod_type_decl(parent: &'ir CoreType<'ir>, idx: usize, decl: &'ir ModuleTypeDeclaration<'ir>) -> Self {
+    pub fn mod_type_decl(
+        parent: &'ir CoreType<'ir>,
+        idx: usize,
+        decl: &'ir ModuleTypeDeclaration<'ir>,
+    ) -> Self {
         Self::ModuleTypeDecl { parent, idx, decl }
     }
     pub fn exit_core_type(_: ItemKind, idx: usize, ty: &'ir CoreType<'ir>) -> Self {
