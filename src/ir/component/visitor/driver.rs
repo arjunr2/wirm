@@ -94,8 +94,8 @@ pub fn drive_event<'ir, V: ComponentVisitor<'ir>>(
             let id =
                 ctx.inner
                     .lookup_id_for(&Space::CompType, &ComponentSection::ComponentType, *idx);
-            ctx.inner.maybe_exit_scope(*ty);
             visitor.exit_comp_type(ctx, id, ty);
+            ctx.inner.maybe_exit_scope(*ty);
         }
 
         VisitEvent::Canon { kind, idx, canon } => {
@@ -174,8 +174,8 @@ pub fn drive_event<'ir, V: ComponentVisitor<'ir>>(
             let id = ctx
                 .inner
                 .lookup_id_for(&Space::CoreType, &ComponentSection::CoreType, *idx);
-            ctx.inner.maybe_exit_scope(*ty);
             visitor.exit_core_type(ctx, id, ty);
+            ctx.inner.maybe_exit_scope(*ty);
         }
         VisitEvent::CoreInst { idx, inst } => {
             ctx.inner.maybe_enter_scope(*inst);

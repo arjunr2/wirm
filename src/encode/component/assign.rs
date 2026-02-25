@@ -29,7 +29,7 @@ struct Assigner {
 }
 impl Assigner {
     /// When performing an ID _assignment_, we MUST consider whether the node we're assigning an ID for
-    /// has a nested scope! If it does, this node's ID lives in its parent index space. 
+    /// has a nested scope! If it does, this node's ID lives in its parent index space.
     fn assign_actual_id(&mut self, cx: &VisitCtx<'_>, is_inner_node: bool, space: &Space, assumed_id: u32) {
         let nested = cx.inner.node_has_nested_scope.last().unwrap_or(&false);
         let scope_id = if *nested && !is_inner_node {
@@ -84,7 +84,8 @@ impl ComponentVisitor<'_> for Assigner {
         self.assign_actual_id(cx, true, &decl.index_space_of(), id)
     }
     fn exit_comp_type(&mut self, cx: &VisitCtx<'_>, id: u32, ty: &ComponentType<'_>) {
-        self.assign_actual_id(cx, true, &ty.index_space_of(), id)
+        // This node COULD have a nested scope (so pass false to is_inner_node)
+        self.assign_actual_id(cx, false, &ty.index_space_of(), id)
     }
     fn visit_comp_instance(
         &mut self,
@@ -154,7 +155,8 @@ impl ComponentVisitor<'_> for Assigner {
         self.assign_actual_id(cx, true, &subtype.index_space_of(), id)
     }
     fn exit_core_type(&mut self, cx: &VisitCtx<'_>, id: u32, core_type: &CoreType<'_>) {
-        self.assign_actual_id(cx, true, &core_type.index_space_of(), id)
+        // This node COULD have a nested scope (so pass false to is_inner_node)
+        self.assign_actual_id(cx, false, &core_type.index_space_of(), id)
     }
     fn visit_core_instance(&mut self, cx: &VisitCtx<'_>, id: u32, inst: &Instance<'_>) {
         self.assign_actual_id(cx, true, &inst.index_space_of(), id)
@@ -174,7 +176,7 @@ impl ActualIds {
         let ids = self.scopes.entry(id).or_default();
         ids.assign_actual_id(space, assumed_id)
     }
-    
+
     /// Looking up a reference should always be relative to the scope of the node that
     /// contained the reference! No need to think about whether the node has a nested scope.
     pub fn lookup_actual_id_or_panic(&self, cx: &VisitCtxInner, r: &IndexedRef) -> usize {
