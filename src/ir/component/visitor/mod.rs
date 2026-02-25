@@ -12,9 +12,9 @@ use wasmparser::{
     InstanceTypeDeclaration, ModuleTypeDeclaration, SubType,
 };
 
-mod driver;
+pub(crate) mod driver;
 mod events_structural;
-mod events_topological;
+pub(crate) mod events_topological;
 #[cfg(test)]
 mod tests;
 pub(crate) mod utils;
@@ -96,7 +96,7 @@ fn walk<'ir, V: ComponentVisitor<'ir>>(
     let mut events = Vec::new();
     get_evts(root, &mut ctx, &mut events);
 
-    for event in events {
+    for event in events.iter() {
         drive_event(event, visitor, &mut ctx);
     }
 }
@@ -362,6 +362,7 @@ pub trait ComponentVisitor<'a> {
     fn visit_start_section(&mut self, _cx: &VisitCtx<'a>, _start: &ComponentStartFunction) {}
 }
 
+#[derive(Clone, Copy)]
 pub enum ItemKind {
     Comp,
     CompFunc,

@@ -10,7 +10,7 @@ use wasmparser::{
 };
 
 pub fn drive_event<'ir, V: ComponentVisitor<'ir>>(
-    event: VisitEvent<'ir>,
+    event: &VisitEvent<'ir>,
     visitor: &mut V,
     ctx: &mut VisitCtx<'ir>,
 ) {
@@ -30,177 +30,177 @@ pub fn drive_event<'ir, V: ComponentVisitor<'ir>>(
             //       (should it be before `push_component`?)
             let id = ctx
                 .inner
-                .lookup_id_for(&Space::Comp, &ComponentSection::Component, idx);
+                .lookup_id_for(&Space::Comp, &ComponentSection::Component, *idx);
             visitor.enter_component(ctx, id, component);
         }
 
         VisitEvent::ExitComp { component, idx } => {
             let id = ctx
                 .inner
-                .lookup_id_for(&Space::Comp, &ComponentSection::Component, idx);
+                .lookup_id_for(&Space::Comp, &ComponentSection::Component, *idx);
             ctx.inner.pop_component();
             visitor.exit_component(ctx, id, component);
         }
 
         VisitEvent::Module { idx, module } => {
-            ctx.inner.maybe_enter_scope(module);
+            ctx.inner.maybe_enter_scope(*module);
             let id = ctx
                 .inner
-                .lookup_id_for(&Space::CoreModule, &ComponentSection::Module, idx);
+                .lookup_id_for(&Space::CoreModule, &ComponentSection::Module, *idx);
             visitor.visit_module(ctx, id, module);
-            ctx.inner.maybe_exit_scope(module);
+            ctx.inner.maybe_exit_scope(*module);
         }
 
         VisitEvent::CompInst { idx, inst } => {
-            ctx.inner.maybe_enter_scope(inst);
+            ctx.inner.maybe_enter_scope(*inst);
             let id = ctx.inner.lookup_id_for(
                 &Space::CompInst,
                 &ComponentSection::ComponentInstance,
-                idx,
+                *idx,
             );
             visitor.visit_comp_instance(ctx, id, inst);
-            ctx.inner.maybe_exit_scope(inst);
+            ctx.inner.maybe_exit_scope(*inst);
         }
 
         VisitEvent::EnterCompType { idx, ty } => {
-            ctx.inner.maybe_enter_scope(ty);
+            ctx.inner.maybe_enter_scope(*ty);
             let id =
                 ctx.inner
-                    .lookup_id_for(&Space::CompType, &ComponentSection::ComponentType, idx);
+                    .lookup_id_for(&Space::CompType, &ComponentSection::ComponentType, *idx);
             visitor.enter_comp_type(ctx, id, ty);
         }
 
         VisitEvent::CompTypeDecl { idx, parent, decl } => {
-            ctx.inner.maybe_enter_scope(decl);
+            ctx.inner.maybe_enter_scope(*decl);
             let id = ctx.inner.lookup_id_for(
                 &decl.index_space_of(),
                 &ComponentSection::ComponentType,
-                idx,
+                *idx,
             );
-            visitor.visit_comp_type_decl(ctx, idx, id, parent, decl);
-            ctx.inner.maybe_exit_scope(decl);
+            visitor.visit_comp_type_decl(ctx, *idx, id, parent, decl);
+            ctx.inner.maybe_exit_scope(*decl);
         }
 
         VisitEvent::InstTypeDecl { idx, parent, decl } => {
-            ctx.inner.maybe_enter_scope(decl);
+            ctx.inner.maybe_enter_scope(*decl);
             let id = ctx.inner.lookup_id_for(
                 &decl.index_space_of(),
                 &ComponentSection::ComponentType,
-                idx,
+                *idx,
             );
-            visitor.visit_inst_type_decl(ctx, idx, id, parent, decl);
-            ctx.inner.maybe_exit_scope(decl);
+            visitor.visit_inst_type_decl(ctx, *idx, id, parent, decl);
+            ctx.inner.maybe_exit_scope(*decl);
         }
 
         VisitEvent::ExitCompType { idx, ty } => {
             let id =
                 ctx.inner
-                    .lookup_id_for(&Space::CompType, &ComponentSection::ComponentType, idx);
-            ctx.inner.maybe_exit_scope(ty);
+                    .lookup_id_for(&Space::CompType, &ComponentSection::ComponentType, *idx);
+            ctx.inner.maybe_exit_scope(*ty);
             visitor.exit_comp_type(ctx, id, ty);
         }
 
         VisitEvent::Canon { kind, idx, canon } => {
-            ctx.inner.maybe_enter_scope(canon);
+            ctx.inner.maybe_enter_scope(*canon);
             let space = canon.index_space_of();
             let id = ctx
                 .inner
-                .lookup_id_for(&space, &ComponentSection::Canon, idx);
-            visitor.visit_canon(ctx, kind, id, canon);
-            ctx.inner.maybe_exit_scope(canon);
+                .lookup_id_for(&space, &ComponentSection::Canon, *idx);
+            visitor.visit_canon(ctx, *kind, id, canon);
+            ctx.inner.maybe_exit_scope(*canon);
         }
         VisitEvent::Alias { kind, idx, alias } => {
-            ctx.inner.maybe_enter_scope(alias);
+            ctx.inner.maybe_enter_scope(*alias);
             let space = alias.index_space_of();
             let id = ctx
                 .inner
-                .lookup_id_for(&space, &ComponentSection::Alias, idx);
-            visitor.visit_alias(ctx, kind, id, alias);
-            ctx.inner.maybe_exit_scope(alias);
+                .lookup_id_for(&space, &ComponentSection::Alias, *idx);
+            visitor.visit_alias(ctx, *kind, id, alias);
+            ctx.inner.maybe_exit_scope(*alias);
         }
         VisitEvent::Import { kind, idx, imp } => {
-            ctx.inner.maybe_enter_scope(imp);
+            ctx.inner.maybe_enter_scope(*imp);
             let space = imp.index_space_of();
             let id = ctx
                 .inner
-                .lookup_id_for(&space, &ComponentSection::ComponentImport, idx);
-            visitor.visit_comp_import(ctx, kind, id, imp);
-            ctx.inner.maybe_exit_scope(imp);
+                .lookup_id_for(&space, &ComponentSection::ComponentImport, *idx);
+            visitor.visit_comp_import(ctx, *kind, id, imp);
+            ctx.inner.maybe_exit_scope(*imp);
         }
         VisitEvent::Export { kind, idx, exp } => {
-            ctx.inner.maybe_enter_scope(exp);
+            ctx.inner.maybe_enter_scope(*exp);
             let space = exp.index_space_of();
             let id = ctx
                 .inner
-                .lookup_id_for(&space, &ComponentSection::ComponentExport, idx);
-            visitor.visit_comp_export(ctx, kind, id, exp);
-            ctx.inner.maybe_exit_scope(exp);
+                .lookup_id_for(&space, &ComponentSection::ComponentExport, *idx);
+            visitor.visit_comp_export(ctx, *kind, id, exp);
+            ctx.inner.maybe_exit_scope(*exp);
         }
         VisitEvent::EnterCoreRecGroup { count, ty } => {
-            visitor.enter_core_rec_group(ctx, count, ty);
+            visitor.enter_core_rec_group(ctx, *count, ty);
         }
         VisitEvent::CoreSubtype {
             parent_idx,
             subvec_idx,
             subtype,
         } => {
-            ctx.inner.maybe_enter_scope(subtype);
+            ctx.inner.maybe_enter_scope(*subtype);
             let id = ctx.inner.lookup_id_with_subvec_for(
                 &Space::CoreType,
                 &ComponentSection::CoreType,
-                parent_idx,
-                subvec_idx,
+                *parent_idx,
+                *subvec_idx,
             );
             visitor.visit_core_subtype(ctx, id, subtype);
-            ctx.inner.maybe_exit_scope(subtype);
+            ctx.inner.maybe_exit_scope(*subtype);
         }
         VisitEvent::ExitCoreRecGroup {} => {
             visitor.exit_core_rec_group(ctx);
         }
         VisitEvent::EnterCoreType { idx, ty } => {
-            ctx.inner.maybe_enter_scope(ty);
+            ctx.inner.maybe_enter_scope(*ty);
             let id = ctx
                 .inner
-                .lookup_id_for(&Space::CoreType, &ComponentSection::CoreType, idx);
+                .lookup_id_for(&Space::CoreType, &ComponentSection::CoreType, *idx);
             visitor.enter_core_type(ctx, id, ty);
         }
         VisitEvent::ModuleTypeDecl { idx, parent, decl } => {
-            ctx.inner.maybe_enter_scope(decl);
+            ctx.inner.maybe_enter_scope(*decl);
             let id =
                 ctx.inner
-                    .lookup_id_for(&decl.index_space_of(), &ComponentSection::CoreType, idx);
-            visitor.visit_module_type_decl(ctx, idx, id, parent, decl);
-            ctx.inner.maybe_exit_scope(decl);
+                    .lookup_id_for(&decl.index_space_of(), &ComponentSection::CoreType, *idx);
+            visitor.visit_module_type_decl(ctx, *idx, id, parent, decl);
+            ctx.inner.maybe_exit_scope(*decl);
         }
         VisitEvent::ExitCoreType { idx, ty } => {
             let id = ctx
                 .inner
-                .lookup_id_for(&Space::CoreType, &ComponentSection::CoreType, idx);
-            ctx.inner.maybe_exit_scope(ty);
+                .lookup_id_for(&Space::CoreType, &ComponentSection::CoreType, *idx);
+            ctx.inner.maybe_exit_scope(*ty);
             visitor.exit_core_type(ctx, id, ty);
         }
         VisitEvent::CoreInst { idx, inst } => {
-            ctx.inner.maybe_enter_scope(inst);
+            ctx.inner.maybe_enter_scope(*inst);
             let id =
                 ctx.inner
-                    .lookup_id_for(&Space::CoreInst, &ComponentSection::CoreInstance, idx);
+                    .lookup_id_for(&Space::CoreInst, &ComponentSection::CoreInstance, *idx);
             visitor.visit_core_instance(ctx, id, inst);
-            ctx.inner.maybe_exit_scope(inst);
+            ctx.inner.maybe_exit_scope(*inst);
         }
         VisitEvent::CustomSection { sect } => {
-            ctx.inner.maybe_enter_scope(sect);
+            ctx.inner.maybe_enter_scope(*sect);
             visitor.visit_custom_section(ctx, sect);
-            ctx.inner.maybe_exit_scope(sect);
+            ctx.inner.maybe_exit_scope(*sect);
         }
         VisitEvent::StartFunc { func } => {
-            ctx.inner.maybe_enter_scope(func);
+            ctx.inner.maybe_enter_scope(*func);
             visitor.visit_start_section(ctx, func);
-            ctx.inner.maybe_exit_scope(func);
+            ctx.inner.maybe_exit_scope(*func);
         }
     }
 }
 
-pub enum VisitEvent<'ir> {
+pub(crate) enum VisitEvent<'ir> {
     EnterRootComp {
         component: &'ir Component<'ir>,
     },

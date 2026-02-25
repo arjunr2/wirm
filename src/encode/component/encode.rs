@@ -1,7 +1,8 @@
 use crate::encode::component::assign::ActualIds;
 use crate::encode::component::fix_indices::FixIndices;
+use crate::ir::component::visitor::driver::{drive_event, VisitEvent};
 use crate::ir::component::visitor::utils::ScopeStack;
-use crate::ir::component::visitor::{walk_topological, ComponentVisitor, ItemKind, VisitCtx};
+use crate::ir::component::visitor::{ComponentVisitor, ItemKind, VisitCtx};
 use crate::ir::component::Names;
 use crate::ir::types::CustomSection;
 use crate::{Component, Module};
@@ -18,9 +19,15 @@ use wasmparser::{
     RecGroup, SubType,
 };
 
-pub(crate) fn encode_internal_new(comp: &Component, ids: &ActualIds) -> wasm_encoder::Component {
+pub(crate) fn encode_internal<'ir>(
+    ids: &ActualIds,
+    ctx: &mut VisitCtx<'ir>,
+    events: &Vec<VisitEvent<'ir>>,
+) -> wasm_encoder::Component {
     let mut encoder = Encoder::new(ids);
-    walk_topological(comp, &mut encoder);
+    for event in events {
+        drive_event(event, &mut encoder, ctx);
+    }
 
     let encoded_comp = encoder.comp_stack.pop().unwrap().component;
     debug_assert!(encoder.comp_stack.is_empty());

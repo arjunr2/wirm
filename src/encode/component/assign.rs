@@ -1,7 +1,8 @@
 use crate::ir::component::idx_spaces::{IndexSpaceOf, ScopeId, Space};
 use crate::ir::component::refs::IndexedRef;
+use crate::ir::component::visitor::driver::{drive_event, VisitEvent};
 use crate::ir::component::visitor::utils::ScopeStack;
-use crate::ir::component::visitor::{walk_topological, ComponentVisitor, ItemKind, VisitCtx};
+use crate::ir::component::visitor::{ComponentVisitor, ItemKind, VisitCtx};
 use crate::{Component, Module};
 use std::collections::HashMap;
 use wasmparser::{
@@ -10,10 +11,14 @@ use wasmparser::{
     ModuleTypeDeclaration, SubType,
 };
 
-pub(crate) fn assign_indices(component: &Component) -> ActualIds {
+pub(crate) fn assign_indices<'ir>(
+    ctx: &mut VisitCtx<'ir>,
+    events: &Vec<VisitEvent<'ir>>,
+) -> ActualIds {
     let mut assigner = Assigner::default();
-    // TODO: Just pull the event vector to keep from generating 2x
-    walk_topological(component, &mut assigner);
+    for event in events {
+        drive_event(event, &mut assigner, ctx);
+    }
 
     assigner.ids
 }

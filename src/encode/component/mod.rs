@@ -1,5 +1,7 @@
 use crate::encode::component::assign::assign_indices;
-use crate::encode::component::encode::encode_internal_new;
+use crate::encode::component::encode::encode_internal;
+use crate::ir::component::visitor::events_topological::get_topological_events;
+use crate::ir::component::visitor::VisitCtx;
 use crate::Component;
 
 mod assign;
@@ -140,13 +142,17 @@ mod fix_indices;
 /// These conditions indicate an internal bug or invalid IR construction.
 pub fn encode(comp: &Component) -> Vec<u8> {
     // Phase 1: Collect
-    // This is done by the topological visitor!
+    // NOTE: I'm directly calling get_topological_events to avoid generating
+    // the events 2x (one per visitor used during assign and encode)
+    let mut ctx = VisitCtx::new(comp);
+    let mut events = Vec::new();
+    get_topological_events(comp, &mut ctx, &mut events);
 
     // Phase 2: Assign indices
-    let ids = assign_indices(comp);
+    let ids = assign_indices(&mut ctx, &events);
 
     // Phase 3: Encode (pass in the root-level component's plan, assigned indices, and original->new index map)
-    let bytes = encode_internal_new(comp, &ids);
+    let bytes = encode_internal(&ids, &mut ctx, &events);
 
     // Reset the index stores for any future visits!
     bytes.finish()
