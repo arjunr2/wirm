@@ -15,6 +15,8 @@ use wasmparser::{
 mod driver;
 mod events_structural;
 mod events_topological;
+#[cfg(test)]
+mod tests;
 pub(crate) mod utils;
 
 /// Walk a [`Component`] using its *structural* (in-file) order.

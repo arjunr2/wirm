@@ -20,7 +20,7 @@ pub(crate) fn get_structural_events<'ir>(
     visit_comp(component, ctx, out);
 
     out.push(VisitEvent::exit_root_comp(component));
-    ctx.inner.pop_component();
+    ctx.inner.pop_comp_section_tracker();
 }
 fn visit_comp<'ir>(
     component: &'ir Component<'ir>,
