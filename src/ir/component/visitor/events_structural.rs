@@ -66,27 +66,9 @@ fn visit_comp<'ir>(
                 );
             }
 
-            ComponentSection::Canon => {
-                for_each_indexed(&component.canons.items, start_idx, count, |idx, canon| {
-                    emit_indexed(out, idx, canon, VisitEvent::canon)
-                });
-            }
-
-            ComponentSection::Alias => {
-                for_each_indexed(&component.alias.items, start_idx, count, |idx, alias| {
-                    emit_indexed(out, idx, alias, VisitEvent::alias)
-                });
-            }
-
-            ComponentSection::ComponentImport => {
-                for_each_indexed(&component.imports, start_idx, count, |idx, import| {
-                    emit_indexed(out, idx, import, VisitEvent::import)
-                });
-            }
-
-            ComponentSection::ComponentExport => {
-                for_each_indexed(&component.exports, start_idx, count, |idx, export| {
-                    emit_indexed(out, idx, export, VisitEvent::export)
+            ComponentSection::CoreInstance => {
+                for_each_indexed(&component.instances, start_idx, count, |idx, inst| {
+                    emit_indexed(out, idx, inst, VisitEvent::core_inst)
                 });
             }
 
@@ -96,9 +78,27 @@ fn visit_comp<'ir>(
                 });
             }
 
-            ComponentSection::CoreInstance => {
-                for_each_indexed(&component.instances, start_idx, count, |idx, inst| {
-                    emit_indexed(out, idx, inst, VisitEvent::core_inst)
+            ComponentSection::Canon => {
+                for_each_indexed(&component.canons.items, start_idx, count, |idx, canon| {
+                    emit_indexed(out, idx, canon, VisitEvent::canon)
+                });
+            }
+
+            ComponentSection::ComponentExport => {
+                for_each_indexed(&component.exports, start_idx, count, |idx, export| {
+                    emit_indexed(out, idx, export, VisitEvent::export)
+                });
+            }
+
+            ComponentSection::ComponentImport => {
+                for_each_indexed(&component.imports, start_idx, count, |idx, import| {
+                    emit_indexed(out, idx, import, VisitEvent::import)
+                });
+            }
+
+            ComponentSection::Alias => {
+                for_each_indexed(&component.alias.items, start_idx, count, |idx, alias| {
+                    emit_indexed(out, idx, alias, VisitEvent::alias)
                 });
             }
 
@@ -180,28 +180,32 @@ fn visit_instance_type_decl<'ir>(
     }
 }
 fn visit_core_type<'ir>(idx: usize, ty: &'ir CoreType<'ir>, out: &mut Vec<VisitEvent<'ir>>) {
-    out.push(VisitEvent::enter_core_type(
-        ty.index_space_of().into(),
-        idx,
-        ty,
-    ));
-
     match ty {
         CoreType::Module(decls) => {
+            out.push(VisitEvent::enter_core_type(
+                ty.index_space_of().into(),
+                idx,
+                ty,
+            ));
             for (i, decl) in decls.iter().enumerate() {
                 visit_module_type_decl(ty, decl, i, out);
             }
+            out.push(VisitEvent::exit_core_type(
+                ty.index_space_of().into(),
+                idx,
+                ty,
+            ));
         }
 
         // no sub-scoping for the below variant
-        CoreType::Rec(_) => {}
+        CoreType::Rec(group) => {
+            out.push(VisitEvent::enter_rec_group(group.types().len(), ty));
+            for (subvec_idx, item) in group.types().enumerate() {
+                out.push(VisitEvent::core_subtype(idx, subvec_idx, item));
+            }
+            out.push(VisitEvent::exit_rec_group());
+        }
     }
-
-    out.push(VisitEvent::exit_core_type(
-        ty.index_space_of().into(),
-        idx,
-        ty,
-    ));
 }
 
 fn visit_module_type_decl<'ir>(
