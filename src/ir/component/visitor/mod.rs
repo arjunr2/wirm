@@ -539,6 +539,20 @@ impl<'a> VisitCtx<'a> {
     pub fn resolve_all(&self, refs: &[RefKind]) -> Vec<ResolvedItem<'_, '_>> {
         self.inner.resolve_all(refs)
     }
+    /// Looks up the name (if any) of the root component.
+    ///
+    /// Returns `None` if the component has no name.
+    pub fn lookup_root_comp_name(&self) -> Option<&str> {
+        self.inner.lookup_root_comp_name()
+    }
+    /// Looks up the name (if any) of a component by its ID.
+    ///
+    /// Returns `None` if:
+    /// - The component has no name
+    /// - The ID is not valid in the current context
+    pub fn lookup_comp_name(&self, id: u32) -> Option<&str> {
+        self.inner.lookup_comp_name(id)
+    }
     /// Looks up the name (if any) of a component instance by its ID.
     ///
     /// Returns `None` if:
@@ -546,6 +560,94 @@ impl<'a> VisitCtx<'a> {
     /// - The ID is not valid in the current context
     pub fn lookup_comp_inst_name(&self, id: u32) -> Option<&str> {
         self.inner.lookup_comp_inst_name(id)
+    }
+    /// Looks up the name (if any) of a component type by its ID.
+    ///
+    /// Returns `None` if:
+    /// - The type has no name
+    /// - The ID is not valid in the current context
+    pub fn lookup_comp_type_name(&self, id: u32) -> Option<&str> {
+        self.inner.lookup_comp_type_name(id)
+    }
+    /// Looks up the name (if any) of a component func by its ID.
+    ///
+    /// Returns `None` if:
+    /// - The func has no name
+    /// - The ID is not valid in the current context
+    pub fn lookup_comp_func_name(&self, id: u32) -> Option<&str> {
+        self.inner.lookup_comp_func_name(id)
+    }
+    /// Looks up the name (if any) of a module by its ID.
+    ///
+    /// Returns `None` if:
+    /// - The module has no name
+    /// - The ID is not valid in the current context
+    pub fn lookup_module_name(&self, id: u32) -> Option<&str> {
+        self.inner.lookup_module_name(id)
+    }
+    /// Looks up the name (if any) of a core instance by its ID.
+    ///
+    /// Returns `None` if:
+    /// - The instance has no name
+    /// - The ID is not valid in the current context
+    pub fn lookup_core_inst_name(&self, id: u32) -> Option<&str> {
+        self.inner.lookup_core_inst_name(id)
+    }
+    /// Looks up the name (if any) of a core type by its ID.
+    ///
+    /// Returns `None` if:
+    /// - The type has no name
+    /// - The ID is not valid in the current context
+    pub fn lookup_core_type_name(&self, id: u32) -> Option<&str> {
+        self.inner.lookup_core_type_name(id)
+    }
+    /// Looks up the name (if any) of a core function by its ID.
+    ///
+    /// Returns `None` if:
+    /// - The function has no name
+    /// - The ID is not valid in the current context
+    pub fn lookup_core_func_name(&self, id: u32) -> Option<&str> {
+        self.inner.lookup_core_func_name(id)
+    }
+    /// Looks up the name (if any) of a global by its ID.
+    ///
+    /// Returns `None` if:
+    /// - The global has no name
+    /// - The ID is not valid in the current context
+    pub fn lookup_global_name(&self, id: u32) -> Option<&str> {
+        self.inner.lookup_global_name(id)
+    }
+    /// Looks up the name (if any) of a memory by its ID.
+    ///
+    /// Returns `None` if:
+    /// - The memory has no name
+    /// - The ID is not valid in the current context
+    pub fn lookup_memory_name(&self, id: u32) -> Option<&str> {
+        self.inner.lookup_memory_name(id)
+    }
+    /// Looks up the name (if any) of a tag by its ID.
+    ///
+    /// Returns `None` if:
+    /// - The tag has no name
+    /// - The ID is not valid in the current context
+    pub fn lookup_tag_name(&self, id: u32) -> Option<&str> {
+        self.inner.lookup_tag_name(id)
+    }
+    /// Looks up the name (if any) of a table by its ID.
+    ///
+    /// Returns `None` if:
+    /// - The table has no name
+    /// - The ID is not valid in the current context
+    pub fn lookup_table_name(&self, id: u32) -> Option<&str> {
+        self.inner.lookup_table_name(id)
+    }
+    /// Looks up the name (if any) of a value by its ID.
+    ///
+    /// Returns `None` if:
+    /// - The value has no name
+    /// - The ID is not valid in the current context
+    pub fn lookup_value_name(&self, id: u32) -> Option<&str> {
+        self.inner.lookup_value_name(id)
     }
 }
 

@@ -223,8 +223,47 @@ impl VisitCtxInner<'_> {
 // =================================================
 
 impl VisitCtxInner<'_> {
+    pub fn lookup_root_comp_name(&self) -> Option<&str> {
+        self.curr_component().component_name.as_deref()
+    }
+    pub fn lookup_comp_name(&self, id: u32) -> Option<&str> {
+        self.curr_component().components_names.get(id)
+    }
     pub fn lookup_comp_inst_name(&self, id: u32) -> Option<&str> {
         self.curr_component().instance_names.get(id)
+    }
+    pub fn lookup_comp_type_name(&self, id: u32) -> Option<&str> {
+        self.curr_component().type_names.get(id)
+    }
+    pub fn lookup_comp_func_name(&self, id: u32) -> Option<&str> {
+        self.curr_component().func_names.get(id)
+    }
+    pub fn lookup_module_name(&self, id: u32) -> Option<&str> {
+        self.curr_component().module_names.get(id)
+    }
+    pub fn lookup_core_inst_name(&self, id: u32) -> Option<&str> {
+        self.curr_component().core_instances_names.get(id)
+    }
+    pub fn lookup_core_type_name(&self, id: u32) -> Option<&str> {
+        self.curr_component().core_type_names.get(id)
+    }
+    pub fn lookup_core_func_name(&self, id: u32) -> Option<&str> {
+        self.curr_component().core_func_names.get(id)
+    }
+    pub fn lookup_global_name(&self, id: u32) -> Option<&str> {
+        self.curr_component().global_names.get(id)
+    }
+    pub fn lookup_memory_name(&self, id: u32) -> Option<&str> {
+        self.curr_component().memory_names.get(id)
+    }
+    pub fn lookup_tag_name(&self, id: u32) -> Option<&str> {
+        self.curr_component().tag_names.get(id)
+    }
+    pub fn lookup_table_name(&self, id: u32) -> Option<&str> {
+        self.curr_component().table_names.get(id)
+    }
+    pub fn lookup_value_name(&self, id: u32) -> Option<&str> {
+        self.curr_component().value_names.get(id)
     }
 
     pub fn resolve_all(&self, refs: &[RefKind]) -> Vec<ResolvedItem<'_, '_>> {
