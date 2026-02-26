@@ -1,0 +1,603 @@
+use crate::ir::component::visitor::driver::VisitEvent;
+use crate::ir::component::visitor::events_structural::get_structural_events;
+use crate::ir::component::visitor::events_topological::get_topological_events;
+use crate::ir::component::visitor::VisitCtx;
+use crate::{Component, Module};
+use serde_json::Value;
+use std::fs;
+use std::path::Path;
+use std::process::Command;
+use wasmparser::{ComponentTypeDeclaration, InstanceTypeDeclaration};
+
+const WASM_TOOLS_TEST_COMP_INPUTS: &str = "./tests/wasm-tools/component-model";
+
+#[test]
+fn test_equivalent_visit_events_wast_components() {
+    let path_str = WASM_TOOLS_TEST_COMP_INPUTS.to_string();
+    tests_from_wast(Path::new(&path_str), test_event_generation);
+}
+
+#[test]
+fn test_equivalent_visit_events_wast_components_async() {
+    let path_str = format!("{WASM_TOOLS_TEST_COMP_INPUTS}/async");
+    tests_from_wast(Path::new(&path_str), test_event_generation);
+}
+
+#[test]
+fn test_equivalent_visit_events_wast_components_error_context() {
+    let path_str = format!("{WASM_TOOLS_TEST_COMP_INPUTS}/error-context");
+    tests_from_wast(Path::new(&path_str), test_event_generation);
+}
+
+#[test]
+fn test_equivalent_visit_events_wast_components_gc() {
+    let path_str = format!("{WASM_TOOLS_TEST_COMP_INPUTS}/gc");
+    tests_from_wast(Path::new(&path_str), test_event_generation);
+}
+
+#[test]
+fn test_equivalent_visit_events_wast_components_shared() {
+    let path_str = format!("{WASM_TOOLS_TEST_COMP_INPUTS}/shared-everything-threads");
+    tests_from_wast(Path::new(&path_str), test_event_generation);
+}
+
+#[test]
+fn test_equivalent_visit_events_wast_components_values() {
+    let path_str = format!("{WASM_TOOLS_TEST_COMP_INPUTS}/values");
+    tests_from_wast(Path::new(&path_str), test_event_generation);
+}
+
+fn get_events<'ir>(
+    comp: &'ir Component<'ir>,
+    get_evts: fn(&'ir Component<'ir>, &mut VisitCtx<'ir>, &mut Vec<VisitEvent<'ir>>),
+) -> Vec<VisitEvent<'ir>> {
+    let mut ctx = VisitCtx::new(comp);
+    let mut events = Vec::new();
+    get_evts(comp, &mut ctx, &mut events);
+
+    events
+}
+
+fn check_event_validity(evts0: &Vec<VisitEvent>, evts1: &Vec<VisitEvent>) {
+    check_validity_of(evts0);
+
+    // Now we know that the events of evts0 is valid, if they are equal to evts1, then we know
+    // that evts1 is valid!
+    check_equality(evts0, evts1);
+}
+
+/// Events are VALID if:
+/// 1. every enter* is paired with an exit*
+/// 2. recgroup subtypes only appear between enter_recgroup and exit_recgroup
+/// 3. mod type decls only appear between enter/exit core type
+/// 4. comp and inst type decls only appear between enter/exit comp type
+///   - if the decl contains a comp type, the next event is enter_comp_type
+///   - if the decl contains a core type, the next event is enter_core_type
+fn check_validity_of(evts: &Vec<VisitEvent>) {
+    let mut stack = vec![];
+    let mut next_is_enter_comp_type = false;
+    let mut next_is_enter_core_type = false;
+
+    for evt in evts.iter() {
+        if next_is_enter_comp_type {
+            assert!(is_comp_ty_enter(evt),
+                "Had a declaration with an inner component type, but the next event was not an enter component type event."
+            );
+            next_is_enter_comp_type = false;
+        }
+        if next_is_enter_core_type {
+            assert!(is_core_ty_enter(evt),
+                    "Had a declaration with an inner core type, but the next event was not an enter core type event."
+            );
+            next_is_enter_core_type = false;
+        }
+
+        if is_enter_evt(evt) {
+            stack.push(evt);
+        }
+        // 1. every enter is paired with an exit
+        if is_exit_evt(evt) {
+            let enter = stack.last().unwrap();
+            assert!(
+                enter_exit_match(stack.last().unwrap(), evt),
+                "Received mismatched enter/exit events:\n- enter: {enter:?}\n- exit: {evt:?}"
+            );
+            stack.pop();
+        }
+
+        // 2. recgroup subtypes only appear between enter_recgroup and exit_recgroup
+        if is_subtype(evt) {
+            assert!(
+                is_recgroup_enter(stack.last().unwrap()),
+                "Received a recgroup subtype event without a recgroup enter event!"
+            );
+        }
+
+        // 3. mod type decls only appear between enter/exit core type
+        if is_mod_decl(evt) {
+            assert!(
+                is_core_ty_enter(stack.last().unwrap()),
+                "Received a module type decl without a core type enter event!"
+            );
+        }
+
+        // 4. comp and inst type decls only appear between enter/exit comp type
+        if is_comp_ty_decl(evt) || is_inst_ty_decl(evt) {
+            assert!(
+                is_comp_ty_enter(stack.last().unwrap()),
+                "Received a component or instance type decl without a comp type enter event!"
+            );
+            // - if the decl contains a comp type, the next event is enter_comp_type
+            if decl_contains_inner_comp_ty(evt) {
+                next_is_enter_comp_type = true;
+            } else if decl_contains_inner_core_ty(evt) {
+                // - if the decl contains a core type, the next event is enter_core_type
+                next_is_enter_core_type = true;
+            }
+        }
+    }
+}
+fn is_enter_evt(evt: &VisitEvent) -> bool {
+    matches!(
+        evt,
+        VisitEvent::EnterRootComp { .. }
+            | VisitEvent::EnterComp { .. }
+            | VisitEvent::EnterCompType { .. }
+            | VisitEvent::EnterCoreType { .. }
+            | VisitEvent::EnterCoreRecGroup { .. }
+    )
+}
+fn is_exit_evt(evt: &VisitEvent) -> bool {
+    matches!(
+        evt,
+        VisitEvent::ExitRootComp { .. }
+            | VisitEvent::ExitComp { .. }
+            | VisitEvent::ExitCompType { .. }
+            | VisitEvent::ExitCoreType { .. }
+            | VisitEvent::ExitCoreRecGroup { .. }
+    )
+}
+fn is_subtype(evt: &VisitEvent) -> bool {
+    matches!(evt, VisitEvent::CoreSubtype { .. })
+}
+fn is_recgroup_enter(evt: &VisitEvent) -> bool {
+    matches!(evt, VisitEvent::EnterCoreRecGroup { .. })
+}
+fn is_mod_decl(evt: &VisitEvent) -> bool {
+    matches!(evt, VisitEvent::ModuleTypeDecl { .. })
+}
+fn is_core_ty_enter(evt: &VisitEvent) -> bool {
+    matches!(evt, VisitEvent::EnterCoreType { .. })
+}
+fn is_comp_ty_decl(evt: &VisitEvent) -> bool {
+    matches!(evt, VisitEvent::CompTypeDecl { .. })
+}
+fn is_inst_ty_decl(evt: &VisitEvent) -> bool {
+    matches!(evt, VisitEvent::InstTypeDecl { .. })
+}
+fn is_comp_ty_enter(evt: &VisitEvent) -> bool {
+    matches!(evt, VisitEvent::EnterCompType { .. })
+}
+fn decl_contains_inner_comp_ty(evt: &VisitEvent) -> bool {
+    match evt {
+        VisitEvent::CompTypeDecl { decl, .. } => matches!(decl, ComponentTypeDeclaration::Type(_)),
+        VisitEvent::InstTypeDecl { decl, .. } => matches!(decl, InstanceTypeDeclaration::Type(_)),
+        _ => false,
+    }
+}
+fn decl_contains_inner_core_ty(evt: &VisitEvent) -> bool {
+    match evt {
+        VisitEvent::CompTypeDecl { decl, .. } => {
+            matches!(decl, ComponentTypeDeclaration::CoreType(_))
+        }
+        VisitEvent::InstTypeDecl { decl, .. } => {
+            matches!(decl, InstanceTypeDeclaration::CoreType(_))
+        }
+        _ => false,
+    }
+}
+
+fn enter_exit_match(enter: &VisitEvent, exit: &VisitEvent) -> bool {
+    matches!(
+        (enter, exit),
+        (
+            VisitEvent::EnterRootComp { .. },
+            VisitEvent::ExitRootComp { .. }
+        ) | (VisitEvent::EnterComp { .. }, VisitEvent::ExitComp { .. })
+            | (
+                VisitEvent::EnterCompType { .. },
+                VisitEvent::ExitCompType { .. }
+            )
+            | (
+                VisitEvent::EnterCoreRecGroup { .. },
+                VisitEvent::ExitCoreRecGroup { .. }
+            )
+            | (
+                VisitEvent::EnterCoreType { .. },
+                VisitEvent::ExitCoreType { .. }
+            )
+    )
+}
+
+fn check_equality(evts0: &Vec<VisitEvent>, evts1: &Vec<VisitEvent>) {
+    for (a, b) in evts0.iter().zip(evts1.iter()) {
+        match (a, b) {
+            (
+                VisitEvent::EnterRootComp { component: a_comp },
+                VisitEvent::EnterRootComp { component: b_comp },
+            ) => {
+                assert_eq!(a_comp.id, b_comp.id);
+                // check pointing to same memory region
+                assert_eq!(*a_comp as *const Component, *b_comp as *const Component);
+            }
+            (
+                VisitEvent::ExitRootComp { component: a_comp },
+                VisitEvent::ExitRootComp { component: b_comp },
+            ) => {
+                assert_eq!(a_comp.id, b_comp.id);
+            }
+            (
+                VisitEvent::EnterComp {
+                    idx: a_idx,
+                    component: a_comp,
+                },
+                VisitEvent::EnterComp {
+                    idx: b_idx,
+                    component: b_comp,
+                },
+            ) => {
+                assert_eq!(a_idx, b_idx);
+                assert_eq!(a_comp.id, b_comp.id);
+            }
+            (
+                VisitEvent::ExitComp {
+                    idx: a_idx,
+                    component: a_comp,
+                },
+                VisitEvent::ExitComp {
+                    idx: b_idx,
+                    component: b_comp,
+                },
+            ) => {
+                assert_eq!(a_idx, b_idx);
+                assert_eq!(a_comp.id, b_comp.id);
+            }
+            (
+                VisitEvent::Module {
+                    idx: a_idx,
+                    module: a_mod,
+                },
+                VisitEvent::Module {
+                    idx: b_idx,
+                    module: b_mod,
+                },
+            ) => {
+                assert_eq!(a_idx, b_idx);
+                // check pointing to same memory region
+                assert_eq!(*a_mod as *const Module, *b_mod as *const Module);
+            }
+            (
+                VisitEvent::EnterCompType {
+                    idx: a_idx,
+                    ty: a_ty,
+                },
+                VisitEvent::EnterCompType {
+                    idx: b_idx,
+                    ty: b_ty,
+                },
+            ) => {
+                assert_eq!(a_idx, b_idx);
+                assert_eq!(a_ty, b_ty);
+            }
+            (
+                VisitEvent::ExitCompType {
+                    idx: a_idx,
+                    ty: a_ty,
+                },
+                VisitEvent::ExitCompType {
+                    idx: b_idx,
+                    ty: b_ty,
+                },
+            ) => {
+                assert_eq!(a_idx, b_idx);
+                assert_eq!(a_ty, b_ty);
+            }
+            (
+                VisitEvent::CompTypeDecl {
+                    parent: a_parent,
+                    idx: a_idx,
+                    decl: a_decl,
+                },
+                VisitEvent::CompTypeDecl {
+                    parent: b_parent,
+                    idx: b_idx,
+                    decl: b_decl,
+                },
+            ) => {
+                assert_eq!(a_parent, b_parent);
+                assert_eq!(a_idx, b_idx);
+                assert_eq!(a_decl, b_decl);
+            }
+            (
+                VisitEvent::InstTypeDecl {
+                    parent: a_parent,
+                    idx: a_idx,
+                    decl: a_decl,
+                },
+                VisitEvent::InstTypeDecl {
+                    parent: b_parent,
+                    idx: b_idx,
+                    decl: b_decl,
+                },
+            ) => {
+                assert_eq!(a_parent, b_parent);
+                assert_eq!(a_idx, b_idx);
+                assert_eq!(a_decl, b_decl);
+            }
+            (
+                VisitEvent::CompInst {
+                    idx: a_idx,
+                    inst: a_inst,
+                },
+                VisitEvent::CompInst {
+                    idx: b_idx,
+                    inst: b_inst,
+                },
+            ) => {
+                assert_eq!(a_idx, b_idx);
+                assert_eq!(a_inst, b_inst);
+            }
+            (
+                VisitEvent::Canon {
+                    kind: a_kind,
+                    idx: a_idx,
+                    canon: a_canon,
+                },
+                VisitEvent::Canon {
+                    kind: b_kind,
+                    idx: b_idx,
+                    canon: b_canon,
+                },
+            ) => {
+                assert_eq!(a_kind, b_kind);
+                assert_eq!(a_idx, b_idx);
+                assert_eq!(a_canon, b_canon);
+            }
+            (
+                VisitEvent::Alias {
+                    kind: a_kind,
+                    idx: a_idx,
+                    alias: a_alias,
+                },
+                VisitEvent::Alias {
+                    kind: b_kind,
+                    idx: b_idx,
+                    alias: b_alias,
+                },
+            ) => {
+                assert_eq!(a_kind, b_kind);
+                assert_eq!(a_idx, b_idx);
+                assert_eq!(a_alias, b_alias);
+            }
+            (
+                VisitEvent::Import {
+                    kind: a_kind,
+                    idx: a_idx,
+                    imp: a_imp,
+                },
+                VisitEvent::Import {
+                    kind: b_kind,
+                    idx: b_idx,
+                    imp: b_imp,
+                },
+            ) => {
+                assert_eq!(a_kind, b_kind);
+                assert_eq!(a_idx, b_idx);
+                assert_eq!(a_imp, b_imp);
+            }
+            (
+                VisitEvent::Export {
+                    kind: a_kind,
+                    idx: a_idx,
+                    exp: a_exp,
+                },
+                VisitEvent::Export {
+                    kind: b_kind,
+                    idx: b_idx,
+                    exp: b_exp,
+                },
+            ) => {
+                assert_eq!(a_kind, b_kind);
+                assert_eq!(a_idx, b_idx);
+                assert_eq!(a_exp, b_exp);
+            }
+            (
+                VisitEvent::EnterCoreRecGroup {
+                    ty: a_ty,
+                    count: a_count,
+                },
+                VisitEvent::EnterCoreRecGroup {
+                    ty: b_ty,
+                    count: b_count,
+                },
+            ) => {
+                assert_eq!(a_ty, b_ty);
+                assert_eq!(a_count, b_count);
+            }
+            (
+                VisitEvent::CoreSubtype {
+                    parent_idx: a_pidx,
+                    subvec_idx: a_sidx,
+                    subtype: a_ty,
+                },
+                VisitEvent::CoreSubtype {
+                    parent_idx: b_pidx,
+                    subvec_idx: b_sidx,
+                    subtype: b_ty,
+                },
+            ) => {
+                assert_eq!(a_pidx, b_pidx);
+                assert_eq!(a_sidx, b_sidx);
+                assert_eq!(a_ty, b_ty);
+            }
+            (VisitEvent::ExitCoreRecGroup {}, VisitEvent::ExitCoreRecGroup {}) => {} // just variant equivalence is enough
+            (
+                VisitEvent::EnterCoreType {
+                    idx: a_idx,
+                    ty: a_ty,
+                },
+                VisitEvent::EnterCoreType {
+                    idx: b_idx,
+                    ty: b_ty,
+                },
+            ) => {
+                assert_eq!(a_idx, b_idx);
+                assert_eq!(a_ty, b_ty);
+            }
+            (
+                VisitEvent::ModuleTypeDecl {
+                    parent: a_parent,
+                    idx: a_idx,
+                    decl: a_decl,
+                },
+                VisitEvent::ModuleTypeDecl {
+                    parent: b_parent,
+                    idx: b_idx,
+                    decl: b_decl,
+                },
+            ) => {
+                assert_eq!(a_parent, b_parent);
+                assert_eq!(a_idx, b_idx);
+                assert_eq!(a_decl, b_decl);
+            }
+            (
+                VisitEvent::ExitCoreType {
+                    idx: a_idx,
+                    ty: a_ty,
+                },
+                VisitEvent::ExitCoreType {
+                    idx: b_idx,
+                    ty: b_ty,
+                },
+            ) => {
+                assert_eq!(a_idx, b_idx);
+                assert_eq!(a_ty, b_ty);
+            }
+            (
+                VisitEvent::CoreInst {
+                    idx: a_idx,
+                    inst: a_inst,
+                },
+                VisitEvent::CoreInst {
+                    idx: b_idx,
+                    inst: b_inst,
+                },
+            ) => {
+                assert_eq!(a_idx, b_idx);
+                assert_eq!(a_inst, b_inst);
+            }
+            (
+                VisitEvent::CustomSection { sect: a_sect },
+                VisitEvent::CustomSection { sect: b_sect },
+            ) => {
+                // best effort check here
+                assert_eq!(a_sect.name, b_sect.name);
+            }
+            (VisitEvent::StartFunc { func: a_func }, VisitEvent::StartFunc { func: b_func }) => {
+                assert_eq!(a_func.func_index, b_func.func_index);
+                assert_eq!(a_func.arguments, b_func.arguments);
+                assert_eq!(a_func.results, b_func.results);
+            }
+            _ => panic!("events are not the same discriminant: {a:?} != {b:?}"),
+        }
+    }
+}
+
+fn wasm_tools() -> Command {
+    Command::new("wasm-tools")
+}
+
+fn test_event_generation(filename: &str) {
+    println!("\nfilename: {:?}", filename);
+    let buff = wat::parse_file(filename).expect("couldn't convert the input wat to Wasm");
+    let original = wasmprinter::print_bytes(&buff).expect("couldn't convert original Wasm to wat");
+    println!("original: {:?}", original);
+
+    let comp = Component::parse(&buff, false, false).expect("Unable to parse");
+    let evts_struct = get_events(&comp, get_structural_events);
+    let evts_topo = get_events(&comp, get_topological_events);
+    check_event_validity(&evts_struct, &evts_topo);
+}
+
+pub fn tests_from_wast(path: &Path, run_test: fn(&str)) {
+    let path = path.to_str().unwrap().replace("\\", "/");
+    for entry in fs::read_dir(path).unwrap() {
+        let file = entry.unwrap();
+        match file.path().extension() {
+            None => continue,
+            Some(ext) => {
+                if ext.to_str() != Some("wast") {
+                    continue;
+                }
+            }
+        }
+        let mut cmd = wasm_tools();
+        let td = tempfile::TempDir::new().unwrap();
+        cmd.arg("json-from-wast")
+            .arg(file.path())
+            .arg("--pretty")
+            .arg("--wasm-dir")
+            .arg(td.path())
+            .arg("-o")
+            .arg(td.path().join(format!(
+                "{:?}.json",
+                Path::new(&file.path())
+                    .file_stem()
+                    .unwrap()
+                    .to_str()
+                    .unwrap()
+            )));
+        let output = cmd.output().unwrap();
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            panic!("failed to run {cmd:?}\nstdout: {stdout}\nstderr: {stderr}");
+        }
+        // For every file that is not invalid in the output, do round-trip
+        for entry in fs::read_dir(td.path()).unwrap() {
+            let file_json = entry.unwrap();
+            match file_json.path().extension() {
+                None => continue,
+                Some(ext) => {
+                    if ext.to_str() != Some("json") {
+                        continue;
+                    }
+                }
+            }
+            let json: Value = serde_json::from_str(
+                &fs::read_to_string(file_json.path()).expect("Unable to open file"),
+            )
+            .unwrap();
+            if let Value::Object(map) = json {
+                if let Value::Array(vals) = map.get_key_value("commands").unwrap().1 {
+                    for value in vals {
+                        if let Value::Object(testcase) = value {
+                            // If assert is not in the string, that means it is a valid test case
+                            if let Value::String(ty) = testcase.get_key_value("type").unwrap().1 {
+                                if !ty.contains("assert") && testcase.contains_key("filename") {
+                                    if let Value::String(test_file) =
+                                        testcase.get_key_value("filename").unwrap().1
+                                    {
+                                        run_test(
+                                            Path::new(td.path()).join(test_file).to_str().unwrap(),
+                                        );
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

@@ -4,7 +4,7 @@ use std::borrow::Cow;
 
 use crate::ir::id::{FunctionID, ImportsID};
 use crate::ir::types::{InjectTag, Tag, TagUtils};
-use wasmparser::TypeRef;
+use wasmparser::{Imports, Result, TypeRef};
 
 // TODO: Need to handle the relationship between Functions and Imports
 /// Represents an import in a WebAssembly module.
@@ -30,6 +30,44 @@ impl TagUtils for Import<'_> {
         &self.tag
     }
 }
+
+pub fn expand_imports<'a>(
+    imports: impl IntoIterator<Item = Result<Imports<'a>>>,
+) -> Result<Vec<Import<'a>>> {
+    let mut out: Vec<Import> = Vec::new();
+
+    for group in imports {
+        match group? {
+            Imports::Single(_, import) => {
+                out.push(import.into());
+            }
+
+            Imports::Compact1 { module, items } => {
+                for item in items {
+                    let item = item?;
+                    out.push(
+                        wasmparser::Import {
+                            module,
+                            name: item.name,
+                            ty: item.ty,
+                        }
+                        .into(),
+                    );
+                }
+            }
+
+            Imports::Compact2 { module, ty, names } => {
+                for name in names {
+                    let name = name?;
+                    out.push(wasmparser::Import { module, name, ty }.into());
+                }
+            }
+        }
+    }
+
+    Ok(out)
+}
+
 impl<'a> From<wasmparser::Import<'a>> for Import<'a> {
     fn from(import: wasmparser::Import<'a>) -> Self {
         Import {
@@ -125,6 +163,13 @@ impl<'a> ModuleImports<'a> {
         self.imports[*imports_id as usize].custom_name = Some(name)
     }
 
+    /// Set the binding of a given import using the ImportsID.
+    pub fn set_import_name(&mut self, module: String, name: String, imports_id: ImportsID) {
+        let import = &mut self.imports[*imports_id as usize];
+        import.module = module.into();
+        import.name = name.into();
+    }
+
     /// Set the name of an imported function, using the FunctionID rather
     /// than the ImportsID. Note that these are not necessarily equal if
     /// the module has non-function imports! (It is more efficient to
@@ -148,7 +193,7 @@ impl<'a> ModuleImports<'a> {
         // using a match instead of import.is_*() to make sure that we're
         // exhaustive due to the compiler guarantees.
         match import.ty {
-            TypeRef::Func(..) => {
+            TypeRef::Func(..) | TypeRef::FuncExact(..) => {
                 self.num_funcs += 1;
                 self.num_funcs_added += 1;
             }

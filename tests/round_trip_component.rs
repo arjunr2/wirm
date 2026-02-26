@@ -1,7 +1,6 @@
-use wirm::ir::component::Component;
-
 mod common;
 use common::{write_to_file, WASM_OUTPUT_DIR};
+use wirm::Component;
 
 fn round_trip_component(testname: &str, folder: &str) {
     let filename = format!(
@@ -11,9 +10,8 @@ fn round_trip_component(testname: &str, folder: &str) {
         testname
     );
     let buff = wat::parse_file(filename).expect("couldn't convert the input wat to Wasm");
-    let mut component = Component::parse(&buff, false, false).expect("Unable to parse");
-    // component.print();
-    let result = component.encode();
+    let component = Component::parse(&buff, false, false).expect("Unable to parse");
+    let result = component.encode().expect("error");
     write_to_file(
         &result,
         format!("{WASM_OUTPUT_DIR}/component_{testname}.wasm"),

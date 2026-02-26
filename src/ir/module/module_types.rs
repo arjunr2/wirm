@@ -1,6 +1,9 @@
+#![allow(clippy::too_many_arguments)]
 //!  Intermediate representation of Module Types
 
+use crate::error::Error::InvalidOperation;
 use crate::ir::id::TypeID;
+use crate::ir::types;
 use crate::ir::types::{InjectTag, Tag, TagUtils};
 use crate::DataType;
 use std::collections::HashMap;
@@ -29,6 +32,10 @@ pub enum Types {
         super_type: Option<PackedIndex>,
         is_final: bool,
         shared: bool,
+        /// Optional descriptor attribute.
+        descriptor: Option<u32>,
+        /// Optional describes attribute.
+        describes: Option<u32>,
         tag: InjectTag,
     },
     ArrayType {
@@ -37,6 +44,10 @@ pub enum Types {
         super_type: Option<PackedIndex>,
         is_final: bool,
         shared: bool,
+        /// Optional descriptor attribute.
+        descriptor: Option<u32>,
+        /// Optional describes attribute.
+        describes: Option<u32>,
         tag: InjectTag,
     },
     StructType {
@@ -45,6 +56,10 @@ pub enum Types {
         super_type: Option<PackedIndex>,
         is_final: bool,
         shared: bool,
+        /// Optional descriptor attribute.
+        descriptor: Option<u32>,
+        /// Optional describes attribute.
+        describes: Option<u32>,
         tag: InjectTag,
     },
     ContType {
@@ -52,6 +67,10 @@ pub enum Types {
         super_type: Option<PackedIndex>,
         is_final: bool,
         shared: bool,
+        /// Optional descriptor attribute.
+        descriptor: Option<u32>,
+        /// Optional describes attribute.
+        describes: Option<u32>,
         tag: InjectTag,
     },
 }
@@ -239,18 +258,18 @@ impl TagUtils for Types {
 }
 impl Types {
     /// Return the params of a Function Type
-    pub fn params(&self) -> Vec<DataType> {
+    pub fn params(&self) -> types::Result<Vec<DataType>> {
         match &self {
-            Types::FuncType { params, .. } => params.to_vec(),
-            _ => panic!("Not a function!"),
+            Types::FuncType { params, .. } => Ok(params.to_vec()),
+            _ => Err(InvalidOperation("Not a function!".to_string())),
         }
     }
 
     /// Return the params of a Function Type
-    pub fn results(&self) -> Vec<DataType> {
+    pub fn results(&self) -> types::Result<Vec<DataType>> {
         match &self {
-            Types::FuncType { results, .. } => results.to_vec(),
-            _ => panic!("Not a function!"),
+            Types::FuncType { results, .. } => Ok(results.to_vec()),
+            _ => Err(InvalidOperation("Not a function!".to_string())),
         }
     }
 
@@ -332,6 +351,8 @@ impl ModuleTypes {
             super_type: None,
             is_final: true,
             shared: false,
+            descriptor: None,
+            describes: None,
             tag,
         };
 
@@ -346,6 +367,8 @@ impl ModuleTypes {
         super_type: Option<TypeID>,
         is_final: bool,
         shared: bool,
+        descriptor: Option<u32>,
+        describes: Option<u32>,
     ) -> TypeID {
         self.add_func_type_with_params_with_tag(
             param,
@@ -353,6 +376,8 @@ impl ModuleTypes {
             super_type,
             is_final,
             shared,
+            descriptor,
+            describes,
             Tag::default(),
         )
     }
@@ -363,9 +388,20 @@ impl ModuleTypes {
         super_type: Option<TypeID>,
         is_final: bool,
         shared: bool,
+        descriptor: Option<u32>,
+        describes: Option<u32>,
         tag: Tag,
     ) -> TypeID {
-        self.add_func_type_with_params_internal(param, ret, super_type, is_final, shared, Some(tag))
+        self.add_func_type_with_params_internal(
+            param,
+            ret,
+            super_type,
+            is_final,
+            shared,
+            descriptor,
+            describes,
+            Some(tag),
+        )
     }
     pub(crate) fn add_func_type_with_params_internal(
         &mut self,
@@ -374,6 +410,8 @@ impl ModuleTypes {
         super_type: Option<TypeID>,
         is_final: bool,
         shared: bool,
+        descriptor: Option<u32>,
+        describes: Option<u32>,
         tag: InjectTag,
     ) -> TypeID {
         let ty = Types::FuncType {
@@ -383,6 +421,8 @@ impl ModuleTypes {
                 None => None,
                 Some(id) => PackedIndex::from_module_index(*id),
             },
+            descriptor,
+            describes,
             is_final,
             shared,
             tag,
@@ -392,21 +432,31 @@ impl ModuleTypes {
     }
 
     /// Add a new array type to the module. Assumes no `super_type` and `is_final` is `true`
-    pub fn add_array_type(&mut self, field_type: DataType, mutable: bool) -> TypeID {
-        self.add_array_type_with_tag(field_type, mutable, Tag::default())
+    pub fn add_array_type(
+        &mut self,
+        field_type: DataType,
+        mutable: bool,
+        descriptor: Option<u32>,
+        describes: Option<u32>,
+    ) -> TypeID {
+        self.add_array_type_with_tag(field_type, mutable, descriptor, describes, Tag::default())
     }
     pub fn add_array_type_with_tag(
         &mut self,
         field_type: DataType,
         mutable: bool,
+        descriptor: Option<u32>,
+        describes: Option<u32>,
         tag: Tag,
     ) -> TypeID {
-        self.add_array_type_internal(field_type, mutable, Some(tag))
+        self.add_array_type_internal(field_type, mutable, descriptor, describes, Some(tag))
     }
     pub(crate) fn add_array_type_internal(
         &mut self,
         field_type: DataType,
         mutable: bool,
+        descriptor: Option<u32>,
+        describes: Option<u32>,
         tag: InjectTag,
     ) -> TypeID {
         let ty = Types::ArrayType {
@@ -415,6 +465,8 @@ impl ModuleTypes {
             super_type: None,
             is_final: true,
             shared: false,
+            descriptor,
+            describes,
             tag,
         };
 
@@ -429,6 +481,8 @@ impl ModuleTypes {
         super_type: Option<TypeID>,
         is_final: bool,
         shared: bool,
+        descriptor: Option<u32>,
+        describes: Option<u32>,
     ) -> TypeID {
         self.add_array_type_with_params_with_tag(
             field_type,
@@ -436,6 +490,8 @@ impl ModuleTypes {
             super_type,
             is_final,
             shared,
+            descriptor,
+            describes,
             Tag::default(),
         )
     }
@@ -446,6 +502,8 @@ impl ModuleTypes {
         super_type: Option<TypeID>,
         is_final: bool,
         shared: bool,
+        descriptor: Option<u32>,
+        describes: Option<u32>,
         tag: Tag,
     ) -> TypeID {
         self.add_array_type_with_params_internal(
@@ -454,6 +512,8 @@ impl ModuleTypes {
             super_type,
             is_final,
             shared,
+            descriptor,
+            describes,
             Some(tag),
         )
     }
@@ -464,6 +524,8 @@ impl ModuleTypes {
         super_type: Option<TypeID>,
         is_final: bool,
         shared: bool,
+        descriptor: Option<u32>,
+        describes: Option<u32>,
         tag: InjectTag,
     ) -> TypeID {
         let ty = Types::ArrayType {
@@ -475,6 +537,8 @@ impl ModuleTypes {
             },
             is_final,
             shared,
+            descriptor,
+            describes,
             tag,
         };
 
@@ -482,21 +546,31 @@ impl ModuleTypes {
     }
 
     /// Add a new struct type to the module. Assumes no `super_type` and `is_final` is `true`
-    pub fn add_struct_type(&mut self, field_type: Vec<DataType>, mutable: Vec<bool>) -> TypeID {
-        self.add_struct_type_with_tag(field_type, mutable, Tag::default())
+    pub fn add_struct_type(
+        &mut self,
+        field_type: Vec<DataType>,
+        mutable: Vec<bool>,
+        descriptor: Option<u32>,
+        describes: Option<u32>,
+    ) -> TypeID {
+        self.add_struct_type_with_tag(field_type, mutable, descriptor, describes, Tag::default())
     }
     pub fn add_struct_type_with_tag(
         &mut self,
         field_type: Vec<DataType>,
         mutable: Vec<bool>,
+        descriptor: Option<u32>,
+        describes: Option<u32>,
         tag: Tag,
     ) -> TypeID {
-        self.add_struct_type_internal(field_type, mutable, Some(tag))
+        self.add_struct_type_internal(field_type, mutable, descriptor, describes, Some(tag))
     }
     pub(crate) fn add_struct_type_internal(
         &mut self,
         field_type: Vec<DataType>,
         mutable: Vec<bool>,
+        descriptor: Option<u32>,
+        describes: Option<u32>,
         tag: InjectTag,
     ) -> TypeID {
         let ty = Types::StructType {
@@ -505,6 +579,8 @@ impl ModuleTypes {
             super_type: None,
             is_final: true,
             shared: false,
+            descriptor,
+            describes,
             tag,
         };
 
@@ -519,6 +595,8 @@ impl ModuleTypes {
         super_type: Option<TypeID>,
         is_final: bool,
         shared: bool,
+        descriptor: Option<u32>,
+        describes: Option<u32>,
     ) -> TypeID {
         self.add_struct_type_with_params_with_tag(
             field_type,
@@ -526,6 +604,8 @@ impl ModuleTypes {
             super_type,
             is_final,
             shared,
+            descriptor,
+            describes,
             Tag::default(),
         )
     }
@@ -536,6 +616,8 @@ impl ModuleTypes {
         super_type: Option<TypeID>,
         is_final: bool,
         shared: bool,
+        descriptor: Option<u32>,
+        describes: Option<u32>,
         tag: Tag,
     ) -> TypeID {
         self.add_struct_type_with_params_internal(
@@ -544,6 +626,8 @@ impl ModuleTypes {
             super_type,
             is_final,
             shared,
+            descriptor,
+            describes,
             Some(tag),
         )
     }
@@ -554,6 +638,8 @@ impl ModuleTypes {
         super_type: Option<TypeID>,
         is_final: bool,
         shared: bool,
+        descriptor: Option<u32>,
+        describes: Option<u32>,
         tag: InjectTag,
     ) -> TypeID {
         let ty = Types::StructType {
@@ -565,6 +651,8 @@ impl ModuleTypes {
             },
             is_final,
             shared,
+            descriptor,
+            describes,
             tag,
         };
 
@@ -592,6 +680,7 @@ pub enum HeapType {
     Abstract { shared: bool, ty: AbstractHeapType },
     // TODO: See to replace UnpackedIndex with `wirm` specific implementation
     Concrete(UnpackedIndex),
+    Exact(UnpackedIndex),
 }
 
 impl From<wasmparser::HeapType> for HeapType {
@@ -602,6 +691,7 @@ impl From<wasmparser::HeapType> for HeapType {
                 ty: AbstractHeapType::from(ty),
             },
             wasmparser::HeapType::Concrete(idx) => HeapType::Concrete(idx),
+            wasmparser::HeapType::Exact(idx) => HeapType::Exact(idx),
         }
     }
 }
@@ -614,6 +704,7 @@ impl From<HeapType> for wasmparser::HeapType {
                 ty: wasmparser::AbstractHeapType::from(ty),
             },
             HeapType::Concrete(idx) => wasmparser::HeapType::Concrete(idx),
+            HeapType::Exact(idx) => wasmparser::HeapType::Exact(idx),
         }
     }
 }

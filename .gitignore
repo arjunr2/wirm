@@ -6,6 +6,6 @@ fac_wirm/Cargo.lock
 **/out.**
 output
 
-# Test wasm files
-a.wasm
+# Some helper files
+test.wat
 test.wasm
