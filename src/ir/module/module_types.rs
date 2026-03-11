@@ -296,8 +296,12 @@ impl ModuleTypes {
     /// Create a new Module Types section
     pub fn new(groups: Vec<RecGroup>, types: HashMap<TypeID, Types>) -> Self {
         let mut types_map = HashMap::default();
-        for (id, ty) in types.iter() {
-            types_map.insert(ty.clone(), *id);
+        // Iterate in sorted order by TypeID to ensure determinism.
+        let mut sorted_ids: Vec<_> = types.keys().copied().collect();
+        sorted_ids.sort();
+        for id in sorted_ids {
+            let ty = types.get(&id).unwrap();
+            types_map.insert(ty.clone(), id);
         }
         ModuleTypes {
             groups,
