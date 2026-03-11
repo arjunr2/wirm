@@ -1,11 +1,12 @@
 //! Intermediate representation of the globals.
 
 use crate::error::Error;
+use crate::error::Error::UnknownId;
 use crate::ir::id::{GlobalID, ImportsID};
 use crate::ir::module::module_imports::ModuleImports;
-use crate::ir::module::{GetID, Iter, LocalOrImport, ReIndexable};
+use crate::ir::module::{AsVec, GetID, LocalOrImport};
+use crate::ir::types;
 use crate::ir::types::{InitExpr, InjectTag, Tag, TagUtils};
-use std::vec::IntoIter;
 use wasmparser::{GlobalType, TypeRef};
 
 type Result<T> = std::result::Result<T, Error>;
@@ -144,32 +145,12 @@ pub struct ModuleGlobals {
     pub(crate) recalculate_ids: bool,
 }
 
-impl Iter<Global> for ModuleGlobals {
-    /// Get an iterator for the functions.
-    fn iter(&self) -> std::slice::Iter<'_, Global> {
-        self.globals.iter()
+impl AsVec<Global> for ModuleGlobals {
+    fn as_vec(&self) -> &Vec<Global> {
+        &self.globals
     }
-
-    fn get_into_iter(&self) -> IntoIter<Global> {
-        self.globals.clone().into_iter()
-    }
-}
-
-impl ReIndexable<Global> for ModuleGlobals {
-    /// Get the number of functions
-    fn len(&self) -> usize {
-        self.globals.len()
-    }
-    fn remove(&mut self, global_id: u32) -> Global {
-        self.globals.remove(global_id as usize)
-    }
-
-    fn insert(&mut self, global_id: u32, global: Global) {
-        self.globals.insert(global_id as usize, global);
-    }
-    /// Add a new function
-    fn push(&mut self, global: Global) {
-        self.globals.push(global);
+    fn as_vec_mut(&mut self) -> &mut Vec<Global> {
+        &mut self.globals
     }
 }
 
@@ -248,7 +229,11 @@ impl ModuleGlobals {
         self.globals.push(global);
         id
     }
-    pub(crate) fn mod_global_init_expr(&mut self, global_id: u32, new_expr: InitExpr) {
+    pub(crate) fn mod_global_init_expr(
+        &mut self,
+        global_id: u32,
+        new_expr: InitExpr,
+    ) -> types::Result<()> {
         if let Some(Global {
             kind: GlobalKind::Local(LocalGlobal { init_expr, .. }),
             ..
@@ -256,7 +241,10 @@ impl ModuleGlobals {
         {
             *init_expr = new_expr;
         } else {
-            panic!("Cannot update requested global's init_expr, id: {global_id}")
+            return Err(UnknownId(format!(
+                "Cannot update requested global's init_expr, id: {global_id}"
+            )));
         }
+        Ok(())
     }
 }

@@ -1,11 +1,14 @@
 //! Intermediate Representation of a wasm module.
 
 use super::types::{
-    DataType, InitExpr, InjectedInstrs, Instruction, InstrumentationMode, Tag, TagUtils,
+    CustomSection, DataType, InitExpr, InjectedInstrs, InstrumentationMode, Tag, TagUtils,
 };
 use crate::error::Error;
+use crate::error::Error::{InstrumentationError, IO};
 use crate::ir::function::FunctionModifier;
-use crate::ir::id::{DataSegmentID, FunctionID, GlobalID, ImportsID, LocalID, MemoryID, TypeID};
+use crate::ir::id::{
+    CustomSectionID, DataSegmentID, FunctionID, GlobalID, ImportsID, LocalID, MemoryID, TypeID,
+};
 use crate::ir::module::module_exports::{Export, ModuleExports};
 use crate::ir::module::module_functions::{
     add_local, FuncKind, Function, Functions, ImportedFunction, LocalFunction,
@@ -13,15 +16,16 @@ use crate::ir::module::module_functions::{
 use crate::ir::module::module_globals::{
     Global, GlobalKind, ImportedGlobal, LocalGlobal, ModuleGlobals,
 };
-use crate::ir::module::module_imports::{Import, ModuleImports};
+use crate::ir::module::module_imports::{expand_imports, Import, ModuleImports};
 use crate::ir::module::module_memories::{ImportedMemory, LocalMemory, MemKind, Memories, Memory};
 use crate::ir::module::module_tables::{Element, ModuleTables, Table};
 use crate::ir::module::module_types::{ModuleTypes, RecGroup, Types};
 use crate::ir::module::side_effects::{InjectType, Injection};
+use crate::ir::types;
 use crate::ir::types::InstrumentationMode::{BlockAlt, BlockEntry, BlockExit, SemanticAfter};
 use crate::ir::types::{
     BlockType, Body, CustomSections, DataSegment, DataSegmentKind, ElementItems, ElementKind,
-    InstrumentationFlag,
+    Instructions, InstrumentationFlag,
 };
 use crate::ir::wrappers::{
     indirect_namemap_parser2encoder, namemap_parser2encoder, refers_to_func, refers_to_global,
@@ -32,12 +36,11 @@ use crate::{Location, Opcode};
 use log::warn;
 use std::borrow::Cow;
 use std::collections::HashMap;
-use std::vec::IntoIter;
 use wasm_encoder::reencode::{Reencode, RoundtripReencoder};
 use wasm_encoder::TagSection;
 use wasmparser::{
-    CompositeInnerType, ExternalKind, GlobalType, MemoryType, Operator, Parser, Payload, TagType,
-    TypeRef,
+    CompositeInnerType, ExternalKind, GlobalType, MemoryType, Operator, PackedIndex, Parser,
+    Payload, TagType, TypeRef,
 };
 
 pub mod module_exports;
@@ -51,7 +54,7 @@ pub mod side_effects;
 #[cfg(test)]
 mod test;
 
-#[derive(Debug, Default)]
+#[derive(Clone, Debug, Default)]
 /// Intermediate Representation of a wasm module. See the [WASM Spec] for different sections.
 ///
 /// [WASM Spec]: https://webassembly.github.io/spec/core/binary/modules.html
@@ -108,8 +111,27 @@ pub struct Module<'a> {
     pub(crate) tag_names: wasm_encoder::NameMap,
 }
 
+enum FlagsIter<'a> {
+    Flags(std::vec::IntoIter<InstrumentationFlag<'a>>),
+    Default,
+}
+
+impl<'a> Iterator for FlagsIter<'a> {
+    type Item = InstrumentationFlag<'a>;
+    fn next(&mut self) -> Option<Self::Item> {
+        match self {
+            FlagsIter::Flags(flags) => flags.next(),
+            FlagsIter::Default => Some(InstrumentationFlag::default()),
+        }
+    }
+}
+
 impl<'a> Module<'a> {
     /// Parses a `Module` from a wasm binary.
+    ///
+    /// Set enable_multi_memory to `true` to support parsing modules using multiple memories.
+    /// Set with_offsets to `true` to save opcode pc offset metadata during parsing
+    /// (can be used to determine the static pc offset inside a function body of the start of any opcode).
     ///
     /// # Example
     ///
@@ -118,18 +140,83 @@ impl<'a> Module<'a> {
     ///
     /// let file = "path_to_file";
     /// let buff = wat::parse_file(file).expect("couldn't convert the input wat to Wasm");
-    /// let module = Module::parse(&buff, false).unwrap();
+    /// let module = Module::parse(&buff, false, false).unwrap();
     /// ```
-    pub fn parse(wasm: &'a [u8], enable_multi_memory: bool) -> Result<Self, Error> {
+    pub fn parse(
+        wasm: &'a [u8],
+        enable_multi_memory: bool,
+        with_offsets: bool,
+    ) -> Result<Self, Error> {
         let parser = Parser::new(0);
-        Module::parse_internal(wasm, enable_multi_memory, parser)
+        Module::parse_internal(wasm, enable_multi_memory, with_offsets, parser)
+    }
+
+    fn parse_body(
+        body: wasmparser::FunctionBody,
+        enable_multi_memory: bool,
+        with_offsets: bool,
+    ) -> Result<Body, Error> {
+        let locals_orig = body
+            .get_locals_reader()?
+            .get_binary_reader()
+            .original_position();
+        let locals = body
+            .get_locals_reader()?
+            .into_iter()
+            .collect::<Result<Vec<_>, _>>()?;
+        let mut num_locals = 0;
+        let locals: Vec<(u32, DataType)> = locals
+            .iter()
+            .map(|(count, val_type)| {
+                num_locals += count;
+                (*count, DataType::from(*val_type))
+            })
+            .collect();
+
+        let op_reader = body.get_operators_reader()?;
+        let ops = op_reader
+            .into_iter_with_offsets()
+            .collect::<Result<Vec<(Operator, usize)>, _>>()
+            .expect("ops");
+
+        let instructions = Instructions::new(ops, locals_orig, with_offsets);
+        if let Some(last) = instructions.get_ops().last() {
+            if let Operator::End = last {
+            } else {
+                return Err(Error::MissingFunctionEnd {
+                    func_range: body.range(),
+                });
+            }
+        }
+        if !enable_multi_memory
+            && instructions.get_ops().iter().any(|i| match i {
+                Operator::MemoryGrow { mem, .. } | Operator::MemorySize { mem, .. } => *mem != 0x00,
+                _ => false,
+            })
+        {
+            return Err(Error::InvalidMemoryReservedByte {
+                func_range: body.range(),
+            });
+        }
+
+        Ok(Body {
+            locals,
+            num_locals,
+            num_instructions: instructions.len(),
+            instructions,
+            name: None,
+        })
     }
 
     pub(crate) fn parse_internal(
         wasm: &'a [u8],
         enable_multi_memory: bool,
+        with_offsets: bool,
         parser: Parser,
     ) -> Result<Self, Error> {
+        #[cfg(feature = "parallel")]
+        use rayon::prelude::*;
+
         let mut imports: ModuleImports = ModuleImports::default();
         let mut types: HashMap<TypeID, Types> = HashMap::new();
         let mut recgroups = vec![];
@@ -139,7 +226,6 @@ impl<'a> Module<'a> {
         let mut functions = vec![];
         let mut elements = vec![];
         let mut code_section_count = 0;
-        let mut code_sections = vec![];
         let mut globals = vec![];
         let mut exports = vec![];
         let mut start = None;
@@ -159,18 +245,14 @@ impl<'a> Module<'a> {
         let mut data_names = wasm_encoder::NameMap::new();
         let mut field_names = wasm_encoder::IndirectNameMap::new();
         let mut tag_names = wasm_encoder::NameMap::new();
+        let mut bodies_and_names = vec![];
 
         for payload in parser.parse_all(wasm) {
             let payload = payload?;
             match payload {
                 Payload::ImportSection(import_section_reader) => {
-                    let mut temp = vec![];
-                    // count number of imported functions
-                    for import in import_section_reader.into_iter() {
-                        let imp = Import::from(import?);
-                        temp.push(imp);
-                    }
-                    imports = ModuleImports::new(temp);
+                    let import_vec = expand_imports(import_section_reader.into_iter())?;
+                    imports = ModuleImports::new(import_vec);
                 }
                 Payload::TypeSection(type_section_reader) => {
                     for ty in type_section_reader.into_iter() {
@@ -198,6 +280,8 @@ impl<'a> Module<'a> {
                                         super_type: subtype.supertype_idx,
                                         is_final: subtype.is_final,
                                         shared: subtype.composite_type.shared,
+                                        descriptor: unpack(subtype.composite_type.descriptor_idx),
+                                        describes: unpack(subtype.composite_type.describes_idx),
                                         tag: None,
                                     });
                                 }
@@ -208,6 +292,8 @@ impl<'a> Module<'a> {
                                         super_type: subtype.supertype_idx,
                                         is_final: subtype.is_final,
                                         shared: subtype.composite_type.shared,
+                                        descriptor: unpack(subtype.composite_type.descriptor_idx),
+                                        describes: unpack(subtype.composite_type.describes_idx),
                                         tag: None,
                                     });
                                 }
@@ -226,6 +312,8 @@ impl<'a> Module<'a> {
                                         super_type: subtype.supertype_idx,
                                         is_final: subtype.is_final,
                                         shared: subtype.composite_type.shared,
+                                        descriptor: unpack(subtype.composite_type.descriptor_idx),
+                                        describes: unpack(subtype.composite_type.describes_idx),
                                         tag: None,
                                     });
                                 }
@@ -235,9 +323,22 @@ impl<'a> Module<'a> {
                                         super_type: subtype.supertype_idx,
                                         is_final: subtype.is_final,
                                         shared: subtype.composite_type.shared,
+                                        descriptor: unpack(subtype.composite_type.descriptor_idx),
+                                        describes: unpack(subtype.composite_type.describes_idx),
                                         tag: None,
                                     });
                                 }
+                            }
+                        }
+                        fn unpack(packed: Option<PackedIndex>) -> Option<u32> {
+                            if let Some(i) = packed {
+                                let idx = i.unpack().as_module_index();
+                                if idx.is_none() {
+                                    panic!("Internal error: I just made an assumption on how to unpack this. If I'm wrong, create a GH issue.")
+                                }
+                                idx
+                            } else {
+                                None
                             }
                         }
                         let mut ids = vec![];
@@ -319,57 +420,11 @@ impl<'a> Module<'a> {
                     code_section_count = count as usize;
                 }
                 Payload::CodeSectionEntry(body) => {
-                    let locals_reader = body.get_locals_reader()?;
-                    let locals = locals_reader.into_iter().collect::<Result<Vec<_>, _>>()?;
-                    let mut num_locals = 0;
-                    let locals: Vec<(u32, DataType)> = locals
-                        .iter()
-                        .map(|(count, val_type)| {
-                            num_locals += count;
-                            (*count, DataType::from(*val_type))
-                        })
-                        .collect();
-
-                    let instructions = body
-                        .get_operators_reader()?
-                        .into_iter()
-                        .collect::<Result<Vec<_>, _>>()?;
-                    if let Some(last) = instructions.last() {
-                        if let Operator::End = last {
-                        } else {
-                            return Err(Error::MissingFunctionEnd {
-                                func_range: body.range(),
-                            });
-                        }
-                    }
-                    if !enable_multi_memory
-                        && instructions.iter().any(|i| match i {
-                            Operator::MemoryGrow { mem, .. } | Operator::MemorySize { mem, .. } => {
-                                *mem != 0x00
-                            }
-                            _ => false,
-                        })
-                    {
-                        return Err(Error::InvalidMemoryReservedByte {
-                            func_range: body.range(),
-                        });
-                    }
-                    let instructions_bool: Vec<_> =
-                        instructions.into_iter().map(Instruction::new).collect();
-                    code_sections.push(Body {
-                        locals,
-                        num_locals,
-                        instructions: instructions_bool.clone(),
-                        num_instructions: instructions_bool.len(),
-                        name: None,
-                    });
+                    bodies_and_names.push((body, None));
                 }
                 Payload::TagSection(tag_section_reader) => {
                     for tag in tag_section_reader.into_iter() {
-                        match tag {
-                            Ok(t) => tags.push(t),
-                            Err(e) => panic!("Error encored in tag section!: {}", e),
-                        }
+                        tags.push(tag?);
                     }
                 }
                 Payload::CustomSection(custom_section_reader) => {
@@ -398,7 +453,7 @@ impl<'a> Module<'a> {
                                             } else {
                                                 let rel_idx = abs_idx - imports.num_funcs;
                                                 // assert!(0 < rel_idx && rel_idx < code_sections.len() as u32);
-                                                code_sections[rel_idx as usize].name =
+                                                bodies_and_names[rel_idx as usize].1 =
                                                     Some(naming.name.to_string());
                                             }
                                         }
@@ -495,6 +550,31 @@ impl<'a> Module<'a> {
                 _ => todo!(),
             }
         }
+
+        #[cfg(feature = "parallel")]
+        let code_sections = bodies_and_names
+            .into_par_iter()
+            .map(|(body, name)| {
+                let mut body = Self::parse_body(body, enable_multi_memory, with_offsets)?;
+                if let Some(name) = name {
+                    body.name = Some(name);
+                }
+                Ok::<_, Error>(body)
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+
+        #[cfg(not(feature = "parallel"))]
+        let code_sections = bodies_and_names
+            .into_iter()
+            .map(|(body, name)| {
+                let mut body = Self::parse_body(body, enable_multi_memory, with_offsets)?;
+                if let Some(name) = name {
+                    body.name = Some(name);
+                }
+                Ok::<_, Error>(body)
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+
         if code_section_count != code_sections.len() || code_section_count != functions.len() {
             return Err(Error::IncorrectCodeCounts {
                 function_section_count: functions.len(),
@@ -528,16 +608,18 @@ impl<'a> Module<'a> {
             }
         }
         // Local Functions
-        for (index, code_sec) in code_sections.iter().enumerate() {
+        let code_sections_length = code_sections.len();
+        for (index, code_sec) in code_sections.into_iter().enumerate() {
+            let name = code_sec.name.clone();
             final_funcs.push(Function::new(
                 FuncKind::Local(Box::new(LocalFunction::new(
                     functions[index],
                     FunctionID(imports.num_funcs + index as u32),
-                    (*code_sec).clone(),
-                    types[&functions[index]].params().len(),
+                    code_sec,
+                    types[&functions[index]].params()?.len(),
                     None,
                 ))),
-                (*code_sec).clone().name,
+                name,
             ));
         }
 
@@ -587,7 +669,7 @@ impl<'a> Module<'a> {
             data,
             tags,
             custom_sections: CustomSections::new(custom_sections),
-            num_local_functions: code_sections.len() as u32,
+            num_local_functions: code_sections_length as u32,
             num_local_globals: num_globals,
             num_local_tables: num_tables,
             num_local_memories: num_memories,
@@ -620,10 +702,10 @@ impl<'a> Module<'a> {
     }
 
     /// Emit the module into a wasm binary file.
-    pub fn emit_wasm(&mut self, file_name: &str) -> Result<(), std::io::Error> {
-        let (module, _) = self.encode_internal(false);
+    pub fn emit_wasm(&mut self, file_name: &str) -> types::Result<()> {
+        let (module, _) = self.encode_internal(false)?;
         let wasm = module.finish();
-        std::fs::write(file_name, wasm)?;
+        std::fs::write(file_name, wasm).map_err(IO)?;
         Ok(())
     }
 
@@ -636,11 +718,11 @@ impl<'a> Module<'a> {
     ///
     /// let file = "path_to_file";
     /// let buff = wat::parse_file(file).expect("couldn't convert the input wat to Wasm");
-    /// let mut module = Module::parse(&buff, false).unwrap();
+    /// let mut module = Module::parse(&buff, false, false).unwrap();
     /// let result = module.encode();
     /// ```
-    pub fn encode(&mut self) -> Vec<u8> {
-        self.encode_internal(false).0.finish()
+    pub fn encode(&self) -> types::Result<Vec<u8>> {
+        Ok(self.encode_internal(false)?.0.finish())
     }
 
     /// Visits the Wirm Module and resolves the special instrumentation by
@@ -652,10 +734,10 @@ impl<'a> Module<'a> {
         memory_mapping: &HashMap<u32, u32>,
         pull_side_effects: bool,
         side_effects: &mut HashMap<InjectType, Vec<Injection<'a>>>,
-    ) {
+    ) -> types::Result<()> {
         if !self.num_local_functions > 0 {
             for rel_func_idx in (self.imports.num_funcs - self.imports.num_funcs_added) as usize
-                ..self.functions.len()
+                ..self.functions.as_vec().len()
             {
                 let func_idx = FunctionID(rel_func_idx as u32);
                 if let FuncKind::Import(..) = &self.functions.get_kind(func_idx) {
@@ -691,7 +773,7 @@ impl<'a> Module<'a> {
                             global_mapping,
                             memory_mapping,
                             side_effects,
-                        );
+                        )?;
                     }
 
                     func.instr_flag.exit.instrs.clear();
@@ -710,25 +792,18 @@ impl<'a> Module<'a> {
                 > = HashMap::new();
                 if let Some(on_exit) = &mut instr_func_on_exit {
                     if !on_exit.instrs.is_empty() {
-                        let on_entry = if let Some(on_entry) = &mut instr_func_on_entry {
-                            on_entry
-                        } else {
+                        let on_entry = instr_func_on_entry.get_or_insert_with(|| {
                             // NOTE: This retains the tag information for function exit just in case
                             // that's necessary for the library user. This may need to be handled on
                             // the user side.
-                            instr_func_on_entry = Some(InjectedInstrs {
+                            InjectedInstrs {
                                 tag: on_exit.tag.clone(),
                                 ..Default::default()
-                            });
-                            if let Some(ref mut on_entry) = instr_func_on_entry {
-                                on_entry
-                            } else {
-                                panic!()
                             }
-                        };
+                        });
 
                         let func_ty = self.functions.get_type_id(func_idx);
-                        let func_results = self.types.get(func_ty).unwrap().results();
+                        let func_results = self.types.get(func_ty).unwrap().results()?;
 
                         // NOTE: This retains the tag information for function exit just in case
                         // that's necessary for the library user. This may need to be handled on
@@ -741,18 +816,23 @@ impl<'a> Module<'a> {
                         resolve_function_exit_with_block_wrapper(&mut on_entry.instrs, block_ty);
                     }
                 }
-                let mut builder = self.functions.get_fn_modifier(func_idx).unwrap();
+                let mut builder = self.functions.get_fn_modifier(func_idx)?;
 
+                let flags = if let Some(flags) = builder.body.instructions.get_flags() {
+                    #[allow(clippy::unnecessary_to_owned)]
+                    FlagsIter::Flags(flags.to_vec().into_iter())
+                } else {
+                    FlagsIter::Default
+                };
                 // Must make copy to be able to iterate over body while calling builder.* methods that mutate the instrumentation flag!
-                let readable_copy_of_body = builder.body.instructions.clone();
-                for (
-                    idx,
-                    Instruction {
-                        op,
-                        instr_flag: instrumentation,
-                    },
-                ) in readable_copy_of_body.iter().enumerate()
-                {
+                let readable_copy_of_body = builder
+                    .body
+                    .instructions
+                    .get_ops()
+                    .to_vec()
+                    .into_iter()
+                    .zip(flags.into_iter());
+                for (idx, (op, instrumentation)) in readable_copy_of_body.enumerate() {
                     // resolve function-level instrumentation
                     if let Some(on_entry) = &mut instr_func_on_entry {
                         if !on_entry.instrs.is_empty() {
@@ -761,7 +841,7 @@ impl<'a> Module<'a> {
                     }
                     if let Some(on_exit) = &mut instr_func_on_exit {
                         if !on_exit.instrs.is_empty() {
-                            resolve_function_exit(&mut on_exit.instrs, &mut builder, op, idx);
+                            resolve_function_exit(&mut on_exit.instrs, &mut builder, &op, idx);
                         }
                     }
 
@@ -779,7 +859,7 @@ impl<'a> Module<'a> {
                                         &block_alt.instrs,
                                         &mut builder,
                                         &mut retain_end,
-                                        op,
+                                        &op,
                                         idx,
                                     )
                                 {
@@ -821,7 +901,7 @@ impl<'a> Module<'a> {
                                         &block_alt.instrs,
                                         &mut builder,
                                         &mut retain_end,
-                                        op,
+                                        &op,
                                         idx,
                                     )
                                 {
@@ -926,7 +1006,7 @@ impl<'a> Module<'a> {
 
                         // Handle block entry
                         if !block_entry.instrs.is_empty() {
-                            resolve_block_entry(&block_entry.instrs, &mut builder, op, idx);
+                            resolve_block_entry(&block_entry.instrs, &mut builder, &op, idx);
                             builder.clear_instr_at(
                                 Location::Module {
                                     func_idx: FunctionID(0), // not used
@@ -943,7 +1023,7 @@ impl<'a> Module<'a> {
                                 &block_stack,
                                 &mut resolve_on_else_or_end,
                                 &mut resolve_on_end,
-                                op,
+                                &op,
                             );
                             builder.clear_instr_at(
                                 Location::Module {
@@ -961,9 +1041,9 @@ impl<'a> Module<'a> {
                                 &mut builder,
                                 &block_stack,
                                 &mut resolve_on_end,
-                                op,
+                                &op,
                                 idx,
-                            );
+                            )?;
                             builder.clear_instr_at(
                                 Location::Module {
                                     func_idx: FunctionID(0), // not used
@@ -976,53 +1056,25 @@ impl<'a> Module<'a> {
                 }
             }
         }
+        Ok(())
     }
 
     /// Reorganises items (both local and imports) in the correct ordering after any potential modifications
-    pub(crate) fn reorganise_generic<T: LocalOrImport, U: ReIndexable<T>>(
-        orig_num_imported: u32,
-        items: &mut U,
-        items_read_only: IntoIter<T>,
-    ) {
-        // Location where we may have to move an import (converted from local) to
-        let mut num_imported = orig_num_imported;
-        let mut num_deleted = 0;
-
-        // Iterate over cloned list
-        for (idx, val) in items_read_only.enumerate() {
-            // If the index is less than < imported
-            if idx < orig_num_imported as usize {
-                // If it is a local, that means it was an import before
-                if val.is_local() {
-                    let f = items.remove((idx - num_deleted) as u32);
-                    items.push(f);
-                    // decrement as this is the place where we might have to move an import to
-                    num_imported -= 1;
-                    // We update it here for the following case. A , B. A is moved to a position later than B, indices will reduce by 1 and we need the offset
-                    num_deleted += 1;
-                } else if val.is_deleted() {
-                    // If val was import but was deleted
-                    items.remove((idx - num_deleted) as u32);
-                    num_imported -= 1;
-                    num_deleted += 1;
-                }
+    pub(crate) fn reorganize<T: LocalOrImport>(items: &mut Vec<T>) {
+        let mut result = vec![];
+        let mut new_local = vec![];
+        for item in items.drain(..) {
+            if item.is_deleted() {
+                continue;
+            }
+            if item.is_import() {
+                result.push(item);
             } else {
-                // If it's an import, was a local before
-                if val.is_import() {
-                    let i = items.remove((idx - num_deleted) as u32);
-                    items.insert(num_imported, i);
-                    // increment as this is the place where we might have to move an import to
-                    num_imported += 1;
-                    // We do not update it here for the following case. A , B. A is moved to a position earlier than B, indices will not change and hence no need to update
-                    // num_deleted += 1;
-                }
-                // If val was local but was deleted
-                else if val.is_deleted() {
-                    items.remove((idx - num_deleted) as u32);
-                    num_deleted += 1;
-                }
+                new_local.push(item);
             }
         }
+        result.extend(new_local);
+        *items = result;
     }
 
     /// Get the mapping of old ID -> new ID in module
@@ -1037,14 +1089,12 @@ impl<'a> Module<'a> {
         mapping
     }
 
-    pub(crate) fn recalculate_ids<T: LocalOrImport + GetID, U: Iter<T> + ReIndexable<T>>(
-        orig_num_imported: u32,
+    pub(crate) fn recalculate_ids<T: LocalOrImport + GetID, U: AsVec<T>>(
         items: &mut U,
     ) -> HashMap<u32, u32> {
-        let items_read_only = items.get_into_iter();
-        Self::reorganise_generic(orig_num_imported, items, items_read_only);
-        let id_mapping = Self::get_mapping_generic(items.iter());
-        assert_eq!(items.len(), id_mapping.len());
+        Self::reorganize(items.as_vec_mut());
+        let id_mapping = Self::get_mapping_generic(items.as_vec().iter());
+        debug_assert_eq!(items.as_vec().len(), id_mapping.len());
         id_mapping
     }
 
@@ -1056,6 +1106,8 @@ impl<'a> Module<'a> {
                 super_type,
                 is_final,
                 shared,
+                descriptor,
+                describes,
                 ..
             } => {
                 let params = params
@@ -1076,6 +1128,8 @@ impl<'a> Module<'a> {
                     composite_type: wasm_encoder::CompositeType {
                         inner: wasm_encoder::CompositeInnerType::Func(fty),
                         shared: *shared,
+                        descriptor: *descriptor,
+                        describes: *describes,
                     },
                 }
             }
@@ -1085,6 +1139,8 @@ impl<'a> Module<'a> {
                 super_type,
                 is_final,
                 shared,
+                descriptor,
+                describes,
                 ..
             } => wasm_encoder::SubType {
                 is_final: *is_final,
@@ -1100,6 +1156,8 @@ impl<'a> Module<'a> {
                         },
                     )),
                     shared: *shared,
+                    descriptor: *descriptor,
+                    describes: *describes,
                 },
             },
             Types::StructType {
@@ -1108,6 +1166,8 @@ impl<'a> Module<'a> {
                 super_type,
                 is_final,
                 shared,
+                descriptor,
+                describes,
                 ..
             } => {
                 let mut encoded_fields: Vec<wasm_encoder::FieldType> = vec![];
@@ -1128,6 +1188,8 @@ impl<'a> Module<'a> {
                             fields: Box::from(encoded_fields),
                         }),
                         shared: *shared,
+                        descriptor: *descriptor,
+                        describes: *describes,
                     },
                 }
             }
@@ -1137,57 +1199,166 @@ impl<'a> Module<'a> {
         }
     }
 
+    fn encode_function(
+        func: &mut LocalFunction,
+        func_mapping: &HashMap<u32, u32>,
+        global_mapping: &HashMap<u32, u32>,
+        memory_mapping: &HashMap<u32, u32>,
+    ) -> types::Result<wasm_encoder::Function> {
+        let mut reencode = RoundtripReencoder;
+        let Body {
+            instructions,
+            locals,
+            ..
+        } = &mut func.body;
+        let mut converted_locals = Vec::with_capacity(locals.len());
+        for (c, ty) in locals {
+            converted_locals.push((*c, wasm_encoder::ValType::from(&*ty)));
+        }
+        let mut function = wasm_encoder::Function::new(converted_locals);
+        let instr_len = instructions.len() - 1;
+        let (ops, mut flags) = instructions.get_ops_flags_mut();
+        for (idx, op) in ops.iter_mut().enumerate() {
+            fix_op_id_mapping(op, func_mapping, global_mapping, memory_mapping)?;
+            if flags.is_none() {
+                encode(&op.clone(), &mut function, &mut reencode);
+                continue;
+            }
+            let instrument = &mut flags.as_mut().unwrap()[idx];
+            if !instrument.has_instr() {
+                encode(&op.clone(), &mut function, &mut reencode);
+                continue;
+            } else {
+                instrument.check_special_is_resolved();
+
+                // this instruction has instrumentation, handle it!
+                let InstrumentationFlag {
+                    current_mode: _current_mode,
+                    before,
+                    after,
+                    alternate,
+                    ..
+                } = instrument;
+
+                // If we're at the `end` of the function, drop this instrumentation
+                let at_end = idx >= instr_len;
+
+                // First encode before instructions
+                update_ids_and_encode(
+                    &mut before.instrs,
+                    func_mapping,
+                    global_mapping,
+                    memory_mapping,
+                    &mut function,
+                    &mut reencode,
+                )?;
+
+                // If there are any alternate, encode the alternate
+                if !at_end && !alternate.is_none() {
+                    if let Some(alt) = alternate {
+                        update_ids_and_encode(
+                            &mut alt.instrs,
+                            func_mapping,
+                            global_mapping,
+                            memory_mapping,
+                            &mut function,
+                            &mut reencode,
+                        )?;
+                    }
+                } else {
+                    encode(&op.clone(), &mut function, &mut reencode);
+                }
+
+                // Now encode the after instructions
+                if !at_end {
+                    update_ids_and_encode(
+                        &mut after.instrs,
+                        func_mapping,
+                        global_mapping,
+                        memory_mapping,
+                        &mut function,
+                        &mut reencode,
+                    )?;
+                }
+            }
+
+            fn update_ids_and_encode(
+                instrs: &mut Vec<Operator>,
+                func_mapping: &HashMap<u32, u32>,
+                global_mapping: &HashMap<u32, u32>,
+                memory_mapping: &HashMap<u32, u32>,
+                function: &mut wasm_encoder::Function,
+                reencode: &mut RoundtripReencoder,
+            ) -> types::Result<()> {
+                for instr in instrs {
+                    fix_op_id_mapping(instr, func_mapping, global_mapping, memory_mapping)?;
+                    encode(instr, function, reencode);
+                }
+                Ok(())
+            }
+            fn encode(
+                instr: &Operator,
+                function: &mut wasm_encoder::Function,
+                reencode: &mut RoundtripReencoder,
+            ) {
+                function.instruction(
+                    &reencode
+                        .instruction(instr.clone())
+                        .expect("Unable to convert Instruction"),
+                );
+            }
+        }
+
+        Ok(function)
+    }
+
     /// Encodes an Wirm Module to a wasm_encoder Module.
     /// This requires a mutable reference to self due to the special instrumentation resolution step.
     pub(crate) fn encode_internal(
-        &mut self,
+        &self,
         pull_side_effects: bool,
-    ) -> (
+    ) -> types::Result<(
         wasm_encoder::Module,
         HashMap<InjectType, Vec<Injection<'a>>>,
-    ) {
+    )> {
+        #[cfg(feature = "parallel")]
+        use rayon::prelude::*;
+
+        let mut tmp = self.clone();
+
         // First fix the ID mappings throughout the module
-        let func_mapping = if self.functions.recalculate_ids {
-            Self::recalculate_ids(
-                self.imports.num_funcs - self.imports.num_funcs_added,
-                &mut self.functions,
-            )
+        let func_mapping = if tmp.functions.recalculate_ids {
+            Self::recalculate_ids(&mut tmp.functions)
         } else {
-            Self::get_mapping_generic(Iter::<Function<'a>>::iter(&self.functions))
+            Self::get_mapping_generic(tmp.functions.as_vec().iter())
         };
-        let global_mapping = if self.globals.recalculate_ids {
-            Self::recalculate_ids(
-                self.imports.num_globals - self.imports.num_globals_added,
-                &mut self.globals,
-            )
+        let global_mapping = if tmp.globals.recalculate_ids {
+            Self::recalculate_ids(&mut tmp.globals)
         } else {
-            Self::get_mapping_generic(self.globals.iter())
+            Self::get_mapping_generic(tmp.globals.iter())
         };
-        let memory_mapping = if self.memories.recalculate_ids {
-            Self::recalculate_ids(
-                self.imports.num_memories - self.imports.num_memories_added,
-                &mut self.memories,
-            )
+        let memory_mapping = if tmp.memories.recalculate_ids {
+            Self::recalculate_ids(&mut tmp.memories)
         } else {
-            Self::get_mapping_generic(self.memories.iter())
+            Self::get_mapping_generic(tmp.memories.iter())
         };
 
         // Collect side effects second to make sure you get the right IDs in the injections
         let mut side_effects = HashMap::new();
 
         // Then resolve any instrumentation that needs to be translated to before/after/alt
-        self.resolve_special_instrumentation(
+        tmp.resolve_special_instrumentation(
             &func_mapping,
             &global_mapping,
             &memory_mapping,
             pull_side_effects,
             &mut side_effects,
-        );
+        )?;
 
         let mut module = wasm_encoder::Module::new();
         let mut reencode = RoundtripReencoder;
 
-        let new_start = if let Some(start_fn) = self.start {
+        let new_start = if let Some(start_fn) = tmp.start {
             // fix the start function mapping
             match func_mapping.get(&*start_fn) {
                 Some(new_index) => Some(FunctionID(*new_index)),
@@ -1199,15 +1370,15 @@ impl<'a> Module<'a> {
         } else {
             None
         };
-        self.start = new_start;
+        tmp.start = new_start;
 
         // handle recursion groups
-        if !self.types.groups.is_empty() {
+        if !tmp.types.groups.is_empty() {
             let mut type_sect = wasm_encoder::TypeSection::new();
-            for RecGroup { types, is_explicit } in self.types.groups.iter() {
+            for RecGroup { types, is_explicit } in tmp.types.groups.iter() {
                 let mut subtypes = vec![];
                 for ty_id in types.iter() {
-                    let ty = self.types.types.get(ty_id).unwrap();
+                    let ty = tmp.types.types.get(ty_id).unwrap();
                     if pull_side_effects {
                         if let Some(tag) = ty.get_tag() {
                             add_injection(
@@ -1221,7 +1392,7 @@ impl<'a> Module<'a> {
                         }
                     }
 
-                    let subtype = self.encode_type(ty);
+                    let subtype = tmp.encode_type(ty);
                     if *is_explicit {
                         subtypes.push(subtype);
                     } else {
@@ -1232,17 +1403,16 @@ impl<'a> Module<'a> {
                 if *is_explicit {
                     type_sect.ty().rec(subtypes);
                 }
-                // otherwise already handled!
             }
             module.section(&type_sect);
         }
 
         // initialize function name section
         let mut function_names = wasm_encoder::NameMap::new();
-        if !self.imports.is_empty() {
+        if !tmp.imports.is_empty() {
             let mut imports = wasm_encoder::ImportSection::new();
             let mut import_func_idx = 0;
-            for import in self.imports.iter() {
+            for import in tmp.imports.iter() {
                 if !import.deleted {
                     if import.is_function() {
                         if let Some(import_name) = &import.custom_name {
@@ -1251,8 +1421,8 @@ impl<'a> Module<'a> {
                         import_func_idx += 1;
                     }
                     imports.import(
-                        import.module,
-                        import.name,
+                        &import.module,
+                        &import.name,
                         reencode.entity_type(import.ty).unwrap(),
                     );
                 }
@@ -1274,15 +1444,15 @@ impl<'a> Module<'a> {
             module.section(&imports);
         }
 
-        if !self.functions.is_empty() {
+        if !tmp.functions.is_empty() {
             let mut functions = wasm_encoder::FunctionSection::new();
-            for func in self.functions.iter() {
+            for func in tmp.functions.iter() {
                 if !func.deleted {
                     if let FuncKind::Local(l) = func.kind() {
                         functions.function(*l.ty_id);
                         if pull_side_effects {
                             if let Some(tag) = l.get_tag() {
-                                let sig = self.types.get(l.ty_id).unwrap_or_else(|| {
+                                let sig = tmp.types.get(l.ty_id).unwrap_or_else(|| {
                                     panic!("Could not find type for type ID: {}", *l.ty_id)
                                 });
                                 add_injection(
@@ -1291,10 +1461,10 @@ impl<'a> Module<'a> {
                                     Injection::Func {
                                         id: *l.func_id,
                                         fname: l.body.name.clone(),
-                                        sig: (sig.params(), sig.results()),
+                                        sig: (sig.params()?, sig.results()?),
                                         locals: l.body.locals_as_vec(),
                                         tag: tag.clone(),
-                                        body: l.body.instructions.clone(),
+                                        body: l.body.instructions.get_ops().to_vec(),
                                     },
                                 );
                             }
@@ -1305,9 +1475,9 @@ impl<'a> Module<'a> {
             module.section(&functions);
         }
 
-        if !self.tables.is_empty() {
+        if !tmp.tables.is_empty() {
             let mut tables = wasm_encoder::TableSection::new();
-            for table in self.tables.iter() {
+            for table in tmp.tables.iter() {
                 let table_ty = wasm_encoder::TableType {
                     element_type: wasm_encoder::RefType {
                         nullable: table.ty.element_type.is_nullable(),
@@ -1343,9 +1513,9 @@ impl<'a> Module<'a> {
             module.section(&tables);
         }
 
-        if !self.memories.is_empty() {
+        if !tmp.memories.is_empty() {
             let mut memories = wasm_encoder::MemorySection::new();
-            for memory in self.memories.iter() {
+            for memory in tmp.memories.iter() {
                 if memory.is_local() {
                     memories.memory(wasm_encoder::MemoryType::from(memory.ty));
 
@@ -1368,9 +1538,9 @@ impl<'a> Module<'a> {
             module.section(&memories);
         }
 
-        if !self.tags.is_empty() {
+        if !tmp.tags.is_empty() {
             let mut tags = TagSection::new();
-            for tag in self.tags.iter() {
+            for tag in tmp.tags.iter() {
                 tags.tag(wasm_encoder::TagType {
                     kind: wasm_encoder::TagKind::from(tag.kind),
                     func_type_idx: tag.func_type_idx,
@@ -1379,16 +1549,16 @@ impl<'a> Module<'a> {
             module.section(&tags);
         }
 
-        if !self.globals.is_empty() {
+        if !tmp.globals.is_empty() {
             let mut globals = wasm_encoder::GlobalSection::new();
-            for global in self.globals.iter_mut() {
+            for global in tmp.globals.iter_mut() {
                 if !global.deleted {
                     // save these off for the side effect processing before matching on global.kind (due to rust borrow issues)
                     let id = global.get_id();
                     let tag = global.get_tag().clone();
                     if let GlobalKind::Local(LocalGlobal { ty, init_expr, .. }) = &mut global.kind {
                         for expr in init_expr.exprs.iter_mut() {
-                            expr.fix_id_mapping(&func_mapping, &global_mapping);
+                            expr.fix_id_mapping(&func_mapping, &global_mapping)?;
                         }
                         globals.global(
                             wasm_encoder::GlobalType {
@@ -1422,9 +1592,9 @@ impl<'a> Module<'a> {
             module.section(&globals);
         }
 
-        if !self.exports.is_empty() {
+        if !tmp.exports.is_empty() {
             let mut exports = wasm_encoder::ExportSection::new();
-            for export in self.exports.iter() {
+            for export in tmp.exports.iter() {
                 if !export.deleted {
                     match export.kind {
                         ExternalKind::Func => {
@@ -1470,17 +1640,17 @@ impl<'a> Module<'a> {
             module.section(&exports);
         }
 
-        if let Some(function_index) = self.start {
+        if let Some(function_index) = tmp.start {
             module.section(&wasm_encoder::StartSection {
                 function_index: *function_index,
             });
         }
 
-        if !self.elements.is_empty() {
+        if !tmp.elements.is_empty() {
             let mut elements = wasm_encoder::ElementSection::new();
             let mut temp_const_exprs = vec![];
             let mut element_items = vec![];
-            for element in self.elements.iter_mut() {
+            for element in tmp.elements.iter_mut() {
                 temp_const_exprs.clear();
                 element_items.clear();
                 let (items, kind) = (&mut element.items, &mut element.kind);
@@ -1497,7 +1667,7 @@ impl<'a> Module<'a> {
                         temp_const_exprs.reserve(exprs.len());
                         for e in exprs.iter_mut() {
                             for i in e.exprs.iter_mut() {
-                                i.fix_id_mapping(&func_mapping, &global_mapping);
+                                i.fix_id_mapping(&func_mapping, &global_mapping)?;
                             }
                             temp_const_exprs.push(e.to_wasmencoder_type());
                         }
@@ -1520,7 +1690,7 @@ impl<'a> Module<'a> {
                         offset_expr,
                     } => {
                         for e in offset_expr.exprs.iter_mut() {
-                            e.fix_id_mapping(&func_mapping, &global_mapping);
+                            e.fix_id_mapping(&func_mapping, &global_mapping)?;
                         }
                         elements.active(
                             *table_index,
@@ -1546,148 +1716,75 @@ impl<'a> Module<'a> {
             module.section(&elements);
         }
 
-        if self.data_count_section_exists {
+        if tmp.data_count_section_exists {
             let data_count = wasm_encoder::DataCountSection {
-                count: self.data.len() as u32,
+                count: tmp.data.len() as u32,
             };
             module.section(&data_count);
         }
 
-        if !self.num_local_functions > 0 {
+        if !tmp.num_local_functions > 0 {
             let mut code = wasm_encoder::CodeSection::new();
-            for rel_func_idx in 0..self.functions.len() {
-                if self.functions.is_deleted(FunctionID(rel_func_idx as u32)) {
-                    continue;
-                }
-                if let FuncKind::Import(_) =
-                    &self.functions.get_kind(FunctionID(rel_func_idx as u32))
-                {
-                    continue;
-                }
 
-                let func = self
-                    .functions
-                    .get_mut(FunctionID(rel_func_idx as u32))
-                    .unwrap_local_mut();
-
-                let Body {
-                    instructions,
-                    locals,
-                    ..
-                } = &mut func.body;
-                let mut converted_locals = Vec::with_capacity(locals.len());
-                for (c, ty) in locals {
-                    converted_locals.push((*c, wasm_encoder::ValType::from(&*ty)));
-                }
-                let mut function = wasm_encoder::Function::new(converted_locals);
-                let instr_len = instructions.len() - 1;
-                for (
-                    idx,
-                    Instruction {
-                        op,
-                        instr_flag: instrument,
-                    },
-                ) in instructions.iter_mut().enumerate()
-                {
-                    fix_op_id_mapping(op, &func_mapping, &global_mapping, &memory_mapping);
-                    if !instrument.has_instr() {
-                        encode(&op.clone(), &mut function, &mut reencode);
-                    } else {
-                        instrument.check_special_is_resolved();
-
-                        // this instruction has instrumentation, handle it!
-                        let InstrumentationFlag {
-                            current_mode: _current_mode,
-                            before,
-                            after,
-                            alternate,
-                            ..
-                        } = instrument;
-
-                        // If we're at the `end` of the function, drop this instrumentation
-                        let at_end = idx >= instr_len;
-
-                        // First encode before instructions
-                        update_ids_and_encode(
-                            &mut before.instrs,
+            #[cfg(feature = "parallel")]
+            let functions = {
+                let functions_mut = tmp.functions.iter_mut().collect::<Vec<_>>();
+                functions_mut
+                    .into_par_iter()
+                    .enumerate()
+                    .filter_map(|(idx, f)| {
+                        if f.is_deleted() || f.is_import() {
+                            return None;
+                        }
+                        let f = f.unwrap_local_mut().expect(
+                            "Internal error: Should have found the local function successfully!",
+                        );
+                        let encoded_func = Self::encode_function(
+                            f,
                             &func_mapping,
                             &global_mapping,
                             &memory_mapping,
-                            &mut function,
-                            &mut reencode,
                         );
+                        Some((idx, f, encoded_func))
+                    })
+                    .collect::<Vec<_>>()
+            };
 
-                        // If there are any alternate, encode the alternate
-                        if !at_end && !alternate.is_none() {
-                            if let Some(alt) = alternate {
-                                update_ids_and_encode(
-                                    &mut alt.instrs,
-                                    &func_mapping,
-                                    &global_mapping,
-                                    &memory_mapping,
-                                    &mut function,
-                                    &mut reencode,
-                                );
-                            }
-                        } else {
-                            encode(&op.clone(), &mut function, &mut reencode);
-                        }
-
-                        // Now encode the after instructions
-                        if !at_end {
-                            update_ids_and_encode(
-                                &mut after.instrs,
-                                &func_mapping,
-                                &global_mapping,
-                                &memory_mapping,
-                                &mut function,
-                                &mut reencode,
-                            );
-                        }
+            #[cfg(not(feature = "parallel"))]
+            let functions = tmp
+                .functions
+                .iter_mut()
+                .enumerate()
+                .filter_map(|(idx, f)| {
+                    if f.is_deleted() || f.is_import() {
+                        return None;
                     }
+                    let f = f.unwrap_local_mut().expect(
+                        "Internal error: Should have found the local function successfully!",
+                    );
+                    let encoded_func =
+                        Self::encode_function(f, &func_mapping, &global_mapping, &memory_mapping);
+                    Some((idx, f, encoded_func))
+                })
+                .collect::<Vec<_>>();
 
-                    fn update_ids_and_encode(
-                        instrs: &mut Vec<Operator>,
-                        func_mapping: &HashMap<u32, u32>,
-                        global_mapping: &HashMap<u32, u32>,
-                        memory_mapping: &HashMap<u32, u32>,
-                        function: &mut wasm_encoder::Function,
-                        reencode: &mut RoundtripReencoder,
-                    ) {
-                        for instr in instrs {
-                            fix_op_id_mapping(instr, func_mapping, global_mapping, memory_mapping);
-                            encode(instr, function, reencode);
-                        }
-                    }
-                    fn encode(
-                        instr: &Operator,
-                        function: &mut wasm_encoder::Function,
-                        reencode: &mut RoundtripReencoder,
-                    ) {
-                        function.instruction(
-                            &reencode
-                                .instruction(instr.clone())
-                                .expect("Unable to convert Instruction"),
-                        );
-                    }
-                }
-
+            for (idx, original_func, function) in functions {
                 // at this point the IDs in all the function instrumentation opcodes have been corrected
                 // add the probe side effects!
                 if pull_side_effects {
-                    func.add_opcode_injections(rel_func_idx as u32, &mut side_effects);
+                    original_func.add_opcode_injections(idx as u32, &mut side_effects);
                 }
-                if let Some(name) = &func.body.name {
-                    function_names.append(rel_func_idx as u32, name.as_str());
+                if let Some(name) = &original_func.body.name {
+                    function_names.append(idx as u32, name.as_str());
                 }
-                code.function(&function);
+                code.function(&function?);
             }
             module.section(&code);
         }
 
-        if !self.data.is_empty() {
+        if !tmp.data.is_empty() {
             let mut data = wasm_encoder::DataSection::new();
-            for segment in self.data.iter_mut() {
+            for segment in tmp.data.iter_mut() {
                 // save this off for the side effect processing before matching on segment.kind (due to rust borrow issues)
                 let tag = segment.get_tag().clone();
                 let segment_data = segment.data.iter().copied();
@@ -1712,14 +1809,16 @@ impl<'a> Module<'a> {
                         offset_expr,
                     } => {
                         for expr in offset_expr.exprs.iter_mut() {
-                            expr.fix_id_mapping(&func_mapping, &global_mapping);
+                            expr.fix_id_mapping(&func_mapping, &global_mapping)?;
                         }
                         let new_idx = match memory_mapping.get(memory_index) {
                             Some(new_index) => *new_index,
-                            None => panic!(
-                                "Attempting to reference a deleted memory, ID: {}",
-                                memory_index
-                            ),
+                            None => {
+                                return Err(InstrumentationError(format!(
+                                    "Attempting to reference a deleted memory, ID: {}",
+                                    memory_index
+                                )))
+                            }
                         };
                         if pull_side_effects {
                             if let Some(tag) = tag {
@@ -1743,35 +1842,35 @@ impl<'a> Module<'a> {
             module.section(&data);
         }
 
-        // the name section is not stored in self.custom_sections anymore
+        // the name section is not stored in tmp.custom_sections anymore
         let mut names = wasm_encoder::NameSection::new();
 
-        if let Some(module_name) = &self.module_name {
+        if let Some(module_name) = &tmp.module_name {
             names.module(module_name);
         }
         names.functions(&function_names);
-        names.locals(&self.local_names);
-        names.labels(&self.label_names);
-        names.types(&self.type_names);
-        names.tables(&self.table_names);
-        names.memories(&self.memory_names);
-        names.globals(&self.global_names);
-        names.elements(&self.elem_names);
-        names.data(&self.data_names);
-        names.fields(&self.field_names);
-        names.tag(&self.tag_names);
+        names.locals(&tmp.local_names);
+        names.labels(&tmp.label_names);
+        names.types(&tmp.type_names);
+        names.tables(&tmp.table_names);
+        names.memories(&tmp.memory_names);
+        names.globals(&tmp.global_names);
+        names.elements(&tmp.elem_names);
+        names.data(&tmp.data_names);
+        names.fields(&tmp.field_names);
+        names.tag(&tmp.tag_names);
 
         module.section(&names);
 
         // encode the rest of custom sections
-        for section in self.custom_sections.iter() {
+        for section in tmp.custom_sections.iter() {
             module.section(&wasm_encoder::CustomSection {
                 name: std::borrow::Cow::Borrowed(section.name),
                 data: section.data.clone(),
             });
         }
 
-        (module, side_effects)
+        Ok((module, side_effects))
     }
 
     // ==============================
@@ -1788,8 +1887,8 @@ impl<'a> Module<'a> {
 
     /// Get the memory ID of a module. Does not support multiple memories
     pub fn get_memory_id(&self) -> Option<MemoryID> {
-        if self.memories.len() > 1 {
-            panic!("multiple memories unsupported")
+        if self.memories.as_vec().len() > 1 {
+            unimplemented!("multiple memories unsupported")
         }
 
         if !self.memories.is_empty() {
@@ -1804,7 +1903,7 @@ impl<'a> Module<'a> {
             TypeRef::Func(..) => (
                 self.num_local_functions,
                 self.imports.num_funcs,
-                self.functions.len() as u32,
+                self.functions.as_vec().len() as u32,
             ),
             TypeRef::Global(..) => (
                 self.num_local_globals,
@@ -1816,7 +1915,12 @@ impl<'a> Module<'a> {
             TypeRef::Memory(..) => (
                 self.num_local_memories,
                 self.imports.num_memories,
-                self.memories.len() as u32,
+                self.memories.as_vec().len() as u32,
+            ),
+            TypeRef::FuncExact(..) => (
+                self.num_local_functions,
+                self.imports.num_funcs,
+                self.functions.as_vec().len() as u32,
             ),
         };
 
@@ -1826,6 +1930,10 @@ impl<'a> Module<'a> {
             num_imported
         };
         (id, self.imports.add(import))
+    }
+
+    pub fn add_custom_section(&mut self, section: CustomSection<'a>) -> CustomSectionID {
+        self.custom_sections.add(section)
     }
 
     // ===========================
@@ -1864,8 +1972,8 @@ impl<'a> Module<'a> {
         tag: Tag,
     ) -> (MemoryID, ImportsID) {
         let (imp_mem_id, imp_id) = self.add_import(Import {
-            module: module.leak(),
-            name: name.clone().leak(),
+            module: module.into(),
+            name: name.into(),
             ty: TypeRef::Memory(ty),
             custom_name: None,
             deleted: false,
@@ -1938,8 +2046,8 @@ impl<'a> Module<'a> {
         tag: Tag,
     ) -> (FunctionID, ImportsID) {
         let (imp_fn_id, imp_id) = self.add_import(Import {
-            module: module.leak(),
-            name: name.clone().leak(),
+            module: module.into(),
+            name: name.clone().into(),
             ty: TypeRef::Func(*ty_id),
             custom_name: None,
             deleted: false,
@@ -2019,8 +2127,8 @@ impl<'a> Module<'a> {
         self.delete_func(function_id);
         // Add import function to imports
         let (.., import_id) = self.add_import(Import {
-            module: module.leak(),
-            name: name.clone().leak(),
+            module: module.into(),
+            name: name.clone().into(),
             ty: TypeRef::Func(*ty_id),
             custom_name: None,
             deleted: false,
@@ -2033,7 +2141,7 @@ impl<'a> Module<'a> {
                 import_fn_id: function_id,
                 ty_id,
             }));
-        assert!(self.functions.set_imported_fn_name(function_id, name));
+        debug_assert!(self.functions.set_imported_fn_name(function_id, name));
         true
     }
 
@@ -2042,10 +2150,10 @@ impl<'a> Module<'a> {
         if *id < self.imports.num_funcs {
             // the function is an import
             self.imports.set_fn_name(name.clone(), id);
-            assert!(self.functions.set_imported_fn_name(id, name));
+            debug_assert!(self.functions.set_imported_fn_name(id, name));
         } else {
             // the function is local
-            assert!(self.functions.set_local_fn_name(id, name));
+            debug_assert!(self.functions.set_local_fn_name(id, name));
         }
     }
 
@@ -2128,8 +2236,8 @@ impl<'a> Module<'a> {
             shared,
         };
         let (imp_global_id, imp_id) = self.add_import(Import {
-            module: module.leak(),
-            name: name.leak(),
+            module: module.into(),
+            name: name.into(),
             ty: TypeRef::Global(global_ty),
             custom_name: None,
             deleted: false,
@@ -2161,8 +2269,12 @@ impl<'a> Module<'a> {
     }
 
     /// Change a locally-defined global's init expression.
-    pub fn mod_global_init_expr(&mut self, global_id: GlobalID, new_expr: InitExpr) {
-        self.globals.mod_global_init_expr(*global_id, new_expr);
+    pub fn mod_global_init_expr(
+        &mut self,
+        global_id: GlobalID,
+        new_expr: InitExpr,
+    ) -> types::Result<()> {
+        self.globals.mod_global_init_expr(*global_id, new_expr)
     }
 }
 
@@ -2170,20 +2282,9 @@ pub trait GetID {
     fn get_id(&self) -> u32;
 }
 
-/// Facilitates iteration on types that hold `T`
-pub(crate) trait Iter<T> {
-    /// Iterate over references of `T`
-    fn iter(&self) -> std::slice::Iter<'_, T>;
-
-    /// Clone and build an iterator
-    fn get_into_iter(&self) -> IntoIter<T>;
-}
-
-pub(crate) trait ReIndexable<T> {
-    fn len(&self) -> usize;
-    fn remove(&mut self, id: u32) -> T;
-    fn insert(&mut self, id: u32, val: T);
-    fn push(&mut self, item: T);
+pub(crate) trait AsVec<T> {
+    fn as_vec(&self) -> &Vec<T>;
+    fn as_vec_mut(&mut self) -> &mut Vec<T>;
 }
 
 pub trait Push<T> {
@@ -2216,16 +2317,17 @@ pub(crate) fn fix_op_id_mapping(
     func_mapping: &HashMap<u32, u32>,
     global_mapping: &HashMap<u32, u32>,
     memory_mapping: &HashMap<u32, u32>,
-) {
+) -> types::Result<()> {
     if refers_to_func(op) {
-        update_fn_instr(op, func_mapping);
+        update_fn_instr(op, func_mapping)?;
     }
     if refers_to_global(op) {
-        update_global_instr(op, global_mapping);
+        update_global_instr(op, global_mapping)?;
     }
     if refers_to_memory(op) {
-        update_memory_instr(op, memory_mapping);
+        update_memory_instr(op, memory_mapping)?;
     }
+    Ok(())
 }
 
 fn resolve_function_entry<'a, 'b, 'c>(
@@ -2444,7 +2546,8 @@ fn plan_resolution_semantic_after<'a, 'b, 'c>(
     resolve_on_end: &mut HashMap<BlockID, HashMap<InstrumentationMode, InstrToInject<'c>>>,
     op: &Operator,
     idx: usize,
-) where
+) -> types::Result<()>
+where
     'c: 'b,
 {
     // save instrumentation to be converted to simple before/after/alt
@@ -2463,7 +2566,7 @@ fn plan_resolution_semantic_after<'a, 'b, 'c>(
             );
         }
         Operator::BrTable { targets } => {
-            let bool_flag_id = create_bool_flag(builder, idx, op, semantic_after);
+            let bool_flag_id = create_bool_flag(builder, idx, op, semantic_after)?;
             targets.targets().for_each(|target| {
                 if let Ok(relative_depth) = target {
                     save_flagged_body_to_resolve(
@@ -2492,7 +2595,7 @@ fn plan_resolution_semantic_after<'a, 'b, 'c>(
         | Operator::BrOnCastFail { relative_depth, .. }
         | Operator::BrOnNonNull { relative_depth }
         | Operator::BrOnNull { relative_depth } => {
-            let bool_flag_id = create_bool_flag(builder, idx, op, semantic_after);
+            let bool_flag_id = create_bool_flag(builder, idx, op, semantic_after)?;
             save_flagged_body_to_resolve(
                 resolve_on_end,
                 InstrumentationMode::After,
@@ -2504,6 +2607,7 @@ fn plan_resolution_semantic_after<'a, 'b, 'c>(
         }
         _ => {} // skip all other opcodes
     }
+    Ok(())
 }
 
 fn create_bool_flag<'a, 'b, 'c>(
@@ -2511,7 +2615,7 @@ fn create_bool_flag<'a, 'b, 'c>(
     idx: usize,
     op: &Operator,
     semantic_after: &Vec<Operator<'c>>,
-) -> LocalID
+) -> types::Result<LocalID>
 where
     'c: 'b,
 {
@@ -2556,7 +2660,7 @@ where
         }
         _ => {}
     }
-    bool_flag_id
+    Ok(bool_flag_id)
 }
 
 fn save_not_flagged_body_to_resolve<'a>(
@@ -2662,28 +2766,21 @@ fn resolve_bodies<'a, 'b, 'c>(
             _ => unreachable!(),
         };
 
-        if is_first {
-            // inject flag check
-            builder.local_get(*bool_flag);
-            builder.if_stmt(BlockType::Empty); // TODO -- This will break for instrumentation that returns stuff...
-        } else {
+        if !is_first {
             // injecting multiple, already have an if statement
             builder.else_stmt();
-            // inject flag check
-            builder.local_get(*bool_flag);
-            builder.if_stmt(BlockType::Empty); // nested if for the if/else flow
         }
+
+        // inject flag check
+        builder.local_get(*bool_flag);
+        builder.if_stmt(BlockType::Empty); // TODO -- This will break for instrumentation that returns stuff...
 
         // inject body
         builder.inject_all(body);
-        if !is_first {
-            // need to inject end of nested if!
-            builder.end();
-        }
         is_first = false;
     }
-    if !flagged.is_empty() {
-        // inject end of flag check (the outer if)
+    for _ in 0..flagged.len() {
+        // inject end of flag checks
         builder.end();
     }
 

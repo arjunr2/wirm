@@ -1,16 +1,17 @@
 //! Intermediate Representation of a Function
 
+use crate::error::Error::{InvalidOperation, UnknownId};
 use crate::ir::function::FunctionModifier;
 use crate::ir::id::{FunctionID, ImportsID, LocalID, TypeID};
 use crate::ir::module::side_effects::{InjectType, Injection};
-use crate::ir::module::{GetID, Iter, LocalOrImport, ReIndexable};
+use crate::ir::module::{AsVec, GetID, LocalOrImport};
+use crate::ir::types;
 use crate::ir::types::{
-    Body, FuncInstrFlag, HasInjectTag, InjectTag, Instruction, InstrumentationMode, Tag, TagUtils,
+    Body, FuncInstrFlag, HasInjectTag, InjectTag, InstrumentationMode, Tag, TagUtils,
 };
 use crate::DataType;
 use log::warn;
 use std::collections::HashMap;
-use std::vec::IntoIter;
 use wasmparser::Operator;
 
 /// Represents a function. Local or Imported depends on the `FuncKind`.
@@ -76,12 +77,12 @@ impl<'a> Function<'a> {
     }
 
     /// Unwrap a local function. If it is an imported function, it panics.
-    pub fn unwrap_local(&self) -> &LocalFunction<'a> {
+    pub fn unwrap_local(&self) -> types::Result<&LocalFunction<'a>> {
         self.kind.unwrap_local()
     }
 
     /// Unwrap a local function as mutable. If it is an imported function, it panics.
-    pub fn unwrap_local_mut(&mut self) -> &mut LocalFunction<'a> {
+    pub fn unwrap_local_mut(&mut self) -> types::Result<&mut LocalFunction<'a>> {
         self.kind.unwrap_local_mut()
     }
 
@@ -98,18 +99,22 @@ pub enum FuncKind<'a> {
 }
 
 impl<'a> FuncKind<'a> {
-    /// Unwrap a local function as a read-only reference. If it is an imported function, it panics.
-    pub fn unwrap_local(&self) -> &LocalFunction<'a> {
+    /// Unwrap a local function as a read-only reference. If it is an imported function, it errors.
+    pub fn unwrap_local(&self) -> types::Result<&LocalFunction<'a>> {
         match &self {
-            FuncKind::Local(l) => l,
-            FuncKind::Import(_) => panic!("Attempting to unwrap an imported function as a local!!"),
+            FuncKind::Local(l) => Ok(l),
+            FuncKind::Import(_) => Err(InvalidOperation(
+                "Attempting to unwrap an imported function as a local!!".to_string(),
+            )),
         }
     }
-    /// Unwrap a local function as a mutable reference. If it is an imported function, it panics.
-    pub fn unwrap_local_mut(&mut self) -> &mut LocalFunction<'a> {
+    /// Unwrap a local function as a mutable reference. If it is an imported function, it errors.
+    pub fn unwrap_local_mut(&mut self) -> types::Result<&mut LocalFunction<'a>> {
         match self {
-            FuncKind::Local(l) => l,
-            FuncKind::Import(_) => panic!("Attempting to unwrap an imported function as a local!!"),
+            FuncKind::Local(l) => Ok(l),
+            FuncKind::Import(_) => Err(InvalidOperation(
+                "Attempting to unwrap an imported function as a local!!".to_string(),
+            )),
         }
     }
 
@@ -190,8 +195,7 @@ impl<'a> LocalFunction<'a> {
             // inject at function level
             self.instr_flag.add_instr(instr);
         } else {
-            // inject at instruction level
-            let is_special = self.body.instructions[instr_idx].add_instr(instr);
+            let is_special = self.body.instructions.add_instr(instr_idx, instr);
             // remember if we injected a special instrumentation (to be resolved before encoding)
             self.instr_flag.has_special_instr |= is_special;
         }
@@ -202,7 +206,7 @@ impl<'a> LocalFunction<'a> {
             // get at function level
             self.instr_flag.instr_len()
         } else {
-            self.body.instructions[instr_idx].instr_len()
+            self.body.instructions.instr_len(instr_idx)
         }
     }
 
@@ -212,14 +216,12 @@ impl<'a> LocalFunction<'a> {
             self.instr_flag.append_to_tag(data);
         } else {
             // append at instruction level
-            self.body.instructions[instr_idx]
-                .instr_flag
-                .append_to_tag(data);
+            self.body.instructions.append_to_tag(instr_idx, data);
         }
     }
 
     pub fn clear_instr_at(&mut self, instr_idx: usize, mode: InstrumentationMode) {
-        self.body.clear_instr(instr_idx, mode);
+        self.body.instructions.clear_instr(instr_idx, mode);
     }
 
     pub(crate) fn add_corrected_special_injections(
@@ -229,14 +231,14 @@ impl<'a> LocalFunction<'a> {
         global_mapping: &HashMap<u32, u32>,
         memory_mapping: &HashMap<u32, u32>,
         side_effects: &mut HashMap<InjectType, Vec<Injection<'a>>>,
-    ) {
+    ) -> types::Result<()> {
         self.instr_flag.add_injections(
             rel_fid,
             func_mapping,
             global_mapping,
             memory_mapping,
             side_effects,
-        );
+        )
     }
 
     pub(crate) fn add_opcode_injections(
@@ -244,9 +246,15 @@ impl<'a> LocalFunction<'a> {
         rel_fid: u32,
         side_effects: &mut HashMap<InjectType, Vec<Injection<'a>>>,
     ) {
-        for (idx, Instruction { instr_flag, .. }) in self.body.instructions.iter().enumerate() {
-            instr_flag.add_injections(rel_fid, idx as u32, side_effects);
+        if let Some(flags) = self.body.instructions.get_flags() {
+            for (idx, instr_flag) in flags.iter().enumerate() {
+                instr_flag.add_injections(rel_fid, idx as u32, side_effects);
+            }
         }
+    }
+
+    pub fn lookup_pc_offset_for(&self, instr_idx: usize) -> Option<usize> {
+        self.body.instructions.lookup_pc_offset_for(instr_idx)
     }
 }
 
@@ -320,7 +328,7 @@ impl<'a> Functions<'a> {
     ///
     /// Note: Functions returned by this iterator *may* be deleted.
     pub fn iter(&self) -> impl Iterator<Item = &Function<'a>> {
-        Iter::<Function<'a>>::iter(self)
+        self.functions.iter()
     }
 
     /// Iterate over functions present in the module
@@ -331,32 +339,12 @@ impl<'a> Functions<'a> {
     }
 }
 
-impl<'a> Iter<Function<'a>> for Functions<'a> {
-    /// Get an iterator for the functions.
-    fn iter(&self) -> std::slice::Iter<'_, Function<'a>> {
-        self.functions.iter()
+impl<'a> AsVec<Function<'a>> for Functions<'a> {
+    fn as_vec(&self) -> &Vec<Function<'a>> {
+        &self.functions
     }
-
-    fn get_into_iter(&self) -> IntoIter<Function<'a>> {
-        self.functions.clone().into_iter()
-    }
-}
-
-impl<'a> ReIndexable<Function<'a>> for Functions<'a> {
-    /// Get the number of functions
-    fn len(&self) -> usize {
-        self.functions.len()
-    }
-    fn remove(&mut self, function_id: u32) -> Function<'a> {
-        self.functions.remove(function_id as usize)
-    }
-
-    fn insert(&mut self, function_id: u32, func: Function<'a>) {
-        self.functions.insert(function_id as usize, func);
-    }
-    /// Add a new function
-    fn push(&mut self, func: Function<'a>) {
-        self.functions.push(func);
+    fn as_vec_mut(&mut self) -> &mut Vec<Function<'a>> {
+        &mut self.functions
     }
 }
 
@@ -437,7 +425,15 @@ impl<'a> Functions<'a> {
     }
 
     /// Unwrap local function.
-    pub fn unwrap_local(&mut self, function_id: FunctionID) -> &mut LocalFunction<'a> {
+    pub fn unwrap_local(&self, function_id: FunctionID) -> types::Result<&LocalFunction<'a>> {
+        self.functions[*function_id as usize].unwrap_local()
+    }
+
+    /// Unwrap local function.
+    pub fn unwrap_local_mut(
+        &mut self,
+        function_id: FunctionID,
+    ) -> types::Result<&mut LocalFunction<'a>> {
         self.functions[*function_id as usize].unwrap_local_mut()
     }
 
@@ -463,19 +459,28 @@ impl<'a> Functions<'a> {
     pub fn get_fn_modifier<'b>(
         &'b mut self,
         func_id: FunctionID,
-    ) -> Option<FunctionModifier<'b, 'a>> {
+    ) -> types::Result<FunctionModifier<'b, 'a>> {
         // grab type and section and code section
-        match &mut self.functions.get_mut(*func_id as usize)?.kind {
+        let func = self.functions.get_mut(*func_id as usize);
+        if func.is_none() {
+            return Err(UnknownId(format!(
+                "Could not find function with ID: {func_id:?}"
+            )));
+        }
+
+        match func.unwrap().kind {
             FuncKind::Local(ref mut l) => {
                 // the instrflag should be reset!
                 l.instr_flag.finish_instr();
-                Some(FunctionModifier::init(
+                Ok(FunctionModifier::init(
                     &mut l.instr_flag,
                     &mut l.body,
                     &mut l.args,
                 ))
             }
-            _ => None,
+            _ => Err(InvalidOperation(
+                "Cannot modify a non-local function".to_string(),
+            )),
         }
     }
 
@@ -501,7 +506,7 @@ impl<'a> Functions<'a> {
         let id = self.next_id();
         local_function.func_id = id;
 
-        self.push(Function::new(
+        self.functions.push(Function::new(
             FuncKind::Local(Box::new(local_function)),
             name.clone(),
         ));
@@ -520,16 +525,21 @@ impl<'a> Functions<'a> {
         imp_fn_id: u32,
     ) {
         self.recalculate_ids = true;
-        assert_eq!(*self.next_id(), imp_fn_id);
+        debug_assert_eq!(*self.next_id(), imp_fn_id);
         self.functions.push(Function::new(
             FuncKind::Import(ImportedFunction::new(imp_id, ty_id, FunctionID(imp_fn_id))),
             name,
         ));
     }
 
-    pub(crate) fn add_local(&mut self, func_idx: FunctionID, ty: DataType) -> LocalID {
-        let local_func = self.functions[*func_idx as usize].unwrap_local_mut();
-        local_func.add_local(ty)
+    /// Add a local to a function
+    pub(crate) fn add_local(
+        &mut self,
+        func_idx: FunctionID,
+        ty: DataType,
+    ) -> types::Result<LocalID> {
+        let local_func = self.functions[*func_idx as usize].unwrap_local_mut()?;
+        Ok(local_func.add_local(ty))
     }
 
     /// Set the name for a local function. Returns false if it is an imported function.

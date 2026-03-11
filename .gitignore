@@ -1,11 +1,11 @@
 target
 .idea/
-*.lock
+fac_wirm/Cargo.lock
 .vscode/
 .DS_Store
 **/out.**
 output
 
-# Test wasm files
-a.wasm
+# Some helper files
+test.wat
 test.wasm

@@ -13,14 +13,13 @@ use wirm::module_builder::AddLocal;
 use wirm::opcode::{Inject, Instrumenter};
 use wirm::{Component, Location, Module, Opcode};
 
-mod common;
 use crate::common::check_instrumentation_encoding;
 
 #[test]
 fn no_injection() {
     let file = "tests/test_inputs/handwritten/components/add.wat";
     let buff = wat::parse_file(file).expect("couldn't convert the input wat to Wasm");
-    let mut component = Component::parse(&buff, false).expect("Unable to parse");
+    let mut component = Component::parse(&buff, false, false).expect("Unable to parse");
     let mut comp_it = ComponentIterator::new(&mut component, HashMap::new());
 
     let interested = Operator::Call { function_index: 1 };
@@ -66,7 +65,7 @@ fn no_injection() {
         } = comp_it.curr_loc().0
         {
             if *comp_it.curr_op().unwrap() == interested {
-                assert_ne!(discriminant(instr_mode), discriminant(&None));
+                assert_ne!(discriminant(&instr_mode), discriminant(&None));
             }
 
             trace!(
@@ -91,7 +90,7 @@ fn no_injection() {
 fn iterator_inject_i32_before() {
     let file = "tests/test_inputs/instr_testing/components/add-inject_i32_before.wat";
     let buff = wat::parse_file(file).expect("couldn't convert the input wat to Wasm");
-    let mut component = Component::parse(&buff, false).expect("Unable to parse");
+    let mut component = Component::parse(&buff, false, false).expect("Unable to parse");
     let mut comp_it = ComponentIterator::new(&mut component, HashMap::new());
 
     let interested = Operator::Call { function_index: 1 };
@@ -126,7 +125,7 @@ fn iterator_inject_i32_before() {
     }
     comp_it.reset();
 
-    let result = component.encode();
+    let result = component.encode().expect("error");
     let out = wasmprinter::print_bytes(result).expect("couldn't translate wasm to wat");
     if let Err(e) = check_instrumentation_encoding(&out, file) {
         error!(
@@ -140,7 +139,7 @@ fn iterator_inject_i32_before() {
 fn iterator_inject_all_variations() {
     let file = "tests/test_inputs/instr_testing/components/add-inject_all_variations.wat";
     let buff = wat::parse_file(file).expect("couldn't convert the input wat to Wasm");
-    let mut component = Component::parse(&buff, false).expect("Unable to parse");
+    let mut component = Component::parse(&buff, false, false).expect("Unable to parse");
     let mut comp_it = ComponentIterator::new(&mut component, HashMap::new());
 
     let after = Operator::Call { function_index: 1 };
@@ -184,7 +183,7 @@ fn iterator_inject_all_variations() {
             panic!("Should've gotten Component Location!");
         }
     }
-    let result = component.encode();
+    let result = component.encode().expect("error");
     let out = wasmprinter::print_bytes(result).expect("couldn't translate wasm to wat");
     if let Err(e) = check_instrumentation_encoding(&out, file) {
         error!(
@@ -198,7 +197,7 @@ fn iterator_inject_all_variations() {
 fn test_inject_locals() {
     let file = "tests/test_inputs/instr_testing/modules/add-inject_locals.wat";
     let buff = wat::parse_file(file).expect("couldn't convert the input wat to Wasm");
-    let mut module = Module::parse(&buff, false).expect("Unable to parse");
+    let mut module = Module::parse(&buff, false, false).expect("Unable to parse");
     let mut mod_it = ModuleIterator::new(&mut module, &vec![]);
 
     let mut is_first = true;
@@ -227,7 +226,7 @@ fn test_inject_locals() {
         is_first = false;
     }
 
-    let result = module.encode();
+    let result = module.encode().expect("error");
     let out = wasmprinter::print_bytes(result).expect("couldn't translate wasm to wat");
     if let Err(e) = check_instrumentation_encoding(&out, file) {
         error!(
@@ -243,7 +242,7 @@ fn test_inject_locals() {
 fn test_block_alt_one_func_nested_block() {
     let file = "tests/test_inputs/instr_testing/modules/block_alt/one_func_nested_block.wat";
     let buff = wat::parse_file(file).expect("couldn't convert the input wat to Wasm");
-    let mut module = Module::parse(&buff, false).expect("Unable to parse");
+    let mut module = Module::parse(&buff, false, false).expect("Unable to parse");
     let mut mod_it = ModuleIterator::new(&mut module, &vec![]);
 
     let loop_body = vec![Operator::I32Const { value: 12 }, Operator::Drop];
@@ -254,7 +253,7 @@ fn test_block_alt_one_func_nested_block() {
     )];
     run_block_injection(&mut mod_it, &ops_of_interest);
 
-    let result = module.encode();
+    let result = module.encode().expect("error");
     let out = wasmprinter::print_bytes(result).expect("couldn't translate wasm to wat");
     if let Err(e) = check_instrumentation_encoding(&out, file) {
         error!(
@@ -268,7 +267,7 @@ fn test_block_alt_one_func_nested_block() {
 fn test_block_alt_one_func_remove_else() {
     let file = "tests/test_inputs/instr_testing/modules/block_alt/one_func_remove_else.wat";
     let buff = wat::parse_file(file).expect("couldn't convert the input wat to Wasm");
-    let mut module = Module::parse(&buff, false).expect("Unable to parse");
+    let mut module = Module::parse(&buff, false, false).expect("Unable to parse");
     let mut mod_it = ModuleIterator::new(&mut module, &vec![]);
 
     let else_body = vec![];
@@ -279,7 +278,7 @@ fn test_block_alt_one_func_remove_else() {
     )];
     run_block_injection(&mut mod_it, &ops_of_interest);
 
-    let result = module.encode();
+    let result = module.encode().expect("error");
     let out = wasmprinter::print_bytes(result).expect("couldn't translate wasm to wat");
     if let Err(e) = check_instrumentation_encoding(&out, file) {
         error!(
@@ -293,7 +292,7 @@ fn test_block_alt_one_func_remove_else() {
 fn test_block_alt_one_func_replace_else() {
     let file = "tests/test_inputs/instr_testing/modules/block_alt/one_func_replace_else.wat";
     let buff = wat::parse_file(file).expect("couldn't convert the input wat to Wasm");
-    let mut module = Module::parse(&buff, false).expect("Unable to parse");
+    let mut module = Module::parse(&buff, false, false).expect("Unable to parse");
     let mut mod_it = ModuleIterator::new(&mut module, &vec![]);
 
     let else_body = vec![Operator::I32Const { value: 12 }, Operator::Drop];
@@ -304,7 +303,7 @@ fn test_block_alt_one_func_replace_else() {
     )];
     run_block_injection(&mut mod_it, &ops_of_interest);
 
-    let result = module.encode();
+    let result = module.encode().expect("error");
     let out = wasmprinter::print_bytes(result).expect("couldn't translate wasm to wat");
     if let Err(e) = check_instrumentation_encoding(&out, file) {
         error!(
@@ -318,7 +317,7 @@ fn test_block_alt_one_func_replace_else() {
 fn test_block_alt_one_func_two_blocks() {
     let file = "tests/test_inputs/instr_testing/modules/block_alt/one_func_two_blocks.wat";
     let buff = wat::parse_file(file).expect("couldn't convert the input wat to Wasm");
-    let mut module = Module::parse(&buff, false).expect("Unable to parse");
+    let mut module = Module::parse(&buff, false, false).expect("Unable to parse");
     let mut mod_it = ModuleIterator::new(&mut module, &vec![]);
 
     let block_body = vec![Operator::I32Const { value: 12 }, Operator::Drop];
@@ -329,7 +328,7 @@ fn test_block_alt_one_func_two_blocks() {
     )];
     run_block_injection(&mut mod_it, &ops_of_interest);
 
-    let result = module.encode();
+    let result = module.encode().expect("error");
     let out = wasmprinter::print_bytes(result).expect("couldn't translate wasm to wat");
     if let Err(e) = check_instrumentation_encoding(&out, file) {
         error!(
@@ -343,7 +342,7 @@ fn test_block_alt_one_func_two_blocks() {
 fn test_block_alt_remove_else_nested_if() {
     let file = "tests/test_inputs/instr_testing/modules/block_alt/remove_else_nested_if.wat";
     let buff = wat::parse_file(file).expect("couldn't convert the input wat to Wasm");
-    let mut module = Module::parse(&buff, false).expect("Unable to parse");
+    let mut module = Module::parse(&buff, false, false).expect("Unable to parse");
     let mut mod_it = ModuleIterator::new(&mut module, &vec![]);
 
     let else_body = vec![];
@@ -354,7 +353,7 @@ fn test_block_alt_remove_else_nested_if() {
     )];
     run_block_injection(&mut mod_it, &ops_of_interest);
 
-    let result = module.encode();
+    let result = module.encode().expect("error");
     let out = wasmprinter::print_bytes(result).expect("couldn't translate wasm to wat");
     if let Err(e) = check_instrumentation_encoding(&out, file) {
         error!(
@@ -369,7 +368,7 @@ fn test_block_alt_remove_else_with_instrumented_after_if() {
     let file =
         "tests/test_inputs/instr_testing/modules/block_alt/remove_else_with_instr'd_after_if.wat";
     let buff = wat::parse_file(file).expect("couldn't convert the input wat to Wasm");
-    let mut module = Module::parse(&buff, false).expect("Unable to parse");
+    let mut module = Module::parse(&buff, false, false).expect("Unable to parse");
     let mut mod_it = ModuleIterator::new(&mut module, &vec![]);
 
     let if_body = vec![Operator::I32Const { value: 12 }, Operator::Drop];
@@ -388,7 +387,7 @@ fn test_block_alt_remove_else_with_instrumented_after_if() {
     ];
     run_block_injection(&mut mod_it, &ops_of_interest);
 
-    let result = module.encode();
+    let result = module.encode().expect("error");
     let out = wasmprinter::print_bytes(result).expect("couldn't translate wasm to wat");
     if let Err(e) = check_instrumentation_encoding(&out, file) {
         error!(
@@ -403,7 +402,7 @@ fn test_block_alt_remove_else_with_instrumented_exit_if() {
     let file =
         "tests/test_inputs/instr_testing/modules/block_alt/remove_else_with_instr'd_exit_if.wat";
     let buff = wat::parse_file(file).expect("couldn't convert the input wat to Wasm");
-    let mut module = Module::parse(&buff, false).expect("Unable to parse");
+    let mut module = Module::parse(&buff, false, false).expect("Unable to parse");
     let mut mod_it = ModuleIterator::new(&mut module, &vec![]);
 
     let if_body = vec![Operator::I32Const { value: 12 }, Operator::Drop];
@@ -422,7 +421,7 @@ fn test_block_alt_remove_else_with_instrumented_exit_if() {
     ];
     run_block_injection(&mut mod_it, &ops_of_interest);
 
-    let result = module.encode();
+    let result = module.encode().expect("error");
     let out = wasmprinter::print_bytes(result).expect("couldn't translate wasm to wat");
     if let Err(e) = check_instrumentation_encoding(&out, file) {
         error!(
@@ -436,7 +435,7 @@ fn test_block_alt_remove_else_with_instrumented_exit_if() {
 fn test_block_alt_remove_entire_block() {
     let file = "tests/test_inputs/instr_testing/modules/block_alt/remove_entire_block.wat";
     let buff = wat::parse_file(file).expect("couldn't convert the input wat to Wasm");
-    let mut module = Module::parse(&buff, false).expect("Unable to parse");
+    let mut module = Module::parse(&buff, false, false).expect("Unable to parse");
     let mut mod_it = ModuleIterator::new(&mut module, &vec![]);
 
     let block_body = vec![];
@@ -447,7 +446,7 @@ fn test_block_alt_remove_entire_block() {
     )];
     run_block_injection(&mut mod_it, &ops_of_interest);
 
-    let result = module.encode();
+    let result = module.encode().expect("error");
     let out = wasmprinter::print_bytes(result).expect("couldn't translate wasm to wat");
     if let Err(e) = check_instrumentation_encoding(&out, file) {
         error!(
@@ -461,7 +460,7 @@ fn test_block_alt_remove_entire_block() {
 fn test_block_alt_remove_if_with_else() {
     let file = "tests/test_inputs/instr_testing/modules/block_alt/remove_if_with_else.wat";
     let buff = wat::parse_file(file).expect("couldn't convert the input wat to Wasm");
-    let mut module = Module::parse(&buff, false).expect("Unable to parse");
+    let mut module = Module::parse(&buff, false, false).expect("Unable to parse");
     let mut mod_it = ModuleIterator::new(&mut module, &vec![]);
 
     let if_body = vec![];
@@ -472,7 +471,7 @@ fn test_block_alt_remove_if_with_else() {
     )];
     run_block_injection(&mut mod_it, &ops_of_interest);
 
-    let result = module.encode();
+    let result = module.encode().expect("error");
     let out = wasmprinter::print_bytes(result).expect("couldn't translate wasm to wat");
     if let Err(e) = check_instrumentation_encoding(&out, file) {
         error!(
@@ -486,7 +485,7 @@ fn test_block_alt_remove_if_with_else() {
 fn test_block_alt_remove_nested_block() {
     let file = "tests/test_inputs/instr_testing/modules/block_alt/remove_nested_block.wat";
     let buff = wat::parse_file(file).expect("couldn't convert the input wat to Wasm");
-    let mut module = Module::parse(&buff, false).expect("Unable to parse");
+    let mut module = Module::parse(&buff, false, false).expect("Unable to parse");
     let mut mod_it = ModuleIterator::new(&mut module, &vec![]);
 
     let block_body = vec![];
@@ -497,7 +496,7 @@ fn test_block_alt_remove_nested_block() {
     )];
     run_block_injection(&mut mod_it, &ops_of_interest);
 
-    let result = module.encode();
+    let result = module.encode().expect("error");
     let out = wasmprinter::print_bytes(result).expect("couldn't translate wasm to wat");
     if let Err(e) = check_instrumentation_encoding(&out, file) {
         error!(
@@ -511,7 +510,7 @@ fn test_block_alt_remove_nested_block() {
 fn test_block_alt_replace_else_nested_if() {
     let file = "tests/test_inputs/instr_testing/modules/block_alt/replace_else_nested_if.wat";
     let buff = wat::parse_file(file).expect("couldn't convert the input wat to Wasm");
-    let mut module = Module::parse(&buff, false).expect("Unable to parse");
+    let mut module = Module::parse(&buff, false, false).expect("Unable to parse");
     let mut mod_it = ModuleIterator::new(&mut module, &vec![]);
 
     let else_body = vec![Operator::I32Const { value: 12 }, Operator::Drop];
@@ -522,7 +521,7 @@ fn test_block_alt_replace_else_nested_if() {
     )];
     run_block_injection(&mut mod_it, &ops_of_interest);
 
-    let result = module.encode();
+    let result = module.encode().expect("error");
     let out = wasmprinter::print_bytes(result).expect("couldn't translate wasm to wat");
     if let Err(e) = check_instrumentation_encoding(&out, file) {
         error!(
@@ -536,7 +535,7 @@ fn test_block_alt_replace_else_nested_if() {
 fn test_block_alt_replace_if_with_else() {
     let file = "tests/test_inputs/instr_testing/modules/block_alt/replace_if_with_else.wat";
     let buff = wat::parse_file(file).expect("couldn't convert the input wat to Wasm");
-    let mut module = Module::parse(&buff, false).expect("Unable to parse");
+    let mut module = Module::parse(&buff, false, false).expect("Unable to parse");
     let mut mod_it = ModuleIterator::new(&mut module, &vec![]);
 
     let if_body = vec![
@@ -551,7 +550,7 @@ fn test_block_alt_replace_if_with_else() {
     )];
     run_block_injection(&mut mod_it, &ops_of_interest);
 
-    let result = module.encode();
+    let result = module.encode().expect("error");
     let out = wasmprinter::print_bytes(result).expect("couldn't translate wasm to wat");
     if let Err(e) = check_instrumentation_encoding(&out, file) {
         error!(
@@ -565,7 +564,7 @@ fn test_block_alt_replace_if_with_else() {
 fn test_block_alt_replace_nested_block() {
     let file = "tests/test_inputs/instr_testing/modules/block_alt/replace_nested_block.wat";
     let buff = wat::parse_file(file).expect("couldn't convert the input wat to Wasm");
-    let mut module = Module::parse(&buff, false).expect("Unable to parse");
+    let mut module = Module::parse(&buff, false, false).expect("Unable to parse");
     let mut mod_it = ModuleIterator::new(&mut module, &vec![]);
 
     let block_body = vec![Operator::I32Const { value: 12 }, Operator::Drop];
@@ -576,7 +575,7 @@ fn test_block_alt_replace_nested_block() {
     )];
     run_block_injection(&mut mod_it, &ops_of_interest);
 
-    let result = module.encode();
+    let result = module.encode().expect("error");
     let out = wasmprinter::print_bytes(result).expect("couldn't translate wasm to wat");
     if let Err(e) = check_instrumentation_encoding(&out, file) {
         error!(
@@ -592,7 +591,7 @@ fn test_block_alt_replace_nested_block() {
 fn test_block_entry_one_func_nested_block() {
     let file = "tests/test_inputs/instr_testing/modules/block_entry/one_func_nested_block.wat";
     let buff = wat::parse_file(file).expect("couldn't convert the input wat to Wasm");
-    let mut module = Module::parse(&buff, false).expect("Unable to parse");
+    let mut module = Module::parse(&buff, false, false).expect("Unable to parse");
     let mut mod_it = ModuleIterator::new(&mut module, &vec![]);
 
     let block_body = vec![Operator::I32Const { value: 12 }, Operator::Drop];
@@ -611,7 +610,7 @@ fn test_block_entry_one_func_nested_block() {
     ];
     run_block_injection(&mut mod_it, &ops_of_interest);
 
-    let result = module.encode();
+    let result = module.encode().expect("error");
     let out = wasmprinter::print_bytes(result).expect("couldn't translate wasm to wat");
     if let Err(e) = check_instrumentation_encoding(&out, file) {
         error!(
@@ -625,7 +624,7 @@ fn test_block_entry_one_func_nested_block() {
 fn test_block_entry_one_func_one_block() {
     let file = "tests/test_inputs/instr_testing/modules/block_entry/one_func_one_block.wat";
     let buff = wat::parse_file(file).expect("couldn't convert the input wat to Wasm");
-    let mut module = Module::parse(&buff, false).expect("Unable to parse");
+    let mut module = Module::parse(&buff, false, false).expect("Unable to parse");
     let mut mod_it = ModuleIterator::new(&mut module, &vec![]);
 
     let block_body = vec![Operator::I32Const { value: 12 }, Operator::Drop];
@@ -644,7 +643,7 @@ fn test_block_entry_one_func_one_block() {
     ];
     run_block_injection(&mut mod_it, &ops_of_interest);
 
-    let result = module.encode();
+    let result = module.encode().expect("error");
     let out = wasmprinter::print_bytes(result).expect("couldn't translate wasm to wat");
     if let Err(e) = check_instrumentation_encoding(&out, file) {
         error!(
@@ -658,7 +657,7 @@ fn test_block_entry_one_func_one_block() {
 fn test_block_entry_one_func_two_blocks() {
     let file = "tests/test_inputs/instr_testing/modules/block_entry/one_func_two_blocks.wat";
     let buff = wat::parse_file(file).expect("couldn't convert the input wat to Wasm");
-    let mut module = Module::parse(&buff, false).expect("Unable to parse");
+    let mut module = Module::parse(&buff, false, false).expect("Unable to parse");
     let mut mod_it = ModuleIterator::new(&mut module, &vec![]);
 
     let block_body = vec![Operator::I32Const { value: 12 }, Operator::Drop];
@@ -681,7 +680,7 @@ fn test_block_entry_one_func_two_blocks() {
     ];
     run_block_injection(&mut mod_it, &ops_of_interest);
 
-    let result = module.encode();
+    let result = module.encode().expect("error");
     let out = wasmprinter::print_bytes(result).expect("couldn't translate wasm to wat");
     if let Err(e) = check_instrumentation_encoding(&out, file) {
         error!(
@@ -695,7 +694,7 @@ fn test_block_entry_one_func_two_blocks() {
 fn test_block_entry_two_funcs_nested_block() {
     let file = "tests/test_inputs/instr_testing/modules/block_entry/two_funcs_nested_block.wat";
     let buff = wat::parse_file(file).expect("couldn't convert the input wat to Wasm");
-    let mut module = Module::parse(&buff, false).expect("Unable to parse");
+    let mut module = Module::parse(&buff, false, false).expect("Unable to parse");
     let mut mod_it = ModuleIterator::new(&mut module, &vec![]);
 
     let block_body = vec![Operator::I32Const { value: 12 }, Operator::Drop];
@@ -723,7 +722,7 @@ fn test_block_entry_two_funcs_nested_block() {
     ];
     run_block_injection(&mut mod_it, &ops_of_interest);
 
-    let result = module.encode();
+    let result = module.encode().expect("error");
     let out = wasmprinter::print_bytes(result).expect("couldn't translate wasm to wat");
     if let Err(e) = check_instrumentation_encoding(&out, file) {
         error!(
@@ -737,7 +736,7 @@ fn test_block_entry_two_funcs_nested_block() {
 fn test_block_entry_two_funcs_one_block() {
     let file = "tests/test_inputs/instr_testing/modules/block_entry/two_funcs_one_block.wat";
     let buff = wat::parse_file(file).expect("couldn't convert the input wat to Wasm");
-    let mut module = Module::parse(&buff, false).expect("Unable to parse");
+    let mut module = Module::parse(&buff, false, false).expect("Unable to parse");
     let mut mod_it = ModuleIterator::new(&mut module, &vec![]);
 
     let block_body = vec![Operator::I32Const { value: 12 }, Operator::Drop];
@@ -765,7 +764,7 @@ fn test_block_entry_two_funcs_one_block() {
     ];
     run_block_injection(&mut mod_it, &ops_of_interest);
 
-    let result = module.encode();
+    let result = module.encode().expect("error");
     let out = wasmprinter::print_bytes(result).expect("couldn't translate wasm to wat");
     if let Err(e) = check_instrumentation_encoding(&out, file) {
         error!(
@@ -779,7 +778,7 @@ fn test_block_entry_two_funcs_one_block() {
 fn test_block_entry_two_funcs_two_blocks() {
     let file = "tests/test_inputs/instr_testing/modules/block_entry/two_funcs_two_blocks.wat";
     let buff = wat::parse_file(file).expect("couldn't convert the input wat to Wasm");
-    let mut module = Module::parse(&buff, false).expect("Unable to parse");
+    let mut module = Module::parse(&buff, false, false).expect("Unable to parse");
     let mut mod_it = ModuleIterator::new(&mut module, &vec![]);
 
     let block_body = vec![Operator::I32Const { value: 12 }, Operator::Drop];
@@ -790,7 +789,7 @@ fn test_block_entry_two_funcs_two_blocks() {
     )];
     run_block_injection(&mut mod_it, &ops_of_interest);
 
-    let result = module.encode();
+    let result = module.encode().expect("error");
     let out = wasmprinter::print_bytes(result).expect("couldn't translate wasm to wat");
     if let Err(e) = check_instrumentation_encoding(&out, file) {
         error!(
@@ -806,7 +805,7 @@ fn test_block_entry_two_funcs_two_blocks() {
 fn test_block_exit_one_func_nested_block() {
     let file = "tests/test_inputs/instr_testing/modules/block_exit/one_func_nested_block.wat";
     let buff = wat::parse_file(file).expect("couldn't convert the input wat to Wasm");
-    let mut module = Module::parse(&buff, false).expect("Unable to parse");
+    let mut module = Module::parse(&buff, false, false).expect("Unable to parse");
     let mut mod_it = ModuleIterator::new(&mut module, &vec![]);
 
     let block_body = vec![Operator::I32Const { value: 12 }, Operator::Drop];
@@ -824,7 +823,7 @@ fn test_block_exit_one_func_nested_block() {
     ];
     run_block_injection(&mut mod_it, &ops_of_interest);
 
-    let result = module.encode();
+    let result = module.encode().expect("error");
     let out = wasmprinter::print_bytes(result).expect("couldn't translate wasm to wat");
     if let Err(e) = check_instrumentation_encoding(&out, file) {
         error!(
@@ -838,7 +837,7 @@ fn test_block_exit_one_func_nested_block() {
 fn test_block_exit_one_func_one_block() {
     let file = "tests/test_inputs/instr_testing/modules/block_exit/one_func_one_block.wat";
     let buff = wat::parse_file(file).expect("couldn't convert the input wat to Wasm");
-    let mut module = Module::parse(&buff, false).expect("Unable to parse");
+    let mut module = Module::parse(&buff, false, false).expect("Unable to parse");
     let mut mod_it = ModuleIterator::new(&mut module, &vec![]);
 
     let block_body = vec![Operator::I32Const { value: 12 }, Operator::Drop];
@@ -856,7 +855,7 @@ fn test_block_exit_one_func_one_block() {
     ];
     run_block_injection(&mut mod_it, &ops_of_interest);
 
-    let result = module.encode();
+    let result = module.encode().expect("error");
     let out = wasmprinter::print_bytes(result).expect("couldn't translate wasm to wat");
     if let Err(e) = check_instrumentation_encoding(&out, file) {
         error!(
@@ -870,7 +869,7 @@ fn test_block_exit_one_func_one_block() {
 fn test_block_exit_one_func_two_blocks() {
     let file = "tests/test_inputs/instr_testing/modules/block_exit/one_func_two_blocks.wat";
     let buff = wat::parse_file(file).expect("couldn't convert the input wat to Wasm");
-    let mut module = Module::parse(&buff, false).expect("Unable to parse");
+    let mut module = Module::parse(&buff, false, false).expect("Unable to parse");
     let mut mod_it = ModuleIterator::new(&mut module, &vec![]);
 
     let block_body = vec![Operator::I32Const { value: 12 }, Operator::Drop];
@@ -893,7 +892,7 @@ fn test_block_exit_one_func_two_blocks() {
     ];
     run_block_injection(&mut mod_it, &ops_of_interest);
 
-    let result = module.encode();
+    let result = module.encode().expect("error");
     let out = wasmprinter::print_bytes(result).expect("couldn't translate wasm to wat");
     if let Err(e) = check_instrumentation_encoding(&out, file) {
         error!(
@@ -907,7 +906,7 @@ fn test_block_exit_one_func_two_blocks() {
 fn test_block_exit_two_funcs_nested_block() {
     let file = "tests/test_inputs/instr_testing/modules/block_exit/two_funcs_nested_block.wat";
     let buff = wat::parse_file(file).expect("couldn't convert the input wat to Wasm");
-    let mut module = Module::parse(&buff, false).expect("Unable to parse");
+    let mut module = Module::parse(&buff, false, false).expect("Unable to parse");
     let mut mod_it = ModuleIterator::new(&mut module, &vec![]);
 
     let block_body = vec![Operator::I32Const { value: 12 }, Operator::Drop];
@@ -935,7 +934,7 @@ fn test_block_exit_two_funcs_nested_block() {
     ];
     run_block_injection(&mut mod_it, &ops_of_interest);
 
-    let result = module.encode();
+    let result = module.encode().expect("error");
     let out = wasmprinter::print_bytes(result).expect("couldn't translate wasm to wat");
     if let Err(e) = check_instrumentation_encoding(&out, file) {
         error!(
@@ -949,7 +948,7 @@ fn test_block_exit_two_funcs_nested_block() {
 fn test_block_exit_two_funcs_one_block() {
     let file = "tests/test_inputs/instr_testing/modules/block_exit/two_funcs_one_block.wat";
     let buff = wat::parse_file(file).expect("couldn't convert the input wat to Wasm");
-    let mut module = Module::parse(&buff, false).expect("Unable to parse");
+    let mut module = Module::parse(&buff, false, false).expect("Unable to parse");
     let mut mod_it = ModuleIterator::new(&mut module, &vec![]);
 
     let block_body = vec![Operator::I32Const { value: 12 }, Operator::Drop];
@@ -977,7 +976,7 @@ fn test_block_exit_two_funcs_one_block() {
     ];
     run_block_injection(&mut mod_it, &ops_of_interest);
 
-    let result = module.encode();
+    let result = module.encode().expect("error");
     let out = wasmprinter::print_bytes(result).expect("couldn't translate wasm to wat");
     if let Err(e) = check_instrumentation_encoding(&out, file) {
         error!(
@@ -991,7 +990,7 @@ fn test_block_exit_two_funcs_one_block() {
 fn test_block_exit_two_funcs_two_blocks() {
     let file = "tests/test_inputs/instr_testing/modules/block_exit/two_funcs_two_blocks.wat";
     let buff = wat::parse_file(file).expect("couldn't convert the input wat to Wasm");
-    let mut module = Module::parse(&buff, false).expect("Unable to parse");
+    let mut module = Module::parse(&buff, false, false).expect("Unable to parse");
     let mut mod_it = ModuleIterator::new(&mut module, &vec![]);
 
     let block_body = vec![Operator::I32Const { value: 12 }, Operator::Drop];
@@ -1002,7 +1001,7 @@ fn test_block_exit_two_funcs_two_blocks() {
     )];
     run_block_injection(&mut mod_it, &ops_of_interest);
 
-    let result = module.encode();
+    let result = module.encode().expect("error");
     let out = wasmprinter::print_bytes(result).expect("couldn't translate wasm to wat");
     if let Err(e) = check_instrumentation_encoding(&out, file) {
         error!(
@@ -1018,14 +1017,14 @@ fn test_block_exit_two_funcs_two_blocks() {
 fn test_fn_entry_one_func() {
     let file = "tests/test_inputs/instr_testing/modules/fn_entry/one_func.wat";
     let buff = wat::parse_file(file).expect("couldn't convert the input wat to Wasm");
-    let mut module = Module::parse(&buff, false).expect("Unable to parse");
+    let mut module = Module::parse(&buff, false, false).expect("Unable to parse");
     let mut mod_it = ModuleIterator::new(&mut module, &vec![]);
 
     let fn_entry_body = vec![Operator::I32Const { value: 1 }, Operator::Drop];
 
     inject_function_entry(&mut mod_it, fn_entry_body);
 
-    let result = module.encode();
+    let result = module.encode().expect("error");
     let out = wasmprinter::print_bytes(result).expect("couldn't translate wasm to wat");
     if let Err(e) = check_instrumentation_encoding(&out, file) {
         error!(
@@ -1039,14 +1038,14 @@ fn test_fn_entry_one_func() {
 fn test_fn_entry_two_funcs() {
     let file = "tests/test_inputs/instr_testing/modules/fn_entry/two_funcs.wat";
     let buff = wat::parse_file(file).expect("couldn't convert the input wat to Wasm");
-    let mut module = Module::parse(&buff, false).expect("Unable to parse");
+    let mut module = Module::parse(&buff, false, false).expect("Unable to parse");
     let mut mod_it = ModuleIterator::new(&mut module, &vec![]);
 
     let fn_entry_body = vec![Operator::I32Const { value: 1 }, Operator::Drop];
 
     inject_function_entry(&mut mod_it, fn_entry_body);
 
-    let result = module.encode();
+    let result = module.encode().expect("error");
     let out = wasmprinter::print_bytes(result).expect("couldn't translate wasm to wat");
     if let Err(e) = check_instrumentation_encoding(&out, file) {
         error!(
@@ -1062,14 +1061,14 @@ fn test_fn_entry_two_funcs() {
 fn test_fn_exit_one_func() {
     let file = "tests/test_inputs/instr_testing/modules/fn_exit/one_func.wat";
     let buff = wat::parse_file(file).expect("couldn't convert the input wat to Wasm");
-    let mut module = Module::parse(&buff, false).expect("Unable to parse");
+    let mut module = Module::parse(&buff, false, false).expect("Unable to parse");
     let mut mod_it = ModuleIterator::new(&mut module, &vec![]);
 
     let fn_entry_body = vec![Operator::I32Const { value: 1 }, Operator::Drop];
 
     inject_function_exit(&mut mod_it, fn_entry_body);
 
-    let result = module.encode();
+    let result = module.encode().expect("error");
     let out = wasmprinter::print_bytes(result).expect("couldn't translate wasm to wat");
     if let Err(e) = check_instrumentation_encoding(&out, file) {
         error!(
@@ -1083,14 +1082,14 @@ fn test_fn_exit_one_func() {
 fn test_fn_exit_two_funcs() {
     let file = "tests/test_inputs/instr_testing/modules/fn_exit/two_funcs.wat";
     let buff = wat::parse_file(file).expect("couldn't convert the input wat to Wasm");
-    let mut module = Module::parse(&buff, false).expect("Unable to parse");
+    let mut module = Module::parse(&buff, false, false).expect("Unable to parse");
     let mut mod_it = ModuleIterator::new(&mut module, &vec![]);
 
     let fn_entry_body = vec![Operator::I32Const { value: 1 }, Operator::Drop];
 
     inject_function_exit(&mut mod_it, fn_entry_body);
 
-    let result = module.encode();
+    let result = module.encode().expect("error");
     let out = wasmprinter::print_bytes(result).expect("couldn't translate wasm to wat");
     if let Err(e) = check_instrumentation_encoding(&out, file) {
         error!(
@@ -1105,7 +1104,7 @@ fn test_fn_exit_two_funcs() {
 fn test_semantic_after_complex_mult_nested_diff_opcodes() {
     let file = "tests/test_inputs/instr_testing/modules/semantic_after/complex_mult_nested_diff_opcodes.wat";
     let buff = wat::parse_file(file).expect("couldn't convert the input wat to Wasm");
-    let mut module = Module::parse(&buff, false).expect("Unable to parse");
+    let mut module = Module::parse(&buff, false, false).expect("Unable to parse");
     let mut mod_it = ModuleIterator::new(&mut module, &vec![]);
 
     let block_body = vec![Operator::I32Const { value: 12 }, Operator::Drop];
@@ -1148,7 +1147,7 @@ fn test_semantic_after_complex_mult_nested_diff_opcodes() {
     ];
     run_block_injection(&mut mod_it, &ops_of_interest);
 
-    let result = module.encode();
+    let result = module.encode().expect("error");
     let out = wasmprinter::print_bytes(result).expect("couldn't translate wasm to wat");
     if let Err(e) = check_instrumentation_encoding(&out, file) {
         error!(
@@ -1162,7 +1161,7 @@ fn test_semantic_after_complex_mult_nested_diff_opcodes() {
 fn test_semantic_after_medium_1br() {
     let file = "tests/test_inputs/instr_testing/modules/semantic_after/medium_1br.wat";
     let buff = wat::parse_file(file).expect("couldn't convert the input wat to Wasm");
-    let mut module = Module::parse(&buff, false).expect("Unable to parse");
+    let mut module = Module::parse(&buff, false, false).expect("Unable to parse");
     let mut mod_it = ModuleIterator::new(&mut module, &vec![]);
 
     let block_body = vec![Operator::I32Const { value: 12 }, Operator::Drop];
@@ -1180,7 +1179,7 @@ fn test_semantic_after_medium_1br() {
     ];
     run_block_injection(&mut mod_it, &ops_of_interest);
 
-    let result = module.encode();
+    let result = module.encode().expect("error");
     let out = wasmprinter::print_bytes(result).expect("couldn't translate wasm to wat");
     if let Err(e) = check_instrumentation_encoding(&out, file) {
         error!(
@@ -1194,7 +1193,7 @@ fn test_semantic_after_medium_1br() {
 fn test_semantic_after_medium_1br_if() {
     let file = "tests/test_inputs/instr_testing/modules/semantic_after/medium_1br_if.wat";
     let buff = wat::parse_file(file).expect("couldn't convert the input wat to Wasm");
-    let mut module = Module::parse(&buff, false).expect("Unable to parse");
+    let mut module = Module::parse(&buff, false, false).expect("Unable to parse");
     let mut mod_it = ModuleIterator::new(&mut module, &vec![]);
 
     let block_body = vec![Operator::I32Const { value: 12 }, Operator::Drop];
@@ -1212,7 +1211,7 @@ fn test_semantic_after_medium_1br_if() {
     ];
     run_block_injection(&mut mod_it, &ops_of_interest);
 
-    let result = module.encode();
+    let result = module.encode().expect("error");
     let out = wasmprinter::print_bytes(result).expect("couldn't translate wasm to wat");
     if let Err(e) = check_instrumentation_encoding(&out, file) {
         error!(
@@ -1226,7 +1225,7 @@ fn test_semantic_after_medium_1br_if() {
 fn test_semantic_after_medium_1br_table() {
     let file = "tests/test_inputs/instr_testing/modules/semantic_after/medium_1br_table.wat";
     let buff = wat::parse_file(file).expect("couldn't convert the input wat to Wasm");
-    let mut module = Module::parse(&buff, false).expect("Unable to parse");
+    let mut module = Module::parse(&buff, false, false).expect("Unable to parse");
     let mut mod_it = ModuleIterator::new(&mut module, &vec![]);
 
     let block_body = vec![Operator::I32Const { value: 12 }, Operator::Drop];
@@ -1244,7 +1243,7 @@ fn test_semantic_after_medium_1br_table() {
     ];
     run_block_injection(&mut mod_it, &ops_of_interest);
 
-    let result = module.encode();
+    let result = module.encode().expect("error");
     let out = wasmprinter::print_bytes(result).expect("couldn't translate wasm to wat");
     if let Err(e) = check_instrumentation_encoding(&out, file) {
         error!(
@@ -1258,7 +1257,7 @@ fn test_semantic_after_medium_1br_table() {
 fn test_semantic_after_medium_2br() {
     let file = "tests/test_inputs/instr_testing/modules/semantic_after/medium_2br.wat";
     let buff = wat::parse_file(file).expect("couldn't convert the input wat to Wasm");
-    let mut module = Module::parse(&buff, false).expect("Unable to parse");
+    let mut module = Module::parse(&buff, false, false).expect("Unable to parse");
     let mut mod_it = ModuleIterator::new(&mut module, &vec![]);
 
     let block_body = vec![Operator::I32Const { value: 12 }, Operator::Drop];
@@ -1276,7 +1275,7 @@ fn test_semantic_after_medium_2br() {
     ];
     run_block_injection(&mut mod_it, &ops_of_interest);
 
-    let result = module.encode();
+    let result = module.encode().expect("error");
     let out = wasmprinter::print_bytes(result).expect("couldn't translate wasm to wat");
     if let Err(e) = check_instrumentation_encoding(&out, file) {
         error!(
@@ -1290,7 +1289,7 @@ fn test_semantic_after_medium_2br() {
 fn test_semantic_after_medium_2br_if() {
     let file = "tests/test_inputs/instr_testing/modules/semantic_after/medium_2br_if.wat";
     let buff = wat::parse_file(file).expect("couldn't convert the input wat to Wasm");
-    let mut module = Module::parse(&buff, false).expect("Unable to parse");
+    let mut module = Module::parse(&buff, false, false).expect("Unable to parse");
     let mut mod_it = ModuleIterator::new(&mut module, &vec![]);
 
     let block_body = vec![Operator::I32Const { value: 12 }, Operator::Drop];
@@ -1308,7 +1307,7 @@ fn test_semantic_after_medium_2br_if() {
     ];
     run_block_injection(&mut mod_it, &ops_of_interest);
 
-    let result = module.encode();
+    let result = module.encode().expect("error");
     let out = wasmprinter::print_bytes(result).expect("couldn't translate wasm to wat");
     if let Err(e) = check_instrumentation_encoding(&out, file) {
         error!(
@@ -1322,7 +1321,7 @@ fn test_semantic_after_medium_2br_if() {
 fn test_semantic_after_medium_2br_table() {
     let file = "tests/test_inputs/instr_testing/modules/semantic_after/medium_2br_table.wat";
     let buff = wat::parse_file(file).expect("couldn't convert the input wat to Wasm");
-    let mut module = Module::parse(&buff, false).expect("Unable to parse");
+    let mut module = Module::parse(&buff, false, false).expect("Unable to parse");
     let mut mod_it = ModuleIterator::new(&mut module, &vec![]);
 
     let block_body = vec![Operator::I32Const { value: 12 }, Operator::Drop];
@@ -1340,7 +1339,7 @@ fn test_semantic_after_medium_2br_table() {
     ];
     run_block_injection(&mut mod_it, &ops_of_interest);
 
-    let result = module.encode();
+    let result = module.encode().expect("error");
     let out = wasmprinter::print_bytes(result).expect("couldn't translate wasm to wat");
     if let Err(e) = check_instrumentation_encoding(&out, file) {
         error!(
@@ -1354,7 +1353,7 @@ fn test_semantic_after_medium_2br_table() {
 fn test_semantic_after_medium_blocks() {
     let file = "tests/test_inputs/instr_testing/modules/semantic_after/medium_blocks.wat";
     let buff = wat::parse_file(file).expect("couldn't convert the input wat to Wasm");
-    let mut module = Module::parse(&buff, false).expect("Unable to parse");
+    let mut module = Module::parse(&buff, false, false).expect("Unable to parse");
     let mut mod_it = ModuleIterator::new(&mut module, &vec![]);
 
     let block_body = vec![Operator::I32Const { value: 12 }, Operator::Drop];
@@ -1372,7 +1371,7 @@ fn test_semantic_after_medium_blocks() {
     ];
     run_block_injection(&mut mod_it, &ops_of_interest);
 
-    let result = module.encode();
+    let result = module.encode().expect("error");
     let out = wasmprinter::print_bytes(result).expect("couldn't translate wasm to wat");
     if let Err(e) = check_instrumentation_encoding(&out, file) {
         error!(
@@ -1386,7 +1385,7 @@ fn test_semantic_after_medium_blocks() {
 fn test_semantic_after_medium_ifelse() {
     let file = "tests/test_inputs/instr_testing/modules/semantic_after/medium_ifelse.wat";
     let buff = wat::parse_file(file).expect("couldn't convert the input wat to Wasm");
-    let mut module = Module::parse(&buff, false).expect("Unable to parse");
+    let mut module = Module::parse(&buff, false, false).expect("Unable to parse");
     let mut mod_it = ModuleIterator::new(&mut module, &vec![]);
 
     let block_body = vec![Operator::I32Const { value: 12 }, Operator::Drop];
@@ -1419,7 +1418,7 @@ fn test_semantic_after_medium_ifelse() {
     ];
     run_block_injection(&mut mod_it, &ops_of_interest);
 
-    let result = module.encode();
+    let result = module.encode().expect("error");
     let out = wasmprinter::print_bytes(result).expect("couldn't translate wasm to wat");
     if let Err(e) = check_instrumentation_encoding(&out, file) {
         error!(
@@ -1433,7 +1432,7 @@ fn test_semantic_after_medium_ifelse() {
 fn test_semantic_after_medium_ifs() {
     let file = "tests/test_inputs/instr_testing/modules/semantic_after/medium_ifs.wat";
     let buff = wat::parse_file(file).expect("couldn't convert the input wat to Wasm");
-    let mut module = Module::parse(&buff, false).expect("Unable to parse");
+    let mut module = Module::parse(&buff, false, false).expect("Unable to parse");
     let mut mod_it = ModuleIterator::new(&mut module, &vec![]);
 
     let block_body = vec![Operator::I32Const { value: 12 }, Operator::Drop];
@@ -1461,7 +1460,7 @@ fn test_semantic_after_medium_ifs() {
     ];
     run_block_injection(&mut mod_it, &ops_of_interest);
 
-    let result = module.encode();
+    let result = module.encode().expect("error");
     let out = wasmprinter::print_bytes(result).expect("couldn't translate wasm to wat");
     if let Err(e) = check_instrumentation_encoding(&out, file) {
         error!(
@@ -1475,7 +1474,7 @@ fn test_semantic_after_medium_ifs() {
 fn test_semantic_after_medium_multiple() {
     let file = "tests/test_inputs/instr_testing/modules/semantic_after/medium_multiple.wat";
     let buff = wat::parse_file(file).expect("couldn't convert the input wat to Wasm");
-    let mut module = Module::parse(&buff, false).expect("Unable to parse");
+    let mut module = Module::parse(&buff, false, false).expect("Unable to parse");
     let mut mod_it = ModuleIterator::new(&mut module, &vec![]);
 
     let br_if_body = vec![Operator::I32Const { value: 1234 }, Operator::Drop];
@@ -1493,7 +1492,7 @@ fn test_semantic_after_medium_multiple() {
     ];
     run_block_injection(&mut mod_it, &ops_of_interest);
 
-    let result = module.encode();
+    let result = module.encode().expect("error");
     let out = wasmprinter::print_bytes(result).expect("couldn't translate wasm to wat");
     if let Err(e) = check_instrumentation_encoding(&out, file) {
         error!(
@@ -1513,7 +1512,7 @@ fn test_semantic_after_medium_other_operators() {
 fn test_semantic_after_simple_1br() {
     let file = "tests/test_inputs/instr_testing/modules/semantic_after/simple_1br.wat";
     let buff = wat::parse_file(file).expect("couldn't convert the input wat to Wasm");
-    let mut module = Module::parse(&buff, false).expect("Unable to parse");
+    let mut module = Module::parse(&buff, false, false).expect("Unable to parse");
     let mut mod_it = ModuleIterator::new(&mut module, &vec![]);
 
     let br_body = vec![Operator::I32Const { value: 1234 }, Operator::Drop];
@@ -1524,7 +1523,7 @@ fn test_semantic_after_simple_1br() {
     )];
     run_block_injection(&mut mod_it, &ops_of_interest);
 
-    let result = module.encode();
+    let result = module.encode().expect("error");
     let out = wasmprinter::print_bytes(result).expect("couldn't translate wasm to wat");
     if let Err(e) = check_instrumentation_encoding(&out, file) {
         error!(
@@ -1538,7 +1537,7 @@ fn test_semantic_after_simple_1br() {
 fn test_semantic_after_simple_1br_if() {
     let file = "tests/test_inputs/instr_testing/modules/semantic_after/simple_1br_if.wat";
     let buff = wat::parse_file(file).expect("couldn't convert the input wat to Wasm");
-    let mut module = Module::parse(&buff, false).expect("Unable to parse");
+    let mut module = Module::parse(&buff, false, false).expect("Unable to parse");
     let mut mod_it = ModuleIterator::new(&mut module, &vec![]);
 
     let br_if_body = vec![Operator::I32Const { value: 1234 }, Operator::Drop];
@@ -1549,7 +1548,7 @@ fn test_semantic_after_simple_1br_if() {
     )];
     run_block_injection(&mut mod_it, &ops_of_interest);
 
-    let result = module.encode();
+    let result = module.encode().expect("error");
     let out = wasmprinter::print_bytes(result).expect("couldn't translate wasm to wat");
     if let Err(e) = check_instrumentation_encoding(&out, file) {
         error!(
@@ -1563,7 +1562,7 @@ fn test_semantic_after_simple_1br_if() {
 fn test_semantic_after_simple_1br_table() {
     let file = "tests/test_inputs/instr_testing/modules/semantic_after/simple_1br_table.wat";
     let buff = wat::parse_file(file).expect("couldn't convert the input wat to Wasm");
-    let mut module = Module::parse(&buff, false).expect("Unable to parse");
+    let mut module = Module::parse(&buff, false, false).expect("Unable to parse");
     let mut mod_it = ModuleIterator::new(&mut module, &vec![]);
 
     let br_table_body = vec![Operator::I32Const { value: 1234 }, Operator::Drop];
@@ -1574,7 +1573,7 @@ fn test_semantic_after_simple_1br_table() {
     )];
     run_block_injection(&mut mod_it, &ops_of_interest);
 
-    let result = module.encode();
+    let result = module.encode().expect("error");
     let out = wasmprinter::print_bytes(result).expect("couldn't translate wasm to wat");
     if let Err(e) = check_instrumentation_encoding(&out, file) {
         error!(
@@ -1588,7 +1587,7 @@ fn test_semantic_after_simple_1br_table() {
 fn test_semantic_after_simple_1if() {
     let file = "tests/test_inputs/instr_testing/modules/semantic_after/simple_1if.wat";
     let buff = wat::parse_file(file).expect("couldn't convert the input wat to Wasm");
-    let mut module = Module::parse(&buff, false).expect("Unable to parse");
+    let mut module = Module::parse(&buff, false, false).expect("Unable to parse");
     let mut mod_it = ModuleIterator::new(&mut module, &vec![]);
 
     let if_body = vec![Operator::I32Const { value: 12 }, Operator::Drop];
@@ -1606,7 +1605,7 @@ fn test_semantic_after_simple_1if() {
     ];
     run_block_injection(&mut mod_it, &ops_of_interest);
 
-    let result = module.encode();
+    let result = module.encode().expect("error");
     let out = wasmprinter::print_bytes(result).expect("couldn't translate wasm to wat");
     if let Err(e) = check_instrumentation_encoding(&out, file) {
         error!(
@@ -1620,7 +1619,7 @@ fn test_semantic_after_simple_1if() {
 fn test_semantic_after_simple_2br() {
     let file = "tests/test_inputs/instr_testing/modules/semantic_after/simple_2br.wat";
     let buff = wat::parse_file(file).expect("couldn't convert the input wat to Wasm");
-    let mut module = Module::parse(&buff, false).expect("Unable to parse");
+    let mut module = Module::parse(&buff, false, false).expect("Unable to parse");
     let mut mod_it = ModuleIterator::new(&mut module, &vec![]);
 
     let br_body = vec![Operator::I32Const { value: 1234 }, Operator::Drop];
@@ -1631,7 +1630,7 @@ fn test_semantic_after_simple_2br() {
     )];
     run_block_injection(&mut mod_it, &ops_of_interest);
 
-    let result = module.encode();
+    let result = module.encode().expect("error");
     let out = wasmprinter::print_bytes(result).expect("couldn't translate wasm to wat");
     if let Err(e) = check_instrumentation_encoding(&out, file) {
         error!(
@@ -1645,7 +1644,7 @@ fn test_semantic_after_simple_2br() {
 fn test_semantic_after_simple_2br_if() {
     let file = "tests/test_inputs/instr_testing/modules/semantic_after/simple_2br_if.wat";
     let buff = wat::parse_file(file).expect("couldn't convert the input wat to Wasm");
-    let mut module = Module::parse(&buff, false).expect("Unable to parse");
+    let mut module = Module::parse(&buff, false, false).expect("Unable to parse");
     let mut mod_it = ModuleIterator::new(&mut module, &vec![]);
 
     let br_if_body = vec![Operator::I32Const { value: 1234 }, Operator::Drop];
@@ -1656,7 +1655,7 @@ fn test_semantic_after_simple_2br_if() {
     )];
     run_block_injection(&mut mod_it, &ops_of_interest);
 
-    let result = module.encode();
+    let result = module.encode().expect("error");
     let out = wasmprinter::print_bytes(result).expect("couldn't translate wasm to wat");
     if let Err(e) = check_instrumentation_encoding(&out, file) {
         error!(
@@ -1670,7 +1669,7 @@ fn test_semantic_after_simple_2br_if() {
 fn test_semantic_after_simple_2br_table() {
     let file = "tests/test_inputs/instr_testing/modules/semantic_after/simple_2br_table.wat";
     let buff = wat::parse_file(file).expect("couldn't convert the input wat to Wasm");
-    let mut module = Module::parse(&buff, false).expect("Unable to parse");
+    let mut module = Module::parse(&buff, false, false).expect("Unable to parse");
     let mut mod_it = ModuleIterator::new(&mut module, &vec![]);
 
     let br_table_body = vec![Operator::I32Const { value: 1234 }, Operator::Drop];
@@ -1681,7 +1680,7 @@ fn test_semantic_after_simple_2br_table() {
     )];
     run_block_injection(&mut mod_it, &ops_of_interest);
 
-    let result = module.encode();
+    let result = module.encode().expect("error");
     let out = wasmprinter::print_bytes(result).expect("couldn't translate wasm to wat");
     if let Err(e) = check_instrumentation_encoding(&out, file) {
         error!(
@@ -1695,12 +1694,12 @@ fn test_semantic_after_simple_2br_table() {
 fn add_imports_when_has_start_func() {
     let file = "tests/test_inputs/instr_testing/modules/add-imports-when-has-start-func.wat";
     let buff = wat::parse_file(file).expect("couldn't convert the input wat to Wasm");
-    let mut module = Module::parse(&buff, false).expect("Unable to parse");
+    let mut module = Module::parse(&buff, false, false).expect("Unable to parse");
 
     module.add_import_func("ima".to_string(), "new_import".to_string(), TypeID(0));
     module.add_import_func("ya_dont".to_string(), "say".to_string(), TypeID(0));
 
-    let result = module.encode();
+    let result = module.encode().expect("error");
     let out = wasmprinter::print_bytes(result).expect("couldn't translate wasm to wat");
     if let Err(e) = check_instrumentation_encoding(&out, file) {
         error!(
@@ -1778,6 +1777,7 @@ fn run_block_injection<'a, 'b, 'c>(
                         // has body
                         mod_it.set_instrument_mode(*mode);
                         mod_it.inject_all(body);
+                        mod_it.finish_instr();
                     } else {
                         // has no body...effectively removing
                         match mode {

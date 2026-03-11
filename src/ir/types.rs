@@ -12,14 +12,16 @@ use wasm_encoder::reencode::Reencode;
 use wasm_encoder::{AbstractHeapType, Encode, Ieee32, Ieee64};
 
 use wasmparser::types::TypeIdentifier;
-use wasmparser::{ConstExpr, HeapType, Operator, RefType, ValType};
+use wasmparser::{ConstExpr, HeapType, Operator, RefType, UnpackedIndex, ValType};
 
 use crate::error::Error;
+use crate::error::Error::{InstrumentationError, UnknownId};
 use crate::ir::id::{CustomSectionID, FunctionID, GlobalID, ModuleID, TypeID};
 use crate::ir::module::side_effects::{InjectType, Injection};
 use crate::ir::module::{add_injection, fix_op_id_mapping};
+use crate::ir::types;
 
-type Result<T> = std::result::Result<T, Error>;
+pub type Result<T> = std::result::Result<T, Error>;
 
 /// An optional tag that flags items that have been added to the module.
 /// It can also carry some bytes of information the explain why it was added.
@@ -245,13 +247,13 @@ impl From<ValType> for DataType {
                     wasmparser::AbstractHeapType::Cont => DataType::Cont,
                     wasmparser::AbstractHeapType::NoCont => DataType::NoCont,
                 },
-                HeapType::Concrete(u) => match u {
-                    wasmparser::UnpackedIndex::Module(idx) => DataType::Module {
+                HeapType::Concrete(u) | HeapType::Exact(u) => match u {
+                    UnpackedIndex::Module(idx) => DataType::Module {
                         ty_id: *ModuleID(idx),
                         nullable: ref_type.is_nullable(),
                     },
-                    wasmparser::UnpackedIndex::RecGroup(idx) => DataType::RecGroup(idx),
-                    wasmparser::UnpackedIndex::Id(_id) => panic!("Not supported yet!"),
+                    UnpackedIndex::RecGroup(idx) => DataType::RecGroup(idx),
+                    UnpackedIndex::Id(_id) => unimplemented!("Not supported yet!"),
                 },
             },
         }
@@ -611,7 +613,7 @@ impl From<&DataType> for ValType {
                 )
                 .unwrap(),
             ),
-            DataType::CoreTypeId(_idx) => panic!("Not Supported Yet!"),
+            DataType::CoreTypeId(_idx) => unimplemented!("Not Supported Yet!"),
             DataType::Cont => ValType::Ref(
                 RefType::new(
                     false,
@@ -854,7 +856,7 @@ impl TagUtils for FuncInstrFlag<'_> {
     fn get_or_create_tag(&mut self) -> &mut Tag {
         match self.current_mode {
             None => {
-                panic!("Current mode is not set...cannot append to the tag!")
+                panic!("Internal error: Current mode is not set...cannot append to the tag!")
             }
             Some(FuncInstrMode::Entry) => self.entry.get_or_create_tag(),
             Some(FuncInstrMode::Exit) => self.exit.get_or_create_tag(),
@@ -864,7 +866,7 @@ impl TagUtils for FuncInstrFlag<'_> {
     fn get_tag(&self) -> &Option<Tag> {
         match self.current_mode {
             None => {
-                panic!("Current mode is not set...cannot append to the tag!")
+                panic!("Internal error: Current mode is not set...cannot append to the tag!")
             }
             Some(FuncInstrMode::Entry) => self.entry.get_tag(),
             Some(FuncInstrMode::Exit) => self.exit.get_tag(),
@@ -936,7 +938,7 @@ impl<'a> FuncInstrFlag<'a> {
         self.has_special_instr = true;
         match self.current_mode {
             None => {
-                panic!("Current mode is not set...cannot inject instructions!")
+                panic!("Internal error: Current mode is not set...cannot inject instructions!")
             }
             Some(FuncInstrMode::Entry) => self.entry.instrs.push(val),
             Some(FuncInstrMode::Exit) => self.exit.instrs.push(val),
@@ -944,20 +946,20 @@ impl<'a> FuncInstrFlag<'a> {
     }
 
     /// Get an instruction to the current FuncInstrMode's list
-    pub fn get_instr(&self, idx: usize) -> &Operator {
+    pub fn get_instr(&self, idx: usize) -> &Operator<'_> {
         match self.current_mode {
             None => {
-                panic!("Current mode is not set...cannot grab instruction without context!")
+                panic!("Internal error: Current mode is not set...cannot grab instruction without context!")
             }
-            Some(FuncInstrMode::Entry) => self.entry.instrs.get(idx).unwrap(),
-            Some(FuncInstrMode::Exit) => self.exit.instrs.get(idx).unwrap(),
+            Some(FuncInstrMode::Entry) => &self.entry.instrs[idx],
+            Some(FuncInstrMode::Exit) => &self.exit.instrs[idx],
         }
     }
 
     pub fn instr_len(&self) -> usize {
         match self.current_mode {
             None => {
-                panic!("Current mode is not set...cannot grab instruction without context!")
+                panic!("Internal error: Current mode is not set...cannot grab instruction without context!")
             }
             Some(FuncInstrMode::Entry) => self.entry.instrs.len(),
             Some(FuncInstrMode::Exit) => self.exit.instrs.len(),
@@ -971,32 +973,35 @@ impl<'a> FuncInstrFlag<'a> {
         global_mapping: &HashMap<u32, u32>,
         memory_mapping: &HashMap<u32, u32>,
         side_effects: &mut HashMap<InjectType, Vec<Injection<'a>>>,
-    ) {
+    ) -> types::Result<()> {
         let Self { entry, exit, .. } = self;
-        let mut add_inj = |mode: FuncInstrMode, instrs: &mut InjectedInstrs<'a>| {
-            // Fix the ID mapping in each of the injected opcodes.
-            for op in instrs.instrs.iter_mut() {
-                fix_op_id_mapping(op, func_mapping, global_mapping, memory_mapping);
-            }
+        let mut add_inj =
+            |mode: FuncInstrMode, instrs: &mut InjectedInstrs<'a>| -> types::Result<()> {
+                // Fix the ID mapping in each of the injected opcodes.
+                for op in instrs.instrs.iter_mut() {
+                    fix_op_id_mapping(op, func_mapping, global_mapping, memory_mapping)?;
+                }
 
-            if instrs.instrs.is_empty() {
-                return;
-            }
+                if instrs.instrs.is_empty() {
+                    return Ok(());
+                }
 
-            add_injection(
-                side_effects,
-                InjectType::Probe,
-                Injection::FuncProbe {
-                    target_fid: fid,
-                    mode,
-                    body: instrs.instrs.clone(),
-                    tag: instrs.tag.clone().unwrap_or_default(),
-                },
-            );
-        };
+                add_injection(
+                    side_effects,
+                    InjectType::Probe,
+                    Injection::FuncProbe {
+                        target_fid: fid,
+                        mode,
+                        body: instrs.instrs.clone(),
+                        tag: instrs.tag.clone().unwrap_or_default(),
+                    },
+                );
+                Ok(())
+            };
 
-        add_inj(FuncInstrMode::Entry, entry);
-        add_inj(FuncInstrMode::Exit, exit);
+        add_inj(FuncInstrMode::Entry, entry)?;
+        add_inj(FuncInstrMode::Exit, exit)?;
+        Ok(())
     }
 
     /// Can be called after finishing some instrumentation to reset the mode.
@@ -1043,7 +1048,7 @@ impl TagUtils for InstrumentationFlag<'_> {
     fn get_or_create_tag(&mut self) -> &mut Tag {
         match self.current_mode {
             None => {
-                panic!("Current mode is not set...cannot get the tag!")
+                panic!("Internal error: Current mode is not set...cannot get the tag!")
             }
             Some(InstrumentationMode::Before) => self.before.get_or_create_tag(),
             Some(InstrumentationMode::After) => self.after.get_or_create_tag(),
@@ -1062,7 +1067,7 @@ impl TagUtils for InstrumentationFlag<'_> {
     fn get_tag(&self) -> &Option<Tag> {
         match self.current_mode {
             None => {
-                panic!("Current mode is not set...cannot get the tag!")
+                panic!("Internal error: Current mode is not set...cannot get the tag!")
             }
             Some(InstrumentationMode::Before) => self.before.get_tag(),
             Some(InstrumentationMode::After) => self.after.get_tag(),
@@ -1241,7 +1246,7 @@ impl<'a> InstrumentationFlag<'a> {
     pub fn add_instr(&mut self, op: &Operator, val: Operator<'a>) -> bool {
         match self.current_mode {
             None => {
-                panic!("Current mode is not set...cannot inject instructions!")
+                panic!("Internal error: Current mode is not set...cannot inject instructions!")
             }
             Some(InstrumentationMode::Before) => {
                 self.before.instrs.push(val);
@@ -1385,25 +1390,29 @@ impl<'a> InstrumentationFlag<'a> {
     }
 
     /// Get an instruction to the current InstrumentationMode's list
-    pub fn get_instr(&self, idx: usize) -> &Operator {
+    pub fn get_instr(&self, idx: usize) -> Result<&Operator<'_>> {
         match self.current_mode {
-            None => {
-                panic!("Current mode is not set...cannot grab instruction without context!")
-            }
-            Some(InstrumentationMode::Before) => self.before.instrs.get(idx).unwrap(),
-            Some(InstrumentationMode::After) => self.after.instrs.get(idx).unwrap(),
+            None => Err(InstrumentationError(
+                "Current mode is not set...cannot grab instruction without context!".to_string(),
+            )),
+            Some(InstrumentationMode::Before) => Ok(&self.before.instrs[idx]),
+            Some(InstrumentationMode::After) => Ok(&self.after.instrs[idx]),
             Some(InstrumentationMode::Alternate) => match &self.alternate {
-                None => panic!("No alternate instructions to pull idx '{}' from", idx),
-                Some(alternate) => alternate.instrs.get(idx).unwrap(),
+                None => Err(InstrumentationError(format!(
+                    "No alternate instructions to pull idx '{}' from",
+                    idx
+                ))),
+                Some(alternate) => Ok(&alternate.instrs[idx]),
             },
-            Some(InstrumentationMode::SemanticAfter) => {
-                self.semantic_after.instrs.get(idx).unwrap()
-            }
-            Some(InstrumentationMode::BlockEntry) => self.block_entry.instrs.get(idx).unwrap(),
-            Some(InstrumentationMode::BlockExit) => self.block_exit.instrs.get(idx).unwrap(),
+            Some(InstrumentationMode::SemanticAfter) => Ok(&self.semantic_after.instrs[idx]),
+            Some(InstrumentationMode::BlockEntry) => Ok(&self.block_entry.instrs[idx]),
+            Some(InstrumentationMode::BlockExit) => Ok(&self.block_exit.instrs[idx]),
             Some(InstrumentationMode::BlockAlt) => match &self.block_alt {
-                None => panic!("No block alt instructions to pull idx '{}' from", idx),
-                Some(block_alt) => block_alt.instrs.get(idx).unwrap(),
+                None => Err(InstrumentationError(format!(
+                    "No block alt instructions to pull idx '{}' from",
+                    idx
+                ))),
+                Some(block_alt) => Ok(&block_alt.instrs[idx]),
             },
         }
     }
@@ -1444,6 +1453,152 @@ pub enum Location {
     },
 }
 
+/// A sequence of Wasm instructions which may be instrumented.
+#[derive(Debug, Default, Clone)]
+pub struct Instructions<'a> {
+    instructions: Vec<Operator<'a>>,
+    offsets: Option<Vec<usize>>,
+    flags: Option<Vec<InstrumentationFlag<'a>>>,
+}
+
+impl<'a> Instructions<'a> {
+    fn force_flags(&mut self) {
+        if self.flags.is_none() {
+            self.flags = Some(vec![
+                InstrumentationFlag::default();
+                self.instructions.len()
+            ]);
+        }
+    }
+
+    pub fn new(
+        instructions: Vec<(Operator<'a>, usize)>,
+        locals_start: usize,
+        save_offsets: bool,
+    ) -> Self {
+        let mut instrs = vec![];
+        let mut pcs = vec![];
+        instructions.iter().for_each(|(operator, offset)| {
+            instrs.push(operator.clone());
+            // we want to store the offset inside a function body (including locals bytes)! not the overall module.
+            pcs.push(*offset - locals_start);
+        });
+        Self {
+            instructions: instrs,
+            offsets: if save_offsets { Some(pcs) } else { None },
+            flags: None,
+        }
+    }
+
+    /// Get array of operators (instructions).
+    pub fn get_ops(&self) -> &[Operator<'a>] {
+        &self.instructions
+    }
+
+    /// Get array of instrumentation flags.
+    pub fn get_flags(&self) -> Option<&[InstrumentationFlag<'a>]> {
+        self.flags.as_ref().map(|v| &v[..])
+    }
+
+    /// Only to be used internally for encoding.
+    pub(crate) fn get_ops_flags_mut(
+        &mut self,
+    ) -> (&mut [Operator<'a>], Option<&mut [InstrumentationFlag<'a>]>) {
+        match &mut self.flags {
+            Some(flags) => (&mut self.instructions, Some(flags)),
+            None => (&mut self.instructions, None),
+        }
+    }
+
+    /// Directly mutating the instructions will likely invalidate the
+    /// instruction flags, so this will Error if the instructions have been
+    /// instrumented.
+    pub fn get_ops_mut(&mut self) -> Result<&mut Vec<Operator<'a>>> {
+        if self.flags.is_some() {
+            return Err(InstrumentationError(
+                "Cannot get mutable instructions if flags are set. \
+            Mutating instructions will invalidate instrumentation flags."
+                    .to_string(),
+            ));
+        }
+        Ok(&mut self.instructions)
+    }
+
+    pub fn get_instr_flag(&self, idx: usize) -> Option<&InstrumentationFlag<'a>> {
+        self.flags.as_ref().and_then(|f| f.get(idx))
+    }
+
+    pub fn push(&mut self, op: Operator<'a>) {
+        self.instructions.push(op);
+        if let Some(flags) = &mut self.flags {
+            flags.push(InstrumentationFlag::default());
+        }
+    }
+
+    pub fn len(&self) -> usize {
+        self.instructions.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.instructions.is_empty()
+    }
+
+    pub fn add_instr(&mut self, index: usize, op: Operator<'a>) -> bool {
+        self.force_flags();
+        self.flags.as_mut().unwrap()[index].add_instr(&self.instructions[index], op)
+    }
+
+    pub fn current_mode(&self, index: usize) -> Option<InstrumentationMode> {
+        self.flags.as_ref().and_then(|f| f[index].current_mode)
+    }
+
+    pub fn set_current_mode(&mut self, index: usize, mode: InstrumentationMode) {
+        self.force_flags();
+        self.flags.as_mut().unwrap()[index].current_mode = Some(mode);
+    }
+
+    pub fn finish_instr(&mut self, index: usize) {
+        self.force_flags();
+        self.flags.as_mut().unwrap()[index].finish_instr();
+    }
+
+    pub fn instr_len(&self, index: usize) -> usize {
+        self.flags
+            .as_ref()
+            .map(|f| f[index].instr_len())
+            .unwrap_or(0)
+    }
+
+    pub fn set_alternate(&mut self, index: usize, alternate: InjectedInstrs<'a>) {
+        self.force_flags();
+        self.flags.as_mut().unwrap()[index].alternate = Some(alternate);
+    }
+
+    pub fn set_block_alt(&mut self, index: usize, block_alt: InjectedInstrs<'a>) {
+        self.force_flags();
+        self.flags.as_mut().unwrap()[index].block_alt = Some(block_alt);
+    }
+
+    pub fn append_to_tag(&mut self, index: usize, data: Vec<u8>) {
+        self.force_flags();
+        self.flags.as_mut().unwrap()[index].append_to_tag(data);
+    }
+
+    pub fn clear_instr(&mut self, idx: usize, mode: InstrumentationMode) {
+        if let Some(flags) = &mut self.flags {
+            flags[idx].clear_instr(mode);
+        }
+    }
+
+    pub fn lookup_pc_offset_for(&self, instr_idx: usize) -> Option<usize> {
+        if let Some(offsets) = self.offsets.as_ref() {
+            offsets.get(instr_idx).copied()
+        } else {
+            None
+        }
+    }
+}
+
 #[derive(Debug, Default, Clone)]
 /// Body of a function in a wasm module
 pub struct Body<'a> {
@@ -1454,8 +1609,7 @@ pub struct Body<'a> {
     /// index 2 will refer to the local here.
     pub locals: Vec<(u32, DataType)>,
     pub num_locals: u32,
-    // accessing operators by .0 is not very clear
-    pub instructions: Vec<Instruction<'a>>,
+    pub instructions: Instructions<'a>,
     pub num_instructions: usize,
     pub name: Option<String>,
 }
@@ -1467,28 +1621,8 @@ where
 {
     /// Push a new operator (instruction) to the end of the body
     pub fn push_op(&mut self, op: Operator<'b>) {
-        self.instructions.push(Instruction::new(op));
+        self.instructions.push(op);
         self.num_instructions += 1;
-    }
-
-    /// Get some operator (instruction) at the specified index of the body
-    pub fn get_op(&self, idx: usize) -> &Operator {
-        &self.instructions[idx].op
-    }
-
-    /// Get the instrumentation of some operator in the body
-    pub fn get_instr_flag(&self, idx: usize) -> &InstrumentationFlag {
-        &self.instructions[idx].instr_flag
-    }
-
-    /// Get the instrumentation of some operator in the body
-    pub fn clear_instr(&mut self, idx: usize, mode: InstrumentationMode) {
-        self.instructions[idx].instr_flag.clear_instr(mode);
-    }
-
-    /// Push an end operator (instruction) to the end of the body
-    pub fn end(&mut self) {
-        self.push_op(Operator::End);
     }
 
     pub fn locals_as_vec(&self) -> Vec<DataType> {
@@ -1499,35 +1633,6 @@ where
             }
         }
         locals
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct Instruction<'a> {
-    pub op: Operator<'a>,
-    pub instr_flag: InstrumentationFlag<'a>,
-}
-impl<'a, 'b> Instruction<'a>
-where
-    'b: 'a,
-{
-    pub fn new(op: Operator<'b>) -> Self {
-        Self {
-            op,
-            instr_flag: InstrumentationFlag::default(),
-        }
-    }
-
-    pub fn add_instr(&mut self, val: Operator<'a>) -> bool {
-        self.instr_flag.add_instr(&self.op, val)
-    }
-
-    pub fn instr_len(&self) -> usize {
-        self.instr_flag.instr_len()
-    }
-
-    pub fn extract_op(&'a self) -> Operator<'a> {
-        self.op.clone()
     }
 }
 
@@ -1579,22 +1684,23 @@ impl InitInstr {
         &mut self,
         func_mapping: &HashMap<u32, u32>,
         global_mapping: &HashMap<u32, u32>,
-    ) {
+    ) -> types::Result<()> {
         match self {
             InitInstr::Global(id) => match global_mapping.get(&(*id)) {
                 Some(new_index) => {
                     **id = *new_index;
                 }
-                None => panic!("Deleted global!"),
+                None => return Err(InstrumentationError("Deleted global!".to_string())),
             },
             InitInstr::RefFunc(id) => match func_mapping.get(&(*id)) {
                 Some(new_index) => {
                     **id = *new_index;
                 }
-                None => panic!("Deleted function!"),
+                None => return Err(InstrumentationError("Deleted function!".to_string())),
             },
             _ => {}
         }
+        Ok(())
     }
 }
 
@@ -1660,9 +1766,10 @@ impl InitExpr {
             };
             instrs.push(val);
         }
-        if !reader.eof() {
-            panic!("There was more data after the function end!");
-        }
+        assert!(
+            reader.eof(),
+            "Internal error: There was more data after the function end!"
+        );
         InitExpr { exprs: instrs }
     }
 
@@ -1774,7 +1881,18 @@ impl InitExpr {
                             } else if let Some(core) = id.as_core_type_id() {
                                 wasm_encoder::HeapType::Concrete(core.index() as u32)
                             } else {
-                                panic!("Did not unpack concrete type!")
+                                unimplemented!("Did not unpack concrete type!")
+                            }
+                        }
+                        HeapType::Exact(id) => {
+                            if let Some(mod_id) = id.as_module_index() {
+                                wasm_encoder::HeapType::Exact(mod_id)
+                            } else if let Some(rg_id) = id.as_rec_group_index() {
+                                wasm_encoder::HeapType::Exact(rg_id)
+                            } else if let Some(core) = id.as_core_type_id() {
+                                wasm_encoder::HeapType::Exact(core.index() as u32)
+                            } else {
+                                unimplemented!("Did not unpack exact type!")
                             }
                         }
                     })
@@ -1893,7 +2011,8 @@ impl From<BlockType> for wasmparser::BlockType {
 /// Intermediate Representation of Custom Sections
 #[derive(Clone, Debug, Default)]
 pub struct CustomSections<'a> {
-    custom_sections: Vec<CustomSection<'a>>,
+    // Custom sections are special, they don't have to be append only!
+    pub(crate) custom_sections: Vec<CustomSection<'a>>,
 }
 
 impl<'a> CustomSections<'a> {
@@ -1917,17 +2036,11 @@ impl<'a> CustomSections<'a> {
     }
 
     /// Get a custom section by its ID
-    pub fn get_by_id(&self, custom_section_id: CustomSectionID) -> &CustomSection {
-        if *custom_section_id < self.custom_sections.len() as u32 {
-            return &self.custom_sections[*custom_section_id as usize];
-        }
-        panic!("Invalid custom section ID");
-    }
-
-    /// Delete a Custom Section by its ID
-    pub fn delete(&mut self, id: CustomSectionID) {
-        if *id < self.custom_sections.len() as u32 {
-            self.custom_sections.remove(*id as usize);
+    pub fn get_by_id(&self, custom_section_id: CustomSectionID) -> Result<&CustomSection<'_>> {
+        if *custom_section_id >= self.custom_sections.len() as u32 {
+            Err(UnknownId("Invalid custom section ID!".into()))
+        } else {
+            Ok(&self.custom_sections[*custom_section_id as usize])
         }
     }
 
@@ -1956,7 +2069,7 @@ impl<'a> CustomSections<'a> {
     }
 
     /// Add a new custom section and return its ID
-    pub fn add(&mut self, section: CustomSection<'a>) -> CustomSectionID {
+    pub(crate) fn add(&mut self, section: CustomSection<'a>) -> CustomSectionID {
         let id = CustomSectionID(self.custom_sections.len() as u32);
         self.custom_sections.push(section);
         id
@@ -1967,7 +2080,7 @@ impl<'a> CustomSections<'a> {
 #[derive(Clone, Debug)]
 pub struct CustomSection<'a> {
     pub name: &'a str,
-    pub data: std::borrow::Cow<'a, [u8]>,
+    pub data: Cow<'a, [u8]>,
 }
 
 impl<'a> CustomSection<'a> {

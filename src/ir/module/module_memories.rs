@@ -1,7 +1,8 @@
+use crate::error::Error::InvalidOperation;
 use crate::ir::id::{ImportsID, MemoryID};
-use crate::ir::module::{GetID, Iter, LocalOrImport, ReIndexable};
+use crate::ir::module::{AsVec, GetID, LocalOrImport};
+use crate::ir::types;
 use crate::ir::types::{InjectTag, Tag, TagUtils};
-use std::vec::IntoIter;
 use wasmparser::MemoryType;
 
 /// Intermediate representation of all the memories in a module.
@@ -11,32 +12,13 @@ pub struct Memories {
     memories: Vec<Memory>,
     pub(crate) recalculate_ids: bool,
 }
-impl ReIndexable<Memory> for Memories {
-    /// Get the number of memories
-    fn len(&self) -> usize {
-        self.memories.len()
-    }
-    fn remove(&mut self, mem_id: u32) -> Memory {
-        self.memories.remove(mem_id as usize)
-    }
 
-    fn insert(&mut self, mem_id: u32, mem: Memory) {
-        self.memories.insert(mem_id as usize, mem);
+impl AsVec<Memory> for Memories {
+    fn as_vec(&self) -> &Vec<Memory> {
+        &self.memories
     }
-    /// Add a new memory
-    fn push(&mut self, mem: Memory) {
-        self.memories.push(mem);
-    }
-}
-
-impl Iter<Memory> for Memories {
-    /// Get an iterator for the memories.
-    fn iter(&self) -> std::slice::Iter<'_, Memory> {
-        self.memories.iter()
-    }
-
-    fn get_into_iter(&self) -> IntoIter<Memory> {
-        self.memories.clone().into_iter()
+    fn as_vec_mut(&mut self) -> &mut Vec<Memory> {
+        &mut self.memories
     }
 }
 
@@ -53,7 +35,7 @@ impl Memories {
     ///     
     /// Note that memories may have been deleted.
     pub fn iter(&self) -> std::slice::Iter<'_, Memory> {
-        <Self as Iter<Memory>>::iter(self)
+        self.memories.iter()
     }
 
     /// Iterate over the memories in the module.
@@ -135,7 +117,7 @@ impl Memories {
         let id = self.next_id();
         local_mem.mem_id = id;
 
-        self.push(Memory {
+        self.memories.push(Memory {
             ty,
             kind: MemKind::Local(local_mem),
             deleted: false,
@@ -153,7 +135,7 @@ impl Memories {
         tag: InjectTag,
     ) {
         self.recalculate_ids = true;
-        assert_eq!(*self.next_id(), imp_mem_id);
+        debug_assert_eq!(*self.next_id(), imp_mem_id);
         self.memories.push(Memory {
             ty,
             kind: MemKind::Import(ImportedMemory {
@@ -232,12 +214,12 @@ impl Memory {
     }
 
     /// Unwrap a local memory. If it is an imported memory, it panics.
-    pub fn unwrap_local(&self) -> &LocalMemory {
+    pub fn unwrap_local(&self) -> types::Result<&LocalMemory> {
         self.kind.unwrap_local()
     }
 
     /// Unwrap a local memory as mutable. If it is an imported memory, it panics.
-    pub fn unwrap_local_mut(&mut self) -> &mut LocalMemory {
+    pub fn unwrap_local_mut(&mut self) -> types::Result<&mut LocalMemory> {
         self.kind.unwrap_local_mut()
     }
 
@@ -254,18 +236,22 @@ pub enum MemKind {
 }
 
 impl MemKind {
-    /// Unwrap a local memory as a read-only reference. If it is an imported memory, it panics.
-    pub fn unwrap_local(&self) -> &LocalMemory {
+    /// Unwrap a local memory as a read-only reference. If it is an imported memory, it errors.
+    pub fn unwrap_local(&self) -> types::Result<&LocalMemory> {
         match &self {
-            MemKind::Local(l) => l,
-            MemKind::Import(_) => panic!("Attempting to unwrap an imported memory as a local!!"),
+            MemKind::Local(l) => Ok(l),
+            MemKind::Import(_) => Err(InvalidOperation(
+                "Attempting to unwrap an imported memory as a local!!".to_string(),
+            )),
         }
     }
-    /// Unwrap a local memory as a mutable reference. If it is an imported memory, it panics.
-    pub fn unwrap_local_mut(&mut self) -> &mut LocalMemory {
+    /// Unwrap a local memory as a mutable reference. If it is an imported memory, it errors.
+    pub fn unwrap_local_mut(&mut self) -> types::Result<&mut LocalMemory> {
         match self {
-            MemKind::Local(l) => l,
-            MemKind::Import(_) => panic!("Attempting to unwrap an imported memory as a local!!"),
+            MemKind::Local(l) => Ok(l),
+            MemKind::Import(_) => Err(InvalidOperation(
+                "Attempting to unwrap an imported memory as a local!!".to_string(),
+            )),
         }
     }
 }
