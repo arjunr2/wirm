@@ -863,7 +863,7 @@ impl IndexSpaceOf for ComponentTypeDeclaration<'_> {
             ComponentTypeDeclaration::CoreType(ty) => ty.index_space_of(),
             ComponentTypeDeclaration::Type(ty) => ty.index_space_of(),
             ComponentTypeDeclaration::Alias(alias) => alias.index_space_of(),
-            // This is the index space of THIS IMPORT!
+            // This is the index space of THIS DECL!
             // Not what space to use for the IDs of the typeref!
             ComponentTypeDeclaration::Export { ty, .. } => comp_type_ref_item_space(ty),
             ComponentTypeDeclaration::Import(import) => import.index_space_of(),
