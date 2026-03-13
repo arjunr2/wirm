@@ -5,7 +5,7 @@ use crate::error::Error::Multiple;
 use crate::ir::component::idx_spaces::Space;
 use crate::ir::component::visitor::driver::{drive_event, VisitEvent};
 use crate::ir::component::visitor::utils::VisitCtxInner;
-use crate::ir::component::visitor::{ComponentVisitor, ItemKind, VisitCtx};
+use crate::ir::component::visitor::{ComponentVisitor, ItemKind, ScopedVisitCtx, VisitCtx};
 use crate::ir::component::Names;
 use crate::ir::types;
 use crate::ir::types::CustomSection;
@@ -246,7 +246,7 @@ impl ComponentVisitor<'_> for Encoder<'_> {
     }
     fn visit_comp_type_decl(
         &mut self,
-        cx: &VisitCtx<'_>,
+        cx: &ScopedVisitCtx<'_>,
         _: usize,
         _: u32,
         _: &ComponentType<'_>,
@@ -261,7 +261,7 @@ impl ComponentVisitor<'_> for Encoder<'_> {
     }
     fn visit_inst_type_decl(
         &mut self,
-        cx: &VisitCtx<'_>,
+        cx: &ScopedVisitCtx<'_>,
         _: usize,
         _: u32,
         _: &ComponentType<'_>,
@@ -442,7 +442,7 @@ impl ComponentVisitor<'_> for Encoder<'_> {
     }
     fn visit_module_type_decl(
         &mut self,
-        cx: &VisitCtx<'_>,
+        cx: &ScopedVisitCtx<'_>,
         _decl_idx: usize,
         _id: u32,
         _parent: &CoreType<'_>,

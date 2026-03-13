@@ -2,7 +2,7 @@ use crate::ir::component::idx_spaces::{IndexSpaceOf, ScopeId, Space};
 use crate::ir::component::refs::{Depth, IndexedRef};
 use crate::ir::component::visitor::driver::{drive_event, VisitEvent};
 use crate::ir::component::visitor::utils::VisitCtxInner;
-use crate::ir::component::visitor::{ComponentVisitor, ItemKind, VisitCtx};
+use crate::ir::component::visitor::{ComponentVisitor, ItemKind, ScopedVisitCtx, VisitCtx};
 use crate::{Component, Module};
 use std::collections::HashMap;
 use wasmparser::{
@@ -32,16 +32,16 @@ impl Assigner {
     /// has a nested scope! If it does, this node's ID lives in its parent index space.
     fn assign_actual_id(
         &mut self,
-        cx: &VisitCtx<'_>,
+        cx: &VisitCtxInner<'_>,
         is_inner_node: bool,
         space: &Space,
         assumed_id: u32,
     ) {
-        let nested = cx.inner.node_has_nested_scope.last().unwrap_or(&false);
+        let nested = cx.node_has_nested_scope.last().unwrap_or(&false);
         let scope_id = if *nested && !is_inner_node {
-            cx.inner.scope_stack.scope_at_depth(&Depth::parent())
+            cx.scope_stack.scope_at_depth(&Depth::parent())
         } else {
-            cx.inner.scope_stack.curr_scope_id()
+            cx.scope_stack.curr_scope_id()
         };
         self.ids
             .assign_actual_id(scope_id, space, assumed_id as usize)
@@ -49,14 +49,14 @@ impl Assigner {
 }
 impl ComponentVisitor<'_> for Assigner {
     fn exit_component(&mut self, cx: &VisitCtx<'_>, id: u32, component: &Component<'_>) {
-        self.assign_actual_id(cx, false, &component.index_space_of(), id)
+        self.assign_actual_id(&cx.inner, false, &component.index_space_of(), id)
     }
     fn visit_module(&mut self, cx: &VisitCtx<'_>, id: u32, module: &Module<'_>) {
-        self.assign_actual_id(cx, false, &module.index_space_of(), id)
+        self.assign_actual_id(&cx.inner, false, &module.index_space_of(), id)
     }
     fn visit_comp_type_decl(
         &mut self,
-        cx: &VisitCtx<'_>,
+        cx: &ScopedVisitCtx<'_>,
         _decl_idx: usize,
         id: u32,
         _parent: &ComponentType<'_>,
@@ -69,11 +69,11 @@ impl ComponentVisitor<'_> for Assigner {
             // this ID assignment will be handled by the type handler!
             return;
         }
-        self.assign_actual_id(cx, true, &decl.index_space_of(), id)
+        self.assign_actual_id(&cx.inner, true, &decl.index_space_of(), id)
     }
     fn visit_inst_type_decl(
         &mut self,
-        cx: &VisitCtx<'_>,
+        cx: &ScopedVisitCtx<'_>,
         _decl_idx: usize,
         id: u32,
         _parent: &ComponentType<'_>,
@@ -87,11 +87,11 @@ impl ComponentVisitor<'_> for Assigner {
             return;
         }
 
-        self.assign_actual_id(cx, true, &decl.index_space_of(), id)
+        self.assign_actual_id(&cx.inner, true, &decl.index_space_of(), id)
     }
     fn exit_comp_type(&mut self, cx: &VisitCtx<'_>, id: u32, ty: &ComponentType<'_>) {
         // This node COULD have a nested scope (so pass false to is_inner_node)
-        self.assign_actual_id(cx, false, &ty.index_space_of(), id)
+        self.assign_actual_id(&cx.inner, false, &ty.index_space_of(), id)
     }
     fn visit_comp_instance(
         &mut self,
@@ -99,7 +99,7 @@ impl ComponentVisitor<'_> for Assigner {
         id: u32,
         instance: &ComponentInstance<'_>,
     ) {
-        self.assign_actual_id(cx, true, &instance.index_space_of(), id)
+        self.assign_actual_id(&cx.inner, true, &instance.index_space_of(), id)
     }
     fn visit_canon(
         &mut self,
@@ -108,7 +108,7 @@ impl ComponentVisitor<'_> for Assigner {
         id: u32,
         canon: &CanonicalFunction,
     ) {
-        self.assign_actual_id(cx, true, &canon.index_space_of(), id)
+        self.assign_actual_id(&cx.inner, true, &canon.index_space_of(), id)
     }
     fn visit_alias(
         &mut self,
@@ -117,7 +117,7 @@ impl ComponentVisitor<'_> for Assigner {
         id: u32,
         alias: &ComponentAlias<'_>,
     ) {
-        self.assign_actual_id(cx, true, &alias.index_space_of(), id)
+        self.assign_actual_id(&cx.inner, true, &alias.index_space_of(), id)
     }
     fn visit_comp_import(
         &mut self,
@@ -126,7 +126,7 @@ impl ComponentVisitor<'_> for Assigner {
         id: u32,
         import: &ComponentImport<'_>,
     ) {
-        self.assign_actual_id(cx, true, &import.index_space_of(), id)
+        self.assign_actual_id(&cx.inner, true, &import.index_space_of(), id)
     }
     fn visit_comp_export(
         &mut self,
@@ -135,17 +135,17 @@ impl ComponentVisitor<'_> for Assigner {
         id: u32,
         export: &ComponentExport<'_>,
     ) {
-        self.assign_actual_id(cx, true, &export.index_space_of(), id)
+        self.assign_actual_id(&cx.inner, true, &export.index_space_of(), id)
     }
     fn visit_module_type_decl(
         &mut self,
-        cx: &VisitCtx<'_>,
+        cx: &ScopedVisitCtx<'_>,
         _decl_idx: usize,
         id: u32,
         _parent: &CoreType<'_>,
         decl: &ModuleTypeDeclaration<'_>,
     ) {
-        self.assign_actual_id(cx, true, &decl.index_space_of(), id)
+        self.assign_actual_id(&cx.inner, true, &decl.index_space_of(), id)
     }
     fn enter_core_rec_group(
         &mut self,
@@ -158,14 +158,14 @@ impl ComponentVisitor<'_> for Assigner {
         self.ids.add_scope(cx.inner.scope_stack.curr_scope_id());
     }
     fn visit_core_subtype(&mut self, cx: &VisitCtx<'_>, id: u32, subtype: &SubType) {
-        self.assign_actual_id(cx, true, &subtype.index_space_of(), id)
+        self.assign_actual_id(&cx.inner, true, &subtype.index_space_of(), id)
     }
     fn exit_core_type(&mut self, cx: &VisitCtx<'_>, id: u32, core_type: &CoreType<'_>) {
         // This node COULD have a nested scope (so pass false to is_inner_node)
-        self.assign_actual_id(cx, false, &core_type.index_space_of(), id)
+        self.assign_actual_id(&cx.inner, false, &core_type.index_space_of(), id)
     }
     fn visit_core_instance(&mut self, cx: &VisitCtx<'_>, id: u32, inst: &Instance<'_>) {
-        self.assign_actual_id(cx, true, &inst.index_space_of(), id)
+        self.assign_actual_id(&cx.inner, true, &inst.index_space_of(), id)
     }
 }
 

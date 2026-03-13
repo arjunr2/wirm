@@ -18,6 +18,8 @@ mod events_structural;
 pub(crate) mod events_topological;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod resolution_tests;
 pub(crate) mod utils;
 
 /// Walk a [`Component`] using its *structural* (in-file) order.
@@ -179,7 +181,7 @@ pub trait ComponentVisitor<'a> {
     /// `exit_comp_type` for the enclosing type.
     fn visit_comp_type_decl(
         &mut self,
-        _cx: &VisitCtx<'a>,
+        _cx: &ScopedVisitCtx<'a>,
         _decl_idx: usize,
         _id: u32,
         _parent: &ComponentType<'a>,
@@ -198,7 +200,7 @@ pub trait ComponentVisitor<'a> {
     /// `exit_comp_type` for the enclosing type.
     fn visit_inst_type_decl(
         &mut self,
-        _cx: &VisitCtx<'a>,
+        _cx: &ScopedVisitCtx<'a>,
         _decl_idx: usize,
         _id: u32,
         _parent: &ComponentType<'a>,
@@ -393,7 +395,7 @@ pub trait ComponentVisitor<'a> {
     ///   to a global index space.
     fn visit_module_type_decl(
         &mut self,
-        _cx: &VisitCtx<'a>,
+        _cx: &ScopedVisitCtx<'a>,
         _decl_idx: usize,
         _id: u32,
         _parent: &CoreType<'a>,
@@ -505,7 +507,7 @@ enum ScopedTy<'a> {
 /// lookup panics, the error message will tell you to call [`VisitCtx::enter_comp_ty_scope`].
 #[derive(Clone)]
 pub struct ScopedVisitCtx<'a> {
-    inner: VisitCtxInner<'a>,
+    pub(crate) inner: VisitCtxInner<'a>,
     /// The type whose inner scope has been entered.
     ty: ScopedTy<'a>,
 }
@@ -551,6 +553,23 @@ impl<'a> ScopedVisitCtx<'a> {
     pub fn enter_core_ty_scope(&self, ty: &'a CoreType<'a>) -> ScopedVisitCtx<'a> {
         let mut inner = self.inner.clone();
         inner.maybe_enter_scope(ty);
+        ScopedVisitCtx { inner, ty: ScopedTy::Core(ty) }
+    }
+
+    /// Wrap an already-entered component-type scope.
+    ///
+    /// Used by the driver when firing `visit_comp_type_decl` /
+    /// `visit_inst_type_decl`: the type scope is already on the stack, so we
+    /// must not push it again.
+    pub(crate) fn wrap_comp_ty(inner: VisitCtxInner<'a>, ty: &'a ComponentType<'a>) -> Self {
+        ScopedVisitCtx { inner, ty: ScopedTy::Comp(ty) }
+    }
+
+    /// Wrap an already-entered core-type scope.
+    ///
+    /// Used by the driver when firing `visit_module_type_decl`: the type scope
+    /// is already on the stack.
+    pub(crate) fn wrap_core_ty(inner: VisitCtxInner<'a>, ty: &'a CoreType<'a>) -> Self {
         ScopedVisitCtx { inner, ty: ScopedTy::Core(ty) }
     }
 }
