@@ -641,14 +641,7 @@ impl IndexSpaceOf for ComponentImport<'_> {
     fn index_space_of(&self) -> Space {
         // This is the index space of THIS IMPORT!
         // Not what space to use for the IDs of the typeref!
-        match self.ty {
-            ComponentTypeRef::Func(_) => Space::CompFunc,
-            ComponentTypeRef::Value(_) => Space::CompVal,
-            ComponentTypeRef::Type(_) => Space::CompType,
-            ComponentTypeRef::Instance(_) => Space::CompInst,
-            ComponentTypeRef::Component(_) => Space::Comp, // verified in wat (instantiate.wast)
-            ComponentTypeRef::Module(_) => Space::CoreModule,
-        }
+        comp_type_ref_item_space(&self.ty)
     }
 }
 
@@ -870,7 +863,9 @@ impl IndexSpaceOf for ComponentTypeDeclaration<'_> {
             ComponentTypeDeclaration::CoreType(ty) => ty.index_space_of(),
             ComponentTypeDeclaration::Type(ty) => ty.index_space_of(),
             ComponentTypeDeclaration::Alias(alias) => alias.index_space_of(),
-            ComponentTypeDeclaration::Export { ty, .. } => ty.index_space_of(),
+            // This is the index space of THIS DECL!
+            // Not what space to use for the IDs of the typeref!
+            ComponentTypeDeclaration::Export { ty, .. } => comp_type_ref_item_space(ty),
             ComponentTypeDeclaration::Import(import) => import.index_space_of(),
         }
     }
@@ -882,8 +877,28 @@ impl IndexSpaceOf for InstanceTypeDeclaration<'_> {
             InstanceTypeDeclaration::CoreType(ty) => ty.index_space_of(),
             InstanceTypeDeclaration::Type(ty) => ty.index_space_of(),
             InstanceTypeDeclaration::Alias(a) => a.index_space_of(),
-            InstanceTypeDeclaration::Export { ty, .. } => ty.index_space_of(),
+            // This is the index space of THIS DECL!
+            // Not what space to use for the IDs of the typeref!
+            InstanceTypeDeclaration::Export { ty, .. } => comp_type_ref_item_space(ty),
         }
+    }
+}
+
+/// Maps a [`ComponentTypeRef`] to the index space of the *exported or imported item* itself,
+/// as opposed to the space used to look up the type-index reference N within the ref.
+///
+/// [`ComponentTypeRef::index_space_of`] returns the space used to resolve the embedded
+/// type index (e.g. `Func(N)` → CompType because N is looked up in the type space).
+/// That is correct for reference resolution, but wrong when assigning an assumed ID to the
+/// declaration that *introduces* the item (e.g. a func export should occupy `CompFunc`).
+fn comp_type_ref_item_space(ty: &ComponentTypeRef) -> Space {
+    match ty {
+        ComponentTypeRef::Func(_) => Space::CompFunc,
+        ComponentTypeRef::Value(_) => Space::CompVal,
+        ComponentTypeRef::Type(_) => Space::CompType,
+        ComponentTypeRef::Instance(_) => Space::CompInst,
+        ComponentTypeRef::Component(_) => Space::Comp,
+        ComponentTypeRef::Module(_) => Space::CoreModule,
     }
 }
 
