@@ -877,7 +877,7 @@ impl IndexSpaceOf for InstanceTypeDeclaration<'_> {
             InstanceTypeDeclaration::CoreType(ty) => ty.index_space_of(),
             InstanceTypeDeclaration::Type(ty) => ty.index_space_of(),
             InstanceTypeDeclaration::Alias(a) => a.index_space_of(),
-            // This is the index space of THIS IMPORT!
+            // This is the index space of THIS DECL!
             // Not what space to use for the IDs of the typeref!
             InstanceTypeDeclaration::Export { ty, .. } => comp_type_ref_item_space(ty),
         }
