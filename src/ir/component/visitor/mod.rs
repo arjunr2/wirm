@@ -1,5 +1,6 @@
 use crate::ir::component::idx_spaces::Space;
 use crate::ir::component::refs::{IndexedRef, RefKind};
+use crate::ir::component::scopes::GetScopeKind;
 use crate::ir::component::visitor::driver::{drive_event, VisitEvent};
 use crate::ir::component::visitor::events_structural::get_structural_events;
 use crate::ir::component::visitor::events_topological::get_topological_events;
@@ -472,6 +473,88 @@ impl From<Space> for ItemKind {
     }
 }
 
+/// The active type scope held by a [`ScopedVisitCtx`].
+///
+/// Either a component-model type ([`ComponentType`]) or a core WebAssembly type
+/// ([`CoreType`]).  This is private to the visitor module — callers obtain a
+/// `ScopedVisitCtx` via [`VisitCtx::enter_comp_ty_scope`] or
+/// [`VisitCtx::enter_core_ty_scope`] and never inspect the inner type directly.
+#[derive(Clone)]
+enum ScopedTy<'a> {
+    Comp(&'a ComponentType<'a>),
+    Core(&'a CoreType<'a>),
+}
+
+/// A context for resolving references that live **inside** a [`ComponentType::Instance`],
+/// [`ComponentType::Component`], or [`CoreType::Module`] body.
+///
+/// Obtain one by calling [`VisitCtx::enter_comp_ty_scope`] or
+/// [`VisitCtx::enter_core_ty_scope`].  Never construct this directly.
+///
+/// # Why this exists
+///
+/// References declared inside a `ComponentType::Instance(decls)` body are stored in
+/// that type's declaration subvec, not in the parent component's main item vectors.
+/// A plain [`VisitCtx::resolve`] call cannot reach them.  `ScopedVisitCtx` fixes this
+/// by holding a reference to the active type and dispatching into the correct
+/// subvec automatically whenever `ref_.depth.is_curr()`.
+///
+/// # Discovery
+///
+/// If you call [`VisitCtx::resolve`] with a ref that belongs to an inner scope and the
+/// lookup panics, the error message will tell you to call [`VisitCtx::enter_comp_ty_scope`].
+#[derive(Clone)]
+pub struct ScopedVisitCtx<'a> {
+    inner: VisitCtxInner<'a>,
+    /// The type whose inner scope has been entered.
+    ty: ScopedTy<'a>,
+}
+
+impl<'a> ScopedVisitCtx<'a> {
+    /// Resolve a reference within this scope.
+    ///
+    /// Automatically dispatches into the active type's declaration subvec
+    /// for current-depth refs; outer-depth refs fall through to normal resolution.
+    pub fn resolve(&self, ref_: &IndexedRef) -> ResolvedItem<'a, 'a> {
+        if ref_.depth.is_curr() {
+            match &self.ty {
+                ScopedTy::Comp(comp_ty) => match comp_ty {
+                    ComponentType::Instance(decls) => {
+                        return self.inner.resolve_maybe_from_subvec(ref_, decls);
+                    }
+                    ComponentType::Component(decls) => {
+                        return self.inner.resolve_maybe_from_subvec(ref_, decls);
+                    }
+                    _ => {}
+                },
+                ScopedTy::Core(core_ty) => match core_ty {
+                    CoreType::Module(decls) => {
+                        return self.inner.resolve_maybe_from_subvec(ref_, decls);
+                    }
+                    _ => {}
+                },
+            }
+        }
+        self.inner.resolve(ref_)
+    }
+
+    /// Enter a nested component-type scope, returning a new `ScopedVisitCtx` for that
+    /// inner scope.
+    pub fn enter_comp_ty_scope(&self, ty: &'a ComponentType<'a>) -> ScopedVisitCtx<'a> {
+        let mut inner = self.inner.clone();
+        inner.maybe_enter_scope(ty);
+        ScopedVisitCtx { inner, ty: ScopedTy::Comp(ty) }
+    }
+
+    /// Enter a nested core-type scope, returning a new `ScopedVisitCtx` for that
+    /// inner scope.
+    pub fn enter_core_ty_scope(&self, ty: &'a CoreType<'a>) -> ScopedVisitCtx<'a> {
+        let mut inner = self.inner.clone();
+        inner.maybe_enter_scope(ty);
+        ScopedVisitCtx { inner, ty: ScopedTy::Core(ty) }
+    }
+}
+
 /// Context provided during component traversal.
 ///
 /// `VisitCtx` allows resolution of referenced indices (such as type,
@@ -490,6 +573,7 @@ impl From<Space> for ItemKind {
 ///
 /// All resolution operations are read-only and reflect the *semantic*
 /// structure of the component, not its internal storage layout.
+#[derive(Clone)]
 pub struct VisitCtx<'a> {
     pub(crate) inner: VisitCtxInner<'a>,
 }
@@ -527,16 +611,56 @@ impl<'a> VisitCtx<'a> {
     /// - [`crate::ir::component::refs::GetArgRefs`]: to pull refs of args
     /// - [`crate::ir::component::refs::GetDescriptorRefs`]: to pull refs of descriptors
     /// - [`crate::ir::component::refs::GetDescribesRefs`]: to pull refs of describes
-    pub fn resolve(&self, ref_: &IndexedRef) -> ResolvedItem<'_, '_> {
+    pub fn resolve(&self, ref_: &IndexedRef) -> ResolvedItem<'a, 'a> {
         self.inner.resolve(ref_)
     }
+
+    /// Enter a [`ComponentType`]'s inner scope, returning a [`ScopedVisitCtx`] for
+    /// resolving references declared within that type's body.
+    ///
+    /// # When to use
+    ///
+    /// Call this whenever you hold a [`ComponentType::Instance`] or
+    /// [`ComponentType::Component`] and need to resolve refs that appear inside its
+    /// declaration list.  Pass the returned [`ScopedVisitCtx`] — instead of this
+    /// `VisitCtx` — to any code that operates within that scope.
+    ///
+    /// For [`CoreType::Module`] bodies, use [`VisitCtx::enter_core_ty_scope`] instead.
+    ///
+    /// If you accidentally call [`VisitCtx::resolve`] with a ref that belongs to an
+    /// inner scope, the resulting panic message will point you here.
+    pub fn enter_comp_ty_scope(&self, ty: &'a ComponentType<'a>) -> ScopedVisitCtx<'a> {
+        let mut inner = self.inner.clone();
+        inner.maybe_enter_scope(ty);
+        ScopedVisitCtx { inner, ty: ScopedTy::Comp(ty) }
+    }
+
+    /// Enter a [`CoreType`]'s inner scope, returning a [`ScopedVisitCtx`] for
+    /// resolving references declared within that type's body.
+    ///
+    /// # When to use
+    ///
+    /// Call this whenever you hold a [`CoreType::Module`] and need to resolve refs
+    /// that appear inside its declaration list.  Pass the returned [`ScopedVisitCtx`]
+    /// — instead of this `VisitCtx` — to any code that operates within that scope.
+    ///
+    /// For [`ComponentType`] bodies, use [`VisitCtx::enter_comp_ty_scope`] instead.
+    ///
+    /// If you accidentally call [`VisitCtx::resolve`] with a ref that belongs to an
+    /// inner scope, the resulting panic message will point you here.
+    pub fn enter_core_ty_scope(&self, ty: &'a CoreType<'a>) -> ScopedVisitCtx<'a> {
+        let mut inner = self.inner.clone();
+        inner.maybe_enter_scope(ty);
+        ScopedVisitCtx { inner, ty: ScopedTy::Core(ty) }
+    }
+
     /// Resolves a collection of [`RefKind`] values into their semantic targets.
     ///
     /// This is a convenience helper for bulk resolution when a node exposes
     /// multiple referenced indices.
     ///
     /// Read through [`VisitCtx::resolve`] for how to pull such references from IR nodes.
-    pub fn resolve_all(&self, refs: &[RefKind]) -> Vec<ResolvedItem<'_, '_>> {
+    pub fn resolve_all(&self, refs: &[RefKind]) -> Vec<ResolvedItem<'a, 'a>> {
         self.inner.resolve_all(refs)
     }
     /// Looks up the name (if any) of the root component.
@@ -678,6 +802,7 @@ impl<'a> VisitCtx<'a> {
 /// traversal. For example, `ResolvedItem::CompType(idx, _)` must always
 /// have `idx` equal to the resolved index of that component type in the
 /// component type namespace.
+#[derive(Clone, Debug)]
 pub enum ResolvedItem<'a, 'b> {
     /// A resolved subcomponent.
     Component(u32, &'a Component<'b>),
@@ -708,4 +833,10 @@ pub enum ResolvedItem<'a, 'b> {
 
     /// A resolved component export.
     Export(u32, &'a ComponentExport<'b>),
+    /// A resolved declaration from inside a [`ComponentType::Component`] body.
+    CompTyDeclExport(u32, &'a ComponentTypeDeclaration<'b>),
+    /// A resolved declaration from inside a [`ComponentType::Instance`] body.
+    InstTyDeclExport(u32, &'a InstanceTypeDeclaration<'b>),
+    /// A resolved declaration from inside a [`CoreType::Module`] body.
+    ModuleTyDecl(u32, &'a ModuleTypeDeclaration<'b>),
 }

@@ -296,7 +296,12 @@ impl IndexScope {
             .and_then(|space| space.index_from_assumed_id_no_cache(r.index as usize))
             .unwrap_or_else(|| {
                 panic!(
-                    "[{:?}@scope{}] Internal error: No index for assumed ID: {}",
+                    "[{:?}@scope{}] No index for assumed ID: {}. \
+                     This reference may have been declared inside a ComponentType::Instance, \
+                     ComponentType::Component, or CoreType::Module body. If so, you need a \
+                     ScopedVisitCtx: call `cx.enter_comp_ty_scope(ty)` (for ComponentType) or \
+                     `cx.enter_core_ty_scope(ty)` (for CoreType) on your VisitCtx and use the \
+                     returned ScopedVisitCtx for all resolution within that scope.",
                     r.space, self.id, r.index
                 )
             })

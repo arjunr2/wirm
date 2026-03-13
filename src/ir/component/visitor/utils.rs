@@ -23,21 +23,28 @@
 //! without exposing internal identity mechanisms publicly.
 
 use crate::ir::component::idx_spaces::{IndexSpaceOf, ScopeId, Space, SpaceSubtype, StoreHandle};
-use crate::ir::component::refs::{Depth, IndexedRef, RefKind};
+use crate::ir::component::refs::{Depth, IndexedRef, RefKind, ReferencedIndices};
 use crate::ir::component::scopes::{
-    build_component_store, ComponentStore, GetScopeKind, RegistryHandle,
+    build_component_store, ComponentStore, GetScopeKind, RegistryHandle, ScopeOwnerKind,
 };
 use crate::ir::component::section::ComponentSection;
 use crate::ir::component::visitor::driver::VisitEvent;
 use crate::ir::component::visitor::{ItemKind, ResolvedItem};
 use crate::ir::id::ComponentId;
 use crate::Component;
+use wasmparser::{ComponentTypeDeclaration, InstanceTypeDeclaration, ModuleTypeDeclaration};
 
+#[derive(Clone)]
 pub struct VisitCtxInner<'a> {
     pub(crate) registry: RegistryHandle,
     pub(crate) component_stack: Vec<ComponentId>, // may not need
     pub(crate) scope_stack: ScopeStack,
     pub(crate) node_has_nested_scope: Vec<bool>,
+    /// Counts non-component (type/instance-type) scope levels currently on `scope_stack`.
+    /// `scope_stack` grows for both component scopes and type scopes, while `component_stack`
+    /// only grows for component scopes.  This offset is used in `comp_at` to re-align the
+    /// depth value (which is relative to `scope_stack`) with `component_stack`.
+    pub(crate) type_scope_nesting: usize,
     pub(crate) store: StoreHandle,
     pub(crate) comp_store: ComponentStore<'a>,
     section_tracker_stack: Vec<SectionTracker>,
@@ -56,6 +63,7 @@ impl<'a> VisitCtxInner<'a> {
             section_tracker_stack: Vec::new(),
             scope_stack: ScopeStack::new(),
             node_has_nested_scope: Vec::new(),
+            type_scope_nesting: 0,
             store: root.index_store.clone(),
             comp_store,
         }
@@ -97,6 +105,17 @@ impl<'a> VisitCtxInner<'a> {
         if let Some(scope_entry) = self.registry.borrow().scope_entry(node) {
             nested = true;
             self.scope_stack.enter_scope(scope_entry.space);
+            // Only ComponentType (Instance/Component) and CoreType (Module) reach here —
+            // these are type scopes that push onto scope_stack but NOT onto component_stack.
+            // Track the nesting depth so comp_at() can align the two stacks correctly.
+            if matches!(
+                scope_entry.kind,
+                ScopeOwnerKind::ComponentTypeInstance
+                    | ScopeOwnerKind::ComponentTypeComponent
+                    | ScopeOwnerKind::CoreTypeModule
+            ) {
+                self.type_scope_nesting += 1;
+            }
         }
         self.node_has_nested_scope.push(nested);
     }
@@ -107,6 +126,14 @@ impl<'a> VisitCtxInner<'a> {
             // Exit the nested index space...should be equivalent to the ID
             // of the scope that was entered by this node
             let exited_from = self.scope_stack.exit_scope();
+            if matches!(
+                scope_entry.kind,
+                ScopeOwnerKind::ComponentTypeInstance
+                    | ScopeOwnerKind::ComponentTypeComponent
+                    | ScopeOwnerKind::CoreTypeModule
+            ) {
+                self.type_scope_nesting -= 1;
+            }
             debug_assert!(nested);
             debug_assert_eq!(scope_entry.space, exited_from);
         } else {
@@ -136,11 +163,19 @@ impl<'a> VisitCtxInner<'a> {
     }
 
     pub(crate) fn comp_at(&self, depth: Depth) -> &ComponentId {
-        let idx = self.component_stack.len() - depth.val() - 1;
+        // `depth` is relative to the scope_stack (which includes both component scopes and
+        // type scopes), but component_stack only tracks component scopes.  Subtract the number
+        // of type-scope levels that sit above the current component on scope_stack so that the
+        // index into component_stack is correct.
+        let comp_depth = depth.val().saturating_sub(self.type_scope_nesting);
+        let idx = self.component_stack.len() - comp_depth - 1;
         self.component_stack.get(idx).unwrap_or_else(|| {
             panic!(
-                "Internal error: couldn't find component at depth {}; stack: {:?}",
+                "Internal error: couldn't find component at depth {} \
+                 (adjusted from scope depth {}, type_scope_nesting={}); stack: {:?}",
+                comp_depth,
                 depth.val(),
+                self.type_scope_nesting,
                 self.component_stack
             )
         })
@@ -151,7 +186,7 @@ impl<'a> VisitCtxInner<'a> {
 // =========== ID RESOLUTION INTERNALS ===========
 // ===============================================
 
-impl VisitCtxInner<'_> {
+impl<'a> VisitCtxInner<'a> {
     /// When looking up the ID of some node, we MUST consider whether the node we're assigning an ID for
     /// has a nested scope! If it does, this node's ID lives in its parent index space.
     pub(crate) fn lookup_id_for(
@@ -231,7 +266,7 @@ impl VisitCtxInner<'_> {
 // =========== NODE RESOLUTION INTERNALS ===========
 // =================================================
 
-impl VisitCtxInner<'_> {
+impl<'a> VisitCtxInner<'a> {
     pub fn lookup_root_comp_name(&self) -> Option<&str> {
         self.curr_component().component_name.as_deref()
     }
@@ -275,7 +310,7 @@ impl VisitCtxInner<'_> {
         self.curr_component().value_names.get(id)
     }
 
-    pub fn resolve_all(&self, refs: &[RefKind]) -> Vec<ResolvedItem<'_, '_>> {
+    pub fn resolve_all(&self, refs: &[RefKind]) -> Vec<ResolvedItem<'a, 'a>> {
         let mut items = vec![];
         for r in refs.iter() {
             items.push(self.resolve(&r.ref_));
@@ -284,7 +319,10 @@ impl VisitCtxInner<'_> {
         items
     }
 
-    pub fn resolve(&self, r: &IndexedRef) -> ResolvedItem<'_, '_> {
+    /// All data in a `ResolvedItem` ultimately borrows from `ComponentStore`, which holds
+    /// `&'a Component<'a>` references.  Both lifetime parameters are therefore `'a` — the
+    /// result does **not** borrow from `self` and outlives any temporary `VisitCtxInner`.
+    pub fn resolve(&self, r: &IndexedRef) -> ResolvedItem<'a, 'a> {
         let (vec, idx, subidx) = self.index_from_assumed_id_no_cache(r);
         if r.space != Space::CoreType {
             assert!(
@@ -328,6 +366,71 @@ impl VisitCtxInner<'_> {
             SpaceSubtype::Alias => ResolvedItem::Alias(r.index, &referenced_comp.alias.items[idx]),
         }
     }
+    /// Resolve a ref whose depth is current against a type-body declaration subvec.
+    ///
+    /// `T` must implement [`IntoResolvedItem`], which maps each declaration variant to
+    /// the appropriate [`ResolvedItem`].  Out-of-scope refs fall through to normal
+    /// resolution automatically.
+    pub fn resolve_maybe_from_subvec<T>(
+        &self,
+        ref_: &IndexedRef,
+        subvec: &'a [T],
+    ) -> ResolvedItem<'a, 'a>
+    where
+        T: IntoResolvedItem<'a>,
+    {
+        if !ref_.depth.is_curr() {
+            return self.resolve(ref_);
+        }
+
+        let (vec, idx, ..) = self.index_from_assumed_id_no_cache(ref_);
+        assert_eq!(vec, SpaceSubtype::Main);
+        subvec[idx].into_resolved_item(ref_.index)
+    }
+}
+
+// =======================================
+// ======= SUBVEC RESOLUTION TRAIT =======
+// =======================================
+
+/// Maps a type-body declaration to the appropriate [`ResolvedItem`] variant.
+///
+/// Implemented for [`InstanceTypeDeclaration`], [`ComponentTypeDeclaration`], and
+/// [`ModuleTypeDeclaration`] so that [`VisitCtxInner::resolve_maybe_from_subvec`] can
+/// be generic over all three.
+pub(crate) trait IntoResolvedItem<'a> {
+    fn into_resolved_item(&'a self, index: u32) -> ResolvedItem<'a, 'a>;
+}
+
+impl<'a> IntoResolvedItem<'a> for InstanceTypeDeclaration<'a> {
+    fn into_resolved_item(&'a self, index: u32) -> ResolvedItem<'a, 'a> {
+        match self {
+            InstanceTypeDeclaration::CoreType(ty) => ResolvedItem::CoreType(index, ty),
+            InstanceTypeDeclaration::Type(ty) => ResolvedItem::CompType(index, ty),
+            InstanceTypeDeclaration::Alias(alias) => ResolvedItem::Alias(index, alias),
+            InstanceTypeDeclaration::Export { .. } => ResolvedItem::InstTyDeclExport(index, self),
+        }
+    }
+}
+
+impl<'a> IntoResolvedItem<'a> for ComponentTypeDeclaration<'a> {
+    fn into_resolved_item(&'a self, index: u32) -> ResolvedItem<'a, 'a> {
+        match self {
+            ComponentTypeDeclaration::CoreType(ty) => ResolvedItem::CoreType(index, ty),
+            ComponentTypeDeclaration::Type(ty) => ResolvedItem::CompType(index, ty),
+            ComponentTypeDeclaration::Alias(alias) => ResolvedItem::Alias(index, alias),
+            ComponentTypeDeclaration::Import(imp) => ResolvedItem::Import(index, imp),
+            ComponentTypeDeclaration::Export { .. } => {
+                ResolvedItem::CompTyDeclExport(index, self)
+            }
+        }
+    }
+}
+
+impl<'a> IntoResolvedItem<'a> for ModuleTypeDeclaration<'a> {
+    fn into_resolved_item(&'a self, index: u32) -> ResolvedItem<'a, 'a> {
+        ResolvedItem::ModuleTyDecl(index, self)
+    }
 }
 
 #[derive(Clone)]
@@ -362,7 +465,7 @@ impl ScopeStack {
 }
 
 // General trackers for indices of item vectors (used to track where i've been during visitation)
-#[derive(Default)]
+#[derive(Clone, Default)]
 struct SectionTracker {
     last_processed_module: usize,
     last_processed_alias: usize,
