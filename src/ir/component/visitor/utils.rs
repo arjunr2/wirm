@@ -23,7 +23,7 @@
 //! without exposing internal identity mechanisms publicly.
 
 use crate::ir::component::idx_spaces::{IndexSpaceOf, ScopeId, Space, SpaceSubtype, StoreHandle};
-use crate::ir::component::refs::{Depth, IndexedRef, RefKind, ReferencedIndices};
+use crate::ir::component::refs::{Depth, IndexedRef, RefKind};
 use crate::ir::component::scopes::{
     build_component_store, ComponentStore, GetScopeKind, RegistryHandle, ScopeOwnerKind,
 };
@@ -368,7 +368,7 @@ impl<'a> VisitCtxInner<'a> {
     }
     /// Resolve a ref whose depth is current against a type-body declaration subvec.
     ///
-    /// `T` must implement [`IntoResolvedItem`], which maps each declaration variant to
+    /// `T` must implement [`AsResolvedItem`], which maps each declaration variant to
     /// the appropriate [`ResolvedItem`].  Out-of-scope refs fall through to normal
     /// resolution automatically.
     pub fn resolve_maybe_from_subvec<T>(
@@ -377,7 +377,7 @@ impl<'a> VisitCtxInner<'a> {
         subvec: &'a [T],
     ) -> ResolvedItem<'a, 'a>
     where
-        T: IntoResolvedItem<'a>,
+        T: AsResolvedItem<'a>,
     {
         if !ref_.depth.is_curr() {
             return self.resolve(ref_);
@@ -385,7 +385,7 @@ impl<'a> VisitCtxInner<'a> {
 
         let (vec, idx, ..) = self.index_from_assumed_id_no_cache(ref_);
         assert_eq!(vec, SpaceSubtype::Main);
-        subvec[idx].into_resolved_item(ref_.index)
+        subvec[idx].as_resolved_item(ref_.index)
     }
 }
 
@@ -398,12 +398,12 @@ impl<'a> VisitCtxInner<'a> {
 /// Implemented for [`InstanceTypeDeclaration`], [`ComponentTypeDeclaration`], and
 /// [`ModuleTypeDeclaration`] so that [`VisitCtxInner::resolve_maybe_from_subvec`] can
 /// be generic over all three.
-pub(crate) trait IntoResolvedItem<'a> {
-    fn into_resolved_item(&'a self, index: u32) -> ResolvedItem<'a, 'a>;
+pub(crate) trait AsResolvedItem<'a> {
+    fn as_resolved_item(&'a self, index: u32) -> ResolvedItem<'a, 'a>;
 }
 
-impl<'a> IntoResolvedItem<'a> for InstanceTypeDeclaration<'a> {
-    fn into_resolved_item(&'a self, index: u32) -> ResolvedItem<'a, 'a> {
+impl<'a> AsResolvedItem<'a> for InstanceTypeDeclaration<'a> {
+    fn as_resolved_item(&'a self, index: u32) -> ResolvedItem<'a, 'a> {
         match self {
             InstanceTypeDeclaration::CoreType(ty) => ResolvedItem::CoreType(index, ty),
             InstanceTypeDeclaration::Type(ty) => ResolvedItem::CompType(index, ty),
@@ -413,22 +413,20 @@ impl<'a> IntoResolvedItem<'a> for InstanceTypeDeclaration<'a> {
     }
 }
 
-impl<'a> IntoResolvedItem<'a> for ComponentTypeDeclaration<'a> {
-    fn into_resolved_item(&'a self, index: u32) -> ResolvedItem<'a, 'a> {
+impl<'a> AsResolvedItem<'a> for ComponentTypeDeclaration<'a> {
+    fn as_resolved_item(&'a self, index: u32) -> ResolvedItem<'a, 'a> {
         match self {
             ComponentTypeDeclaration::CoreType(ty) => ResolvedItem::CoreType(index, ty),
             ComponentTypeDeclaration::Type(ty) => ResolvedItem::CompType(index, ty),
             ComponentTypeDeclaration::Alias(alias) => ResolvedItem::Alias(index, alias),
             ComponentTypeDeclaration::Import(imp) => ResolvedItem::Import(index, imp),
-            ComponentTypeDeclaration::Export { .. } => {
-                ResolvedItem::CompTyDeclExport(index, self)
-            }
+            ComponentTypeDeclaration::Export { .. } => ResolvedItem::CompTyDeclExport(index, self),
         }
     }
 }
 
-impl<'a> IntoResolvedItem<'a> for ModuleTypeDeclaration<'a> {
-    fn into_resolved_item(&'a self, index: u32) -> ResolvedItem<'a, 'a> {
+impl<'a> AsResolvedItem<'a> for ModuleTypeDeclaration<'a> {
+    fn as_resolved_item(&'a self, index: u32) -> ResolvedItem<'a, 'a> {
         ResolvedItem::ModuleTyDecl(index, self)
     }
 }

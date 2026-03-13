@@ -1,6 +1,5 @@
 use crate::ir::component::idx_spaces::Space;
 use crate::ir::component::refs::{IndexedRef, RefKind};
-use crate::ir::component::scopes::GetScopeKind;
 use crate::ir::component::visitor::driver::{drive_event, VisitEvent};
 use crate::ir::component::visitor::events_structural::get_structural_events;
 use crate::ir::component::visitor::events_topological::get_topological_events;
@@ -17,9 +16,9 @@ pub(crate) mod driver;
 mod events_structural;
 pub(crate) mod events_topological;
 #[cfg(test)]
-mod tests;
-#[cfg(test)]
 mod resolution_tests;
+#[cfg(test)]
+mod tests;
 pub(crate) mod utils;
 
 /// Walk a [`Component`] using its *structural* (in-file) order.
@@ -529,12 +528,11 @@ impl<'a> ScopedVisitCtx<'a> {
                     }
                     _ => {}
                 },
-                ScopedTy::Core(core_ty) => match core_ty {
-                    CoreType::Module(decls) => {
+                ScopedTy::Core(core_ty) => {
+                    if let CoreType::Module(decls) = core_ty {
                         return self.inner.resolve_maybe_from_subvec(ref_, decls);
                     }
-                    _ => {}
-                },
+                }
             }
         }
         self.inner.resolve(ref_)
@@ -545,7 +543,10 @@ impl<'a> ScopedVisitCtx<'a> {
     pub fn enter_comp_ty_scope(&self, ty: &'a ComponentType<'a>) -> ScopedVisitCtx<'a> {
         let mut inner = self.inner.clone();
         inner.maybe_enter_scope(ty);
-        ScopedVisitCtx { inner, ty: ScopedTy::Comp(ty) }
+        ScopedVisitCtx {
+            inner,
+            ty: ScopedTy::Comp(ty),
+        }
     }
 
     /// Enter a nested core-type scope, returning a new `ScopedVisitCtx` for that
@@ -553,7 +554,10 @@ impl<'a> ScopedVisitCtx<'a> {
     pub fn enter_core_ty_scope(&self, ty: &'a CoreType<'a>) -> ScopedVisitCtx<'a> {
         let mut inner = self.inner.clone();
         inner.maybe_enter_scope(ty);
-        ScopedVisitCtx { inner, ty: ScopedTy::Core(ty) }
+        ScopedVisitCtx {
+            inner,
+            ty: ScopedTy::Core(ty),
+        }
     }
 
     /// Wrap an already-entered component-type scope.
@@ -562,7 +566,10 @@ impl<'a> ScopedVisitCtx<'a> {
     /// `visit_inst_type_decl`: the type scope is already on the stack, so we
     /// must not push it again.
     pub(crate) fn wrap_comp_ty(inner: VisitCtxInner<'a>, ty: &'a ComponentType<'a>) -> Self {
-        ScopedVisitCtx { inner, ty: ScopedTy::Comp(ty) }
+        ScopedVisitCtx {
+            inner,
+            ty: ScopedTy::Comp(ty),
+        }
     }
 
     /// Wrap an already-entered core-type scope.
@@ -570,7 +577,10 @@ impl<'a> ScopedVisitCtx<'a> {
     /// Used by the driver when firing `visit_module_type_decl`: the type scope
     /// is already on the stack.
     pub(crate) fn wrap_core_ty(inner: VisitCtxInner<'a>, ty: &'a CoreType<'a>) -> Self {
-        ScopedVisitCtx { inner, ty: ScopedTy::Core(ty) }
+        ScopedVisitCtx {
+            inner,
+            ty: ScopedTy::Core(ty),
+        }
     }
 }
 
@@ -651,7 +661,10 @@ impl<'a> VisitCtx<'a> {
     pub fn enter_comp_ty_scope(&self, ty: &'a ComponentType<'a>) -> ScopedVisitCtx<'a> {
         let mut inner = self.inner.clone();
         inner.maybe_enter_scope(ty);
-        ScopedVisitCtx { inner, ty: ScopedTy::Comp(ty) }
+        ScopedVisitCtx {
+            inner,
+            ty: ScopedTy::Comp(ty),
+        }
     }
 
     /// Enter a [`CoreType`]'s inner scope, returning a [`ScopedVisitCtx`] for
@@ -670,7 +683,10 @@ impl<'a> VisitCtx<'a> {
     pub fn enter_core_ty_scope(&self, ty: &'a CoreType<'a>) -> ScopedVisitCtx<'a> {
         let mut inner = self.inner.clone();
         inner.maybe_enter_scope(ty);
-        ScopedVisitCtx { inner, ty: ScopedTy::Core(ty) }
+        ScopedVisitCtx {
+            inner,
+            ty: ScopedTy::Core(ty),
+        }
     }
 
     /// Resolves a collection of [`RefKind`] values into their semantic targets.
