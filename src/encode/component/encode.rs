@@ -237,12 +237,16 @@ impl ComponentVisitor<'_> for Encoder<'_> {
             }
         }
         // leaf types don't push a frame, so type_stack is empty here — flush
-        let CompFrame { comp_type_section, component, .. } = curr_comp_frame(&mut self.comp_stack);
+        let CompFrame {
+            comp_type_section,
+            component,
+            ..
+        } = curr_comp_frame(&mut self.comp_stack);
         component.section(comp_type_section.as_mut().unwrap());
         *comp_type_section = None;
     }
 
-    fn enter_comp_instance_type(&mut self, cx: &VisitCtx<'_>, _id: u32, ty: &ComponentType<'_>) {
+    fn enter_component_type_inst(&mut self, cx: &VisitCtx<'_>, _id: u32, ty: &ComponentType<'_>) {
         curr_comp_ty_sect_mut(&mut self.comp_stack);
         match self.type_stack.last_mut() {
             Some(TypeFrame::Inst { ty: ity }) => {
@@ -269,8 +273,12 @@ impl ComponentVisitor<'_> for Encoder<'_> {
         }
     }
 
-    fn exit_comp_instance_type(&mut self, _: &VisitCtx<'_>, _: u32, _: &ComponentType<'_>) {
-        let CompFrame { comp_type_section, component, .. } = curr_comp_frame(&mut self.comp_stack);
+    fn exit_component_type_inst(&mut self, _: &VisitCtx<'_>, _: u32, _: &ComponentType<'_>) {
+        let CompFrame {
+            comp_type_section,
+            component,
+            ..
+        } = curr_comp_frame(&mut self.comp_stack);
         let section = comp_type_section.as_mut().unwrap();
         match self.type_stack.pop().unwrap() {
             TypeFrame::Inst { ty } => {
@@ -288,7 +296,7 @@ impl ComponentVisitor<'_> for Encoder<'_> {
         }
     }
 
-    fn enter_comp_component_type(&mut self, cx: &VisitCtx<'_>, _id: u32, ty: &ComponentType<'_>) {
+    fn enter_component_type_comp(&mut self, cx: &VisitCtx<'_>, _id: u32, ty: &ComponentType<'_>) {
         curr_comp_ty_sect_mut(&mut self.comp_stack);
         match self.type_stack.last_mut() {
             Some(TypeFrame::Inst { ty: ity }) => {
@@ -315,8 +323,12 @@ impl ComponentVisitor<'_> for Encoder<'_> {
         }
     }
 
-    fn exit_comp_component_type(&mut self, _: &VisitCtx<'_>, _: u32, _: &ComponentType<'_>) {
-        let CompFrame { comp_type_section, component, .. } = curr_comp_frame(&mut self.comp_stack);
+    fn exit_component_type_comp(&mut self, _: &VisitCtx<'_>, _: u32, _: &ComponentType<'_>) {
+        let CompFrame {
+            comp_type_section,
+            component,
+            ..
+        } = curr_comp_frame(&mut self.comp_stack);
         let section = comp_type_section.as_mut().unwrap();
         match self.type_stack.pop().unwrap() {
             TypeFrame::Comp { ty } => {

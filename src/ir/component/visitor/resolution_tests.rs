@@ -19,10 +19,16 @@
 //! where the resolved `ResolvedItem` variant is checked precisely.
 
 use crate::ir::component::refs::{RefKind, ReferencedIndices};
-use crate::ir::component::visitor::{walk_structural, walk_topological, ComponentVisitor, ItemKind, ResolvedItem, VisitCtx};
-use crate::{Component, Module};
-use wasmparser::{CanonicalFunction, ComponentAlias, ComponentExport, ComponentImport, ComponentInstance, ComponentStartFunction, ComponentType, ComponentTypeDeclaration, CoreType, Instance, InstanceTypeDeclaration, ModuleTypeDeclaration, SubType};
+use crate::ir::component::visitor::{
+    walk_structural, walk_topological, ComponentVisitor, ItemKind, ResolvedItem, VisitCtx,
+};
 use crate::ir::types::CustomSection;
+use crate::{Component, Module};
+use wasmparser::{
+    CanonicalFunction, ComponentAlias, ComponentExport, ComponentImport, ComponentInstance,
+    ComponentStartFunction, ComponentType, ComponentTypeDeclaration, CoreType, Instance,
+    InstanceTypeDeclaration, ModuleTypeDeclaration, SubType,
+};
 // ============================================================
 // Paranoid visitor
 // ============================================================
@@ -37,7 +43,9 @@ struct ParanoidVisitor {
 }
 impl ParanoidVisitor {
     fn resolve_refs<T>(&mut self, cx: &VisitCtx, item: &T)
-    where T: ReferencedIndices {
+    where
+        T: ReferencedIndices,
+    {
         for r in item.referenced_indices() {
             let _ = cx.resolve(&r.ref_);
             self.resolved_count += 1;
@@ -77,16 +85,35 @@ impl<'a> ComponentVisitor<'a> for ParanoidVisitor {
     // `ReferencedIndices` impl just iterates over every inner decl. Resolving
     // here would double-count every ref that `visit_inst_type_decl` /
     // `visit_comp_type_decl` already handles individually.
-    fn enter_comp_instance_type(&mut self, _cx: &VisitCtx<'a>, _id: u32, _item: &ComponentType<'a>) {}
-    fn exit_comp_instance_type(&mut self, _cx: &VisitCtx<'a>, _id: u32, _item: &ComponentType<'a>) {}
-    fn enter_comp_component_type(&mut self, _cx: &VisitCtx<'a>, _id: u32, _item: &ComponentType<'a>) {}
-    fn exit_comp_component_type(&mut self, _cx: &VisitCtx<'a>, _id: u32, _item: &ComponentType<'a>) {}
-    fn visit_comp_instance(
+    fn enter_component_type_inst(
         &mut self,
-        cx: &VisitCtx<'a>,
+        _cx: &VisitCtx<'a>,
         _id: u32,
-        item: &ComponentInstance<'a>,
+        _item: &ComponentType<'a>,
     ) {
+    }
+    fn exit_component_type_inst(
+        &mut self,
+        _cx: &VisitCtx<'a>,
+        _id: u32,
+        _item: &ComponentType<'a>,
+    ) {
+    }
+    fn enter_component_type_comp(
+        &mut self,
+        _cx: &VisitCtx<'a>,
+        _id: u32,
+        _item: &ComponentType<'a>,
+    ) {
+    }
+    fn exit_component_type_comp(
+        &mut self,
+        _cx: &VisitCtx<'a>,
+        _id: u32,
+        _item: &ComponentType<'a>,
+    ) {
+    }
+    fn visit_comp_instance(&mut self, cx: &VisitCtx<'a>, _id: u32, item: &ComponentInstance<'a>) {
         self.resolve_refs(cx, item);
     }
     fn visit_canon(
@@ -126,12 +153,7 @@ impl<'a> ComponentVisitor<'a> for ParanoidVisitor {
         self.resolve_refs(cx, item);
     }
 
-    fn enter_core_rec_group(
-        &mut self,
-        cx: &VisitCtx<'a>,
-        _count: usize,
-        item: &CoreType<'a>,
-    ) {
+    fn enter_core_rec_group(&mut self, cx: &VisitCtx<'a>, _count: usize, item: &CoreType<'a>) {
         self.resolve_refs(cx, item);
     }
     fn visit_core_subtype(&mut self, cx: &VisitCtx<'a>, _id: u32, item: &SubType) {
@@ -185,9 +207,7 @@ fn run_on_bytes(bytes: Vec<u8>) -> usize {
 /// same number of refs (a consistency check on top of the no-panic check).
 /// Returns the resolved ref count.
 fn run_paranoid(wat: &str) -> usize {
-    run_on_bytes(
-        wat::parse_str(wat).expect("WAT parse failed")
-    )
+    run_on_bytes(wat::parse_str(wat).expect("WAT parse failed"))
 }
 
 fn run_paranoid_file(path: &str) {
@@ -983,7 +1003,10 @@ fn test_resolve_result_outer_depth2_from_doubly_nested_is_comp_type() {
         )"#,
         &mut v,
     );
-    assert_eq!(v.checked, 1, "expected exactly 1 depth-2 outer alias ref resolved");
+    assert_eq!(
+        v.checked, 1,
+        "expected exactly 1 depth-2 outer alias ref resolved"
+    );
 }
 
 // ============================================================
@@ -1162,7 +1185,9 @@ fn test_type_body_stack_outer_scope_resolves_after_inner_exits() {
             }
         }
     }
-    let mut v = V { inst_export_count: 0 };
+    let mut v = V {
+        inst_export_count: 0,
+    };
     walk_wat(
         r#"(component
           (type (instance
@@ -1307,10 +1332,10 @@ fn test_type_body_stack_triple_depth_exact_index() {
         depth: usize,
     }
     impl<'a> ComponentVisitor<'a> for V {
-        fn enter_comp_instance_type(&mut self, _: &VisitCtx<'a>, _: u32, _: &ComponentType<'a>) {
+        fn enter_component_type_inst(&mut self, _: &VisitCtx<'a>, _: u32, _: &ComponentType<'a>) {
             self.depth += 1;
         }
-        fn exit_comp_instance_type(&mut self, _: &VisitCtx<'a>, _: u32, _: &ComponentType<'a>) {
+        fn exit_component_type_inst(&mut self, _: &VisitCtx<'a>, _: u32, _: &ComponentType<'a>) {
             self.depth -= 1;
         }
         fn visit_inst_type_decl(
@@ -1343,7 +1368,11 @@ fn test_type_body_stack_triple_depth_exact_index() {
             }
         }
     }
-    let mut v = V { inner_checked: 0, middle_checked: 0, depth: 0 };
+    let mut v = V {
+        inner_checked: 0,
+        middle_checked: 0,
+        depth: 0,
+    };
     walk_wat(
         r#"(component
           (type (component
@@ -1359,6 +1388,12 @@ fn test_type_body_stack_triple_depth_exact_index() {
         )"#,
         &mut v,
     );
-    assert_eq!(v.inner_checked, 1, "inner body export should have been checked once");
-    assert_eq!(v.middle_checked, 1, "middle body export should have been checked once");
+    assert_eq!(
+        v.inner_checked, 1,
+        "inner body export should have been checked once"
+    );
+    assert_eq!(
+        v.middle_checked, 1,
+        "middle body export should have been checked once"
+    );
 }

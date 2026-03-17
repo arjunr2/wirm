@@ -162,7 +162,7 @@ pub trait ComponentVisitor<'a> {
     /// component type namespace.
     ///
     /// For `Instance` and `Component` types, which carry inner declaration
-    /// bodies, use [`ComponentVisitor::enter_comp_instance_type`] /
+    /// bodies, use [`ComponentVisitor::enter_component_type_inst`] /
     /// [`ComponentVisitor::enter_comp_component_type`] instead.
     fn visit_comp_type(&mut self, _cx: &VisitCtx<'a>, _id: u32, _comp_type: &ComponentType<'a>) {}
 
@@ -170,8 +170,8 @@ pub trait ComponentVisitor<'a> {
     ///
     /// The `id` is the resolved type index.  Instance type declarations
     /// are reported via [`ComponentVisitor::visit_inst_type_decl`] between
-    /// this call and [`ComponentVisitor::exit_comp_instance_type`].
-    fn enter_comp_instance_type(
+    /// this call and [`ComponentVisitor::exit_component_type_inst`].
+    fn enter_component_type_inst(
         &mut self,
         _cx: &VisitCtx<'a>,
         _id: u32,
@@ -181,8 +181,8 @@ pub trait ComponentVisitor<'a> {
 
     /// Invoked after all declarations within an instance type have been
     /// visited.  Always paired with
-    /// [`ComponentVisitor::enter_comp_instance_type`].
-    fn exit_comp_instance_type(
+    /// [`ComponentVisitor::enter_component_type_inst`].
+    fn exit_component_type_inst(
         &mut self,
         _cx: &VisitCtx<'a>,
         _id: u32,
@@ -195,8 +195,8 @@ pub trait ComponentVisitor<'a> {
     ///
     /// The `id` is the resolved type index.  Component type declarations
     /// are reported via [`ComponentVisitor::visit_comp_type_decl`] between
-    /// this call and [`ComponentVisitor::exit_comp_component_type`].
-    fn enter_comp_component_type(
+    /// this call and [`ComponentVisitor::exit_component_type_comp`].
+    fn enter_component_type_comp(
         &mut self,
         _cx: &VisitCtx<'a>,
         _id: u32,
@@ -206,8 +206,8 @@ pub trait ComponentVisitor<'a> {
 
     /// Invoked after all declarations within a component type body have
     /// been visited.  Always paired with
-    /// [`ComponentVisitor::enter_comp_component_type`].
-    fn exit_comp_component_type(
+    /// [`ComponentVisitor::enter_component_type_comp`].
+    fn exit_component_type_comp(
         &mut self,
         _cx: &VisitCtx<'a>,
         _id: u32,
@@ -251,7 +251,6 @@ pub trait ComponentVisitor<'a> {
         _decl: &InstanceTypeDeclaration<'a>,
     ) {
     }
-
 
     /// Invoked for each component instance.
     ///
@@ -400,13 +399,7 @@ pub trait ComponentVisitor<'a> {
     /// Module type declarations are reported via
     /// [`ComponentVisitor::visit_module_type_decl`] between this call and
     /// [`ComponentVisitor::exit_core_module_type`].
-    fn enter_core_module_type(
-        &mut self,
-        _cx: &VisitCtx<'a>,
-        _id: u32,
-        _core_type: &CoreType<'a>,
-    ) {
-    }
+    fn enter_core_module_type(&mut self, _cx: &VisitCtx<'a>, _id: u32, _core_type: &CoreType<'a>) {}
 
     /// Called for each declaration inside a core module type.
     ///
@@ -441,13 +434,7 @@ pub trait ComponentVisitor<'a> {
     /// Called after all declarations within a core module type have been
     /// visited.  Always paired with
     /// [`ComponentVisitor::enter_core_module_type`].
-    fn exit_core_module_type(
-        &mut self,
-        _cx: &VisitCtx<'a>,
-        _id: u32,
-        _core_type: &CoreType<'a>,
-    ) {
-    }
+    fn exit_core_module_type(&mut self, _cx: &VisitCtx<'a>, _id: u32, _core_type: &CoreType<'a>) {}
 
     /// Invoked for each core WebAssembly instance.
     ///

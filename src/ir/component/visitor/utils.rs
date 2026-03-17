@@ -356,9 +356,15 @@ impl<'a> VisitCtxInner<'a> {
         // pops it on exit, so we dispatch here automatically into the right subvec.
         if r.depth.is_curr() {
             match self.type_body_stack.last() {
-                Some(TypeBodyDecls::Inst(decls)) => return self.resolve_maybe_from_subvec(r, decls),
-                Some(TypeBodyDecls::Comp(decls)) => return self.resolve_maybe_from_subvec(r, decls),
-                Some(TypeBodyDecls::Module(decls)) => return self.resolve_maybe_from_subvec(r, decls),
+                Some(TypeBodyDecls::Inst(decls)) => {
+                    return self.resolve_maybe_from_subvec(r, decls)
+                }
+                Some(TypeBodyDecls::Comp(decls)) => {
+                    return self.resolve_maybe_from_subvec(r, decls)
+                }
+                Some(TypeBodyDecls::Module(decls)) => {
+                    return self.resolve_maybe_from_subvec(r, decls)
+                }
                 None => {} // not inside a type body; fall through to normal resolution
             }
         }

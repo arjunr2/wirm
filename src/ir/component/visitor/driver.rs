@@ -69,11 +69,11 @@ pub fn drive_event<'ir, V: ComponentVisitor<'ir>>(
             match ty {
                 ComponentType::Instance(decls) => {
                     ctx.inner.push_type_body(TypeBodyDecls::Inst(decls));
-                    visitor.enter_comp_instance_type(ctx, id, ty);
+                    visitor.enter_component_type_inst(ctx, id, ty);
                 }
                 ComponentType::Component(decls) => {
                     ctx.inner.push_type_body(TypeBodyDecls::Comp(decls));
-                    visitor.enter_comp_component_type(ctx, id, ty);
+                    visitor.enter_component_type_comp(ctx, id, ty);
                 }
                 _ => visitor.visit_comp_type(ctx, id, ty),
             }
@@ -107,11 +107,11 @@ pub fn drive_event<'ir, V: ComponentVisitor<'ir>>(
                     .lookup_id_for(&Space::CompType, &ComponentSection::ComponentType, *idx);
             match ty {
                 ComponentType::Instance(_) => {
-                    visitor.exit_comp_instance_type(ctx, id, ty);
+                    visitor.exit_component_type_inst(ctx, id, ty);
                     ctx.inner.pop_type_body();
                 }
                 ComponentType::Component(_) => {
-                    visitor.exit_comp_component_type(ctx, id, ty);
+                    visitor.exit_component_type_comp(ctx, id, ty);
                     ctx.inner.pop_type_body();
                 }
                 _ => {} // visit_comp_type was already called at Enter; no exit for leaf types

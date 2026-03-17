@@ -93,11 +93,11 @@ impl ComponentVisitor<'_> for Assigner {
         // Leaf types have no nested scope
         self.assign_actual_id(&cx.inner, true, &ty.index_space_of(), id)
     }
-    fn exit_comp_instance_type(&mut self, cx: &VisitCtx<'_>, id: u32, ty: &ComponentType<'_>) {
+    fn exit_component_type_inst(&mut self, cx: &VisitCtx<'_>, id: u32, ty: &ComponentType<'_>) {
         // Body types have a nested scope (so pass false to is_inner_node)
         self.assign_actual_id(&cx.inner, false, &ty.index_space_of(), id)
     }
-    fn exit_comp_component_type(&mut self, cx: &VisitCtx<'_>, id: u32, ty: &ComponentType<'_>) {
+    fn exit_component_type_comp(&mut self, cx: &VisitCtx<'_>, id: u32, ty: &ComponentType<'_>) {
         // Body types have a nested scope (so pass false to is_inner_node)
         self.assign_actual_id(&cx.inner, false, &ty.index_space_of(), id)
     }
