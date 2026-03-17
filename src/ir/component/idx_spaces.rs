@@ -296,7 +296,11 @@ impl IndexScope {
             .and_then(|space| space.index_from_assumed_id_no_cache(r.index as usize))
             .unwrap_or_else(|| {
                 panic!(
-                    "[{:?}@scope{}] Internal error: No index for assumed ID: {}",
+                    "[{:?}@scope{}] No index for assumed ID: {}. \
+                     This reference may belong to a ComponentType::Instance, \
+                     ComponentType::Component, or CoreType::Module body — if so, this is a \
+                     driver bug: the driver should have pushed the type body onto \
+                     VisitCtxInner::type_body_stack before this callback fired.",
                     r.space, self.id, r.index
                 )
             })

@@ -1,5 +1,6 @@
 use crate::ir::component::idx_spaces::{IndexSpaceOf, Space};
 use crate::ir::component::section::ComponentSection;
+use crate::ir::component::visitor::utils::TypeBodyDecls;
 use crate::ir::component::visitor::{ComponentVisitor, ItemKind, VisitCtx};
 use crate::ir::types::CustomSection;
 use crate::{Component, Module};
@@ -65,7 +66,17 @@ pub fn drive_event<'ir, V: ComponentVisitor<'ir>>(
             let id =
                 ctx.inner
                     .lookup_id_for(&Space::CompType, &ComponentSection::ComponentType, *idx);
-            visitor.enter_comp_type(ctx, id, ty);
+            match ty {
+                ComponentType::Instance(decls) => {
+                    ctx.inner.push_type_body(TypeBodyDecls::Inst(decls));
+                    visitor.enter_component_type_inst(ctx, id, ty);
+                }
+                ComponentType::Component(decls) => {
+                    ctx.inner.push_type_body(TypeBodyDecls::Comp(decls));
+                    visitor.enter_component_type_comp(ctx, id, ty);
+                }
+                _ => visitor.visit_comp_type(ctx, id, ty),
+            }
         }
 
         VisitEvent::CompTypeDecl { idx, parent, decl } => {
@@ -94,7 +105,17 @@ pub fn drive_event<'ir, V: ComponentVisitor<'ir>>(
             let id =
                 ctx.inner
                     .lookup_id_for(&Space::CompType, &ComponentSection::ComponentType, *idx);
-            visitor.exit_comp_type(ctx, id, ty);
+            match ty {
+                ComponentType::Instance(_) => {
+                    visitor.exit_component_type_inst(ctx, id, ty);
+                    ctx.inner.pop_type_body();
+                }
+                ComponentType::Component(_) => {
+                    visitor.exit_component_type_comp(ctx, id, ty);
+                    ctx.inner.pop_type_body();
+                }
+                _ => {} // visit_comp_type was already called at Enter; no exit for leaf types
+            }
             ctx.inner.maybe_exit_scope(*ty);
         }
 
@@ -160,7 +181,10 @@ pub fn drive_event<'ir, V: ComponentVisitor<'ir>>(
             let id = ctx
                 .inner
                 .lookup_id_for(&Space::CoreType, &ComponentSection::CoreType, *idx);
-            visitor.enter_core_type(ctx, id, ty);
+            if let CoreType::Module(decls) = ty {
+                ctx.inner.push_type_body(TypeBodyDecls::Module(decls));
+            }
+            visitor.enter_core_module_type(ctx, id, ty);
         }
         VisitEvent::ModuleTypeDecl { idx, parent, decl } => {
             ctx.inner.maybe_enter_scope(*decl);
@@ -174,7 +198,8 @@ pub fn drive_event<'ir, V: ComponentVisitor<'ir>>(
             let id = ctx
                 .inner
                 .lookup_id_for(&Space::CoreType, &ComponentSection::CoreType, *idx);
-            visitor.exit_core_type(ctx, id, ty);
+            visitor.exit_core_module_type(ctx, id, ty);
+            ctx.inner.pop_type_body();
             ctx.inner.maybe_exit_scope(*ty);
         }
         VisitEvent::CoreInst { idx, inst } => {

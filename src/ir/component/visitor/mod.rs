@@ -16,6 +16,8 @@ pub(crate) mod driver;
 mod events_structural;
 pub(crate) mod events_topological;
 #[cfg(test)]
+mod resolution_tests;
+#[cfg(test)]
 mod tests;
 pub(crate) mod utils;
 
@@ -154,19 +156,64 @@ pub trait ComponentVisitor<'a> {
     // Component-level items
     // ------------------------
 
-    /// Invoked when entering a component-level type definition.
-    ///
-    /// This includes all variants of `ComponentType`, such as defined,
-    /// function, component, instance, and resource types.
+    /// Invoked for each leaf component type (`Defined`, `Func`, `Resource`).
     ///
     /// The `id` corresponds to the resolved type index within the
     /// component type namespace.
     ///
-    /// This callback is paired with `exit_comp_type`, and any nested
-    /// declarations (e.g. `ComponentTypeDeclaration` or
-    /// `InstanceTypeDeclaration`) will be reported between the enter/exit
-    /// calls.
-    fn enter_comp_type(&mut self, _cx: &VisitCtx<'a>, _id: u32, _comp_type: &ComponentType<'a>) {}
+    /// For `Instance` and `Component` types, which carry inner declaration
+    /// bodies, use [`ComponentVisitor::enter_component_type_inst`] /
+    /// [`ComponentVisitor::enter_comp_component_type`] instead.
+    fn visit_comp_type(&mut self, _cx: &VisitCtx<'a>, _id: u32, _comp_type: &ComponentType<'a>) {}
+
+    /// Invoked when entering an instance type (`ComponentType::Instance`).
+    ///
+    /// The `id` is the resolved type index.  Instance type declarations
+    /// are reported via [`ComponentVisitor::visit_inst_type_decl`] between
+    /// this call and [`ComponentVisitor::exit_component_type_inst`].
+    fn enter_component_type_inst(
+        &mut self,
+        _cx: &VisitCtx<'a>,
+        _id: u32,
+        _comp_type: &ComponentType<'a>,
+    ) {
+    }
+
+    /// Invoked after all declarations within an instance type have been
+    /// visited.  Always paired with
+    /// [`ComponentVisitor::enter_component_type_inst`].
+    fn exit_component_type_inst(
+        &mut self,
+        _cx: &VisitCtx<'a>,
+        _id: u32,
+        _comp_type: &ComponentType<'a>,
+    ) {
+    }
+
+    /// Invoked when entering a component type body
+    /// (`ComponentType::Component`).
+    ///
+    /// The `id` is the resolved type index.  Component type declarations
+    /// are reported via [`ComponentVisitor::visit_comp_type_decl`] between
+    /// this call and [`ComponentVisitor::exit_component_type_comp`].
+    fn enter_component_type_comp(
+        &mut self,
+        _cx: &VisitCtx<'a>,
+        _id: u32,
+        _comp_type: &ComponentType<'a>,
+    ) {
+    }
+
+    /// Invoked after all declarations within a component type body have
+    /// been visited.  Always paired with
+    /// [`ComponentVisitor::enter_component_type_comp`].
+    fn exit_component_type_comp(
+        &mut self,
+        _cx: &VisitCtx<'a>,
+        _id: u32,
+        _comp_type: &ComponentType<'a>,
+    ) {
+    }
 
     /// Invoked for each declaration within a `ComponentType::Component`.
     ///
@@ -204,12 +251,6 @@ pub trait ComponentVisitor<'a> {
         _decl: &InstanceTypeDeclaration<'a>,
     ) {
     }
-
-    /// Invoked after all nested declarations within a component-level
-    /// type have been visited.
-    ///
-    /// Always paired with a prior `enter_comp_type` call for the same `id`.
-    fn exit_comp_type(&mut self, _cx: &VisitCtx<'a>, _id: u32, _comp_type: &ComponentType<'a>) {}
 
     /// Invoked for each component instance.
     ///
@@ -352,23 +393,13 @@ pub trait ComponentVisitor<'a> {
     // Core Type Definitions
     // ============================================================
 
-    /// Called when entering a core type definition.
+    /// Called when entering a core module type (`CoreType::Module`).
     ///
-    /// This corresponds to a type allocated in the core type namespace
-    /// (e.g., a module type). The `id` is the resolved index within that
-    /// namespace.
-    ///
-    /// This callback forms a structured pair with `exit_core_type`.
-    /// Any nested structure associated with this type (such as module
-    /// type declarations) will be reported between these two calls.
-    ///
-    /// Ordering guarantees:
-    /// `enter_core_type(id, ...)`
-    ///   → zero or more `visit_module_type_decl(...)`
-    ///   → `exit_core_type(id, ...)`
-    ///
-    /// The same `id` is passed to both enter and exit.
-    fn enter_core_type(&mut self, _cx: &VisitCtx<'a>, _id: u32, _core_type: &CoreType<'a>) {}
+    /// The `id` is the resolved index in the core type namespace.
+    /// Module type declarations are reported via
+    /// [`ComponentVisitor::visit_module_type_decl`] between this call and
+    /// [`ComponentVisitor::exit_core_module_type`].
+    fn enter_core_module_type(&mut self, _cx: &VisitCtx<'a>, _id: u32, _core_type: &CoreType<'a>) {}
 
     /// Called for each declaration inside a core module type.
     ///
@@ -400,16 +431,10 @@ pub trait ComponentVisitor<'a> {
     ) {
     }
 
-    /// Called after all nested declarations for a core type
-    /// have been visited.
-    ///
-    /// Always paired with a prior `enter_core_type` for the same `id`.
-    /// No additional callbacks related to this type will occur after
-    /// this point.
-    ///
-    /// Implementations may use this as a finalization hook once the
-    /// full structural contents of the type are known.
-    fn exit_core_type(&mut self, _cx: &VisitCtx<'a>, _id: u32, _core_type: &CoreType<'a>) {}
+    /// Called after all declarations within a core module type have been
+    /// visited.  Always paired with
+    /// [`ComponentVisitor::enter_core_module_type`].
+    fn exit_core_module_type(&mut self, _cx: &VisitCtx<'a>, _id: u32, _core_type: &CoreType<'a>) {}
 
     /// Invoked for each core WebAssembly instance.
     ///
@@ -490,6 +515,7 @@ impl From<Space> for ItemKind {
 ///
 /// All resolution operations are read-only and reflect the *semantic*
 /// structure of the component, not its internal storage layout.
+#[derive(Clone)]
 pub struct VisitCtx<'a> {
     pub(crate) inner: VisitCtxInner<'a>,
 }
@@ -527,16 +553,17 @@ impl<'a> VisitCtx<'a> {
     /// - [`crate::ir::component::refs::GetArgRefs`]: to pull refs of args
     /// - [`crate::ir::component::refs::GetDescriptorRefs`]: to pull refs of descriptors
     /// - [`crate::ir::component::refs::GetDescribesRefs`]: to pull refs of describes
-    pub fn resolve(&self, ref_: &IndexedRef) -> ResolvedItem<'_, '_> {
+    pub fn resolve(&self, ref_: &IndexedRef) -> ResolvedItem<'a, 'a> {
         self.inner.resolve(ref_)
     }
+
     /// Resolves a collection of [`RefKind`] values into their semantic targets.
     ///
     /// This is a convenience helper for bulk resolution when a node exposes
     /// multiple referenced indices.
     ///
     /// Read through [`VisitCtx::resolve`] for how to pull such references from IR nodes.
-    pub fn resolve_all(&self, refs: &[RefKind]) -> Vec<ResolvedItem<'_, '_>> {
+    pub fn resolve_all(&self, refs: &[RefKind]) -> Vec<ResolvedItem<'a, 'a>> {
         self.inner.resolve_all(refs)
     }
     /// Looks up the name (if any) of the root component.
@@ -678,6 +705,7 @@ impl<'a> VisitCtx<'a> {
 /// traversal. For example, `ResolvedItem::CompType(idx, _)` must always
 /// have `idx` equal to the resolved index of that component type in the
 /// component type namespace.
+#[derive(Clone, Debug)]
 pub enum ResolvedItem<'a, 'b> {
     /// A resolved subcomponent.
     Component(u32, &'a Component<'b>),
@@ -708,4 +736,10 @@ pub enum ResolvedItem<'a, 'b> {
 
     /// A resolved component export.
     Export(u32, &'a ComponentExport<'b>),
+    /// A resolved declaration from inside a [`ComponentType::Component`] body.
+    CompTyDeclExport(u32, &'a ComponentTypeDeclaration<'b>),
+    /// A resolved declaration from inside a [`ComponentType::Instance`] body.
+    InstTyDeclExport(u32, &'a InstanceTypeDeclaration<'b>),
+    /// A resolved declaration from inside a [`CoreType::Module`] body.
+    ModuleTyDecl(u32, &'a ModuleTypeDeclaration<'b>),
 }
