@@ -284,8 +284,7 @@ fn test_scoped_resolution_instance_type_body() {
           ))
         )"#,
     );
-    // The export has one type ref — at least 1 resolution must happen.
-    assert!(count > 0);
+    assert_eq!(count, 1);
 }
 
 /// Instance type body with a compound type (list) that references a sibling
@@ -301,7 +300,7 @@ fn test_scoped_resolution_instance_type_compound_ref() {
           ))
         )"#,
     );
-    assert!(count > 0);
+    assert_eq!(count, 2);
 }
 
 /// Component type body (not instance type) with a type and an export ref.
@@ -316,7 +315,7 @@ fn test_scoped_resolution_component_type_body() {
           ))
         )"#,
     );
-    assert!(count > 0);
+    assert_eq!(count, 1);
 }
 
 /// `CoreType::Module` body with a func type declaration and an import that
@@ -333,7 +332,7 @@ fn test_scoped_resolution_core_module_type_body() {
           ))
         )"#,
     );
-    assert!(count > 0);
+    assert_eq!(count, 2);
 }
 
 /// Outer alias (depth > 0) inside an instance type body.
@@ -353,7 +352,7 @@ fn test_scoped_resolution_outer_alias_in_instance_type() {
           ))
         )"#,
     );
-    assert!(count > 0);
+    assert_eq!(count, 2);
 }
 
 /// Two consecutive instance type scopes.
@@ -362,8 +361,9 @@ fn test_scoped_resolution_outer_alias_in_instance_type() {
 /// exits, so the second scope's resolution is not affected by the first.
 #[test]
 fn test_scoped_resolution_nesting_resets_between_scopes() {
-    run_paranoid(
-        r#"(component
+    assert_eq!(
+        run_paranoid(
+            r#"(component
           (type (instance
             (type $a u32)
             (export "a" (type (eq $a)))
@@ -373,7 +373,9 @@ fn test_scoped_resolution_nesting_resets_between_scopes() {
             (export "b" (type (eq $b)))
           ))
         )"#,
-    );
+        ),
+        2
+    )
 }
 
 /// Instance type body that itself contains an inner instance type.
@@ -394,7 +396,7 @@ fn test_scoped_resolution_nested_instance_types() {
           ))
         )"#,
     );
-    assert!(count > 0);
+    assert_eq!(count, 2);
 }
 
 // ============================================================
