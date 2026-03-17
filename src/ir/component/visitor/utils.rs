@@ -34,6 +34,20 @@ use crate::ir::id::ComponentId;
 use crate::Component;
 use wasmparser::{ComponentTypeDeclaration, InstanceTypeDeclaration, ModuleTypeDeclaration};
 
+/// The declaration slice of a currently-active type body scope.
+///
+/// Pushed onto [`VisitCtxInner::type_body_stack`] when entering a
+/// `ComponentType::Instance`, `ComponentType::Component`, or
+/// `CoreType::Module` definition, and popped on exit.  Used by
+/// [`VisitCtxInner::resolve`] to dispatch current-depth refs into the
+/// right subvec rather than into the component's main index vectors.
+#[derive(Clone)]
+pub(crate) enum TypeBodyDecls<'a> {
+    Inst(&'a [InstanceTypeDeclaration<'a>]),
+    Comp(&'a [ComponentTypeDeclaration<'a>]),
+    Module(&'a [ModuleTypeDeclaration<'a>]),
+}
+
 #[derive(Clone)]
 pub struct VisitCtxInner<'a> {
     pub(crate) registry: RegistryHandle,
@@ -45,6 +59,10 @@ pub struct VisitCtxInner<'a> {
     /// only grows for component scopes.  This offset is used in `comp_at` to re-align the
     /// depth value (which is relative to `scope_stack`) with `component_stack`.
     pub(crate) type_scope_nesting: usize,
+    /// Stack of active type-body decl slices.  When non-empty, current-depth refs in
+    /// `resolve()` are dispatched into `type_body_stack.last()` rather than the component's
+    /// main index vectors, because refs inside a type body use that body's own namespace.
+    pub(crate) type_body_stack: Vec<TypeBodyDecls<'a>>,
     pub(crate) store: StoreHandle,
     pub(crate) comp_store: ComponentStore<'a>,
     section_tracker_stack: Vec<SectionTracker>,
@@ -64,6 +82,7 @@ impl<'a> VisitCtxInner<'a> {
             scope_stack: ScopeStack::new(),
             node_has_nested_scope: Vec::new(),
             type_scope_nesting: 0,
+            type_body_stack: Vec::new(),
             store: root.index_store.clone(),
             comp_store,
         }
@@ -179,6 +198,14 @@ impl<'a> VisitCtxInner<'a> {
                 self.component_stack
             )
         })
+    }
+
+    pub(crate) fn push_type_body(&mut self, decls: TypeBodyDecls<'a>) {
+        self.type_body_stack.push(decls);
+    }
+
+    pub(crate) fn pop_type_body(&mut self) {
+        self.type_body_stack.pop();
     }
 }
 
@@ -323,6 +350,19 @@ impl<'a> VisitCtxInner<'a> {
     /// `&'a Component<'a>` references.  Both lifetime parameters are therefore `'a` — the
     /// result does **not** borrow from `self` and outlives any temporary `VisitCtxInner`.
     pub fn resolve(&self, r: &IndexedRef) -> ResolvedItem<'a, 'a> {
+        // Inside a type-body scope, current-depth refs address the type body's own
+        // declaration namespace, not the enclosing component's main index vectors.
+        // The driver pushes the active decl slice onto type_body_stack on enter and
+        // pops it on exit, so we dispatch here automatically into the right subvec.
+        if r.depth.is_curr() {
+            match self.type_body_stack.last() {
+                Some(TypeBodyDecls::Inst(decls)) => return self.resolve_maybe_from_subvec(r, decls),
+                Some(TypeBodyDecls::Comp(decls)) => return self.resolve_maybe_from_subvec(r, decls),
+                Some(TypeBodyDecls::Module(decls)) => return self.resolve_maybe_from_subvec(r, decls),
+                None => {} // not inside a type body; fall through to normal resolution
+            }
+        }
+
         let (vec, idx, subidx) = self.index_from_assumed_id_no_cache(r);
         if r.space != Space::CoreType {
             assert!(

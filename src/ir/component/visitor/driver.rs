@@ -1,6 +1,7 @@
 use crate::ir::component::idx_spaces::{IndexSpaceOf, Space};
 use crate::ir::component::section::ComponentSection;
-use crate::ir::component::visitor::{ComponentVisitor, ItemKind, ScopedVisitCtx, VisitCtx};
+use crate::ir::component::visitor::utils::TypeBodyDecls;
+use crate::ir::component::visitor::{ComponentVisitor, ItemKind, VisitCtx};
 use crate::ir::types::CustomSection;
 use crate::{Component, Module};
 use wasmparser::{
@@ -65,7 +66,17 @@ pub fn drive_event<'ir, V: ComponentVisitor<'ir>>(
             let id =
                 ctx.inner
                     .lookup_id_for(&Space::CompType, &ComponentSection::ComponentType, *idx);
-            visitor.enter_comp_type(ctx, id, ty);
+            match ty {
+                ComponentType::Instance(decls) => {
+                    ctx.inner.push_type_body(TypeBodyDecls::Inst(decls));
+                    visitor.enter_comp_instance_type(ctx, id, ty);
+                }
+                ComponentType::Component(decls) => {
+                    ctx.inner.push_type_body(TypeBodyDecls::Comp(decls));
+                    visitor.enter_comp_component_type(ctx, id, ty);
+                }
+                _ => visitor.visit_comp_type(ctx, id, ty),
+            }
         }
 
         VisitEvent::CompTypeDecl { idx, parent, decl } => {
@@ -75,10 +86,7 @@ pub fn drive_event<'ir, V: ComponentVisitor<'ir>>(
                 &ComponentSection::ComponentType,
                 *idx,
             );
-            // The parent type's scope is already on the stack (entered by EnterCompType).
-            // Wrap without re-entering so callers can call cx.resolve() directly.
-            let scoped_cx = ScopedVisitCtx::wrap_comp_ty(ctx.inner.clone(), parent);
-            visitor.visit_comp_type_decl(&scoped_cx, *idx, id, parent, decl);
+            visitor.visit_comp_type_decl(ctx, *idx, id, parent, decl);
             ctx.inner.maybe_exit_scope(*decl);
         }
 
@@ -89,9 +97,7 @@ pub fn drive_event<'ir, V: ComponentVisitor<'ir>>(
                 &ComponentSection::ComponentType,
                 *idx,
             );
-            // Same as CompTypeDecl: parent scope already entered.
-            let scoped_cx = ScopedVisitCtx::wrap_comp_ty(ctx.inner.clone(), parent);
-            visitor.visit_inst_type_decl(&scoped_cx, *idx, id, parent, decl);
+            visitor.visit_inst_type_decl(ctx, *idx, id, parent, decl);
             ctx.inner.maybe_exit_scope(*decl);
         }
 
@@ -99,7 +105,17 @@ pub fn drive_event<'ir, V: ComponentVisitor<'ir>>(
             let id =
                 ctx.inner
                     .lookup_id_for(&Space::CompType, &ComponentSection::ComponentType, *idx);
-            visitor.exit_comp_type(ctx, id, ty);
+            match ty {
+                ComponentType::Instance(_) => {
+                    visitor.exit_comp_instance_type(ctx, id, ty);
+                    ctx.inner.pop_type_body();
+                }
+                ComponentType::Component(_) => {
+                    visitor.exit_comp_component_type(ctx, id, ty);
+                    ctx.inner.pop_type_body();
+                }
+                _ => {} // visit_comp_type was already called at Enter; no exit for leaf types
+            }
             ctx.inner.maybe_exit_scope(*ty);
         }
 
@@ -165,23 +181,25 @@ pub fn drive_event<'ir, V: ComponentVisitor<'ir>>(
             let id = ctx
                 .inner
                 .lookup_id_for(&Space::CoreType, &ComponentSection::CoreType, *idx);
-            visitor.enter_core_type(ctx, id, ty);
+            if let CoreType::Module(decls) = ty {
+                ctx.inner.push_type_body(TypeBodyDecls::Module(decls));
+            }
+            visitor.enter_core_module_type(ctx, id, ty);
         }
         VisitEvent::ModuleTypeDecl { idx, parent, decl } => {
             ctx.inner.maybe_enter_scope(*decl);
             let id =
                 ctx.inner
                     .lookup_id_for(&decl.index_space_of(), &ComponentSection::CoreType, *idx);
-            // Parent core-type scope already entered by EnterCoreType.
-            let scoped_cx = ScopedVisitCtx::wrap_core_ty(ctx.inner.clone(), parent);
-            visitor.visit_module_type_decl(&scoped_cx, *idx, id, parent, decl);
+            visitor.visit_module_type_decl(ctx, *idx, id, parent, decl);
             ctx.inner.maybe_exit_scope(*decl);
         }
         VisitEvent::ExitCoreType { idx, ty } => {
             let id = ctx
                 .inner
                 .lookup_id_for(&Space::CoreType, &ComponentSection::CoreType, *idx);
-            visitor.exit_core_type(ctx, id, ty);
+            visitor.exit_core_module_type(ctx, id, ty);
+            ctx.inner.pop_type_body();
             ctx.inner.maybe_exit_scope(*ty);
         }
         VisitEvent::CoreInst { idx, inst } => {

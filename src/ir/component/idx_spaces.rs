@@ -297,11 +297,10 @@ impl IndexScope {
             .unwrap_or_else(|| {
                 panic!(
                     "[{:?}@scope{}] No index for assumed ID: {}. \
-                     This reference may have been declared inside a ComponentType::Instance, \
-                     ComponentType::Component, or CoreType::Module body. If so, you need a \
-                     ScopedVisitCtx: call `cx.enter_comp_ty_scope(ty)` (for ComponentType) or \
-                     `cx.enter_core_ty_scope(ty)` (for CoreType) on your VisitCtx and use the \
-                     returned ScopedVisitCtx for all resolution within that scope.",
+                     This reference may belong to a ComponentType::Instance, \
+                     ComponentType::Component, or CoreType::Module body — if so, this is a \
+                     driver bug: the driver should have pushed the type body onto \
+                     VisitCtxInner::type_body_stack before this callback fired.",
                     r.space, self.id, r.index
                 )
             })

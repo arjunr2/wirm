@@ -5,7 +5,7 @@ use crate::error::Error::Multiple;
 use crate::ir::component::idx_spaces::Space;
 use crate::ir::component::visitor::driver::{drive_event, VisitEvent};
 use crate::ir::component::visitor::utils::VisitCtxInner;
-use crate::ir::component::visitor::{ComponentVisitor, ItemKind, ScopedVisitCtx, VisitCtx};
+use crate::ir::component::visitor::{ComponentVisitor, ItemKind, VisitCtx};
 use crate::ir::component::Names;
 use crate::ir::types;
 use crate::ir::types::CustomSection;
@@ -192,15 +192,64 @@ impl ComponentVisitor<'_> for Encoder<'_> {
             self.errors.push(e);
         }
     }
-    fn enter_comp_type(&mut self, cx: &VisitCtx<'_>, _id: u32, ty: &ComponentType<'_>) {
-        // always make sure the component type section exists!
-        let section = curr_comp_ty_sect_mut(&mut self.comp_stack);
+    fn visit_comp_type(&mut self, cx: &VisitCtx<'_>, _id: u32, ty: &ComponentType<'_>) {
+        // ensure section exists
+        curr_comp_ty_sect_mut(&mut self.comp_stack);
+        // nested inside a type body — delegate encoding to the parent frame
+        match self.type_stack.last_mut() {
+            Some(TypeFrame::Inst { ty: ity }) => {
+                encode_comp_ty_in_inst_ty(ty, ity, &mut self.reencode, self.ids, &cx.inner);
+                return;
+            }
+            Some(TypeFrame::Comp { ty: cty }) => {
+                encode_comp_ty_in_comp_ty(ty, cty, &mut self.reencode, self.ids, &cx.inner);
+                return;
+            }
+            Some(TypeFrame::Mod { .. }) => unreachable!(),
+            None => {}
+        }
+        // top-level leaf type: encode directly into the section then flush
+        {
+            let section = curr_comp_ty_sect_mut(&mut self.comp_stack);
+            match ty {
+                ComponentType::Defined(comp_ty) => {
+                    encode_comp_defined_ty(
+                        comp_ty,
+                        section.defined_type(),
+                        &mut self.reencode,
+                        self.ids,
+                        &cx.inner,
+                    );
+                }
+                ComponentType::Func(func_ty) => {
+                    encode_comp_func_ty(
+                        func_ty,
+                        section.function(),
+                        &mut self.reencode,
+                        self.ids,
+                        &cx.inner,
+                    );
+                }
+                ComponentType::Resource { rep, dtor } => {
+                    section.resource(self.reencode.val_type(*rep).unwrap(), *dtor);
+                }
+                ComponentType::Component(_) | ComponentType::Instance(_) => unreachable!(),
+            }
+        }
+        // leaf types don't push a frame, so type_stack is empty here — flush
+        let CompFrame { comp_type_section, component, .. } = curr_comp_frame(&mut self.comp_stack);
+        component.section(comp_type_section.as_mut().unwrap());
+        *comp_type_section = None;
+    }
+
+    fn enter_comp_instance_type(&mut self, cx: &VisitCtx<'_>, _id: u32, ty: &ComponentType<'_>) {
+        curr_comp_ty_sect_mut(&mut self.comp_stack);
         match self.type_stack.last_mut() {
             Some(TypeFrame::Inst { ty: ity }) => {
                 if let Some(new_frame) =
                     encode_comp_ty_in_inst_ty(ty, ity, &mut self.reencode, self.ids, &cx.inner)
                 {
-                    self.type_stack.push(new_frame)
+                    self.type_stack.push(new_frame);
                 }
                 return;
             }
@@ -208,45 +257,85 @@ impl ComponentVisitor<'_> for Encoder<'_> {
                 if let Some(new_frame) =
                     encode_comp_ty_in_comp_ty(ty, cty, &mut self.reencode, self.ids, &cx.inner)
                 {
-                    self.type_stack.push(new_frame)
+                    self.type_stack.push(new_frame);
                 }
                 return;
             }
             Some(TypeFrame::Mod { .. }) => unreachable!(),
             None => {}
         }
+        if let Some(new_frame) = frame_for_comp_ty(ty) {
+            self.type_stack.push(new_frame);
+        }
+    }
 
-        match ty {
-            ComponentType::Defined(comp_ty) => {
-                encode_comp_defined_ty(
-                    comp_ty,
-                    section.defined_type(),
-                    &mut self.reencode,
-                    self.ids,
-                    &cx.inner,
-                );
+    fn exit_comp_instance_type(&mut self, _: &VisitCtx<'_>, _: u32, _: &ComponentType<'_>) {
+        let CompFrame { comp_type_section, component, .. } = curr_comp_frame(&mut self.comp_stack);
+        let section = comp_type_section.as_mut().unwrap();
+        match self.type_stack.pop().unwrap() {
+            TypeFrame::Inst { ty } => {
+                if let Some(parent) = self.type_stack.last_mut() {
+                    parent.attach_instance_type(&ty);
+                } else {
+                    section.instance(&ty);
+                }
             }
-            ComponentType::Func(func_ty) => {
-                encode_comp_func_ty(
-                    func_ty,
-                    section.function(),
-                    &mut self.reencode,
-                    self.ids,
-                    &cx.inner,
-                );
+            TypeFrame::Comp { .. } | TypeFrame::Mod { .. } => unreachable!(),
+        }
+        if self.type_stack.is_empty() {
+            component.section(section);
+            *comp_type_section = None;
+        }
+    }
+
+    fn enter_comp_component_type(&mut self, cx: &VisitCtx<'_>, _id: u32, ty: &ComponentType<'_>) {
+        curr_comp_ty_sect_mut(&mut self.comp_stack);
+        match self.type_stack.last_mut() {
+            Some(TypeFrame::Inst { ty: ity }) => {
+                if let Some(new_frame) =
+                    encode_comp_ty_in_inst_ty(ty, ity, &mut self.reencode, self.ids, &cx.inner)
+                {
+                    self.type_stack.push(new_frame);
+                }
+                return;
             }
-            ComponentType::Resource { rep, dtor } => {
-                section.resource(self.reencode.val_type(*rep).unwrap(), *dtor);
+            Some(TypeFrame::Comp { ty: cty }) => {
+                if let Some(new_frame) =
+                    encode_comp_ty_in_comp_ty(ty, cty, &mut self.reencode, self.ids, &cx.inner)
+                {
+                    self.type_stack.push(new_frame);
+                }
+                return;
             }
-            ComponentType::Component(_) | ComponentType::Instance(_) => {}
+            Some(TypeFrame::Mod { .. }) => unreachable!(),
+            None => {}
         }
         if let Some(new_frame) = frame_for_comp_ty(ty) {
             self.type_stack.push(new_frame);
         }
     }
+
+    fn exit_comp_component_type(&mut self, _: &VisitCtx<'_>, _: u32, _: &ComponentType<'_>) {
+        let CompFrame { comp_type_section, component, .. } = curr_comp_frame(&mut self.comp_stack);
+        let section = comp_type_section.as_mut().unwrap();
+        match self.type_stack.pop().unwrap() {
+            TypeFrame::Comp { ty } => {
+                if let Some(parent) = self.type_stack.last_mut() {
+                    parent.attach_component_type(&ty);
+                } else {
+                    section.component(&ty);
+                }
+            }
+            TypeFrame::Inst { .. } | TypeFrame::Mod { .. } => unreachable!(),
+        }
+        if self.type_stack.is_empty() {
+            component.section(section);
+            *comp_type_section = None;
+        }
+    }
     fn visit_comp_type_decl(
         &mut self,
-        cx: &ScopedVisitCtx<'_>,
+        cx: &VisitCtx<'_>,
         _: usize,
         _: u32,
         _: &ComponentType<'_>,
@@ -261,7 +350,7 @@ impl ComponentVisitor<'_> for Encoder<'_> {
     }
     fn visit_inst_type_decl(
         &mut self,
-        cx: &ScopedVisitCtx<'_>,
+        cx: &VisitCtx<'_>,
         _: usize,
         _: u32,
         _: &ComponentType<'_>,
@@ -272,39 +361,6 @@ impl ComponentVisitor<'_> for Encoder<'_> {
                 encode_inst_ty_decl(decl, ty, &mut self.reencode, self.ids, &cx.inner);
             }
             TypeFrame::Comp { .. } | TypeFrame::Mod { .. } => unreachable!(),
-        }
-    }
-    fn exit_comp_type(&mut self, _: &VisitCtx<'_>, _: u32, ty: &ComponentType<'_>) {
-        let CompFrame {
-            comp_type_section,
-            component,
-            ..
-        } = curr_comp_frame(&mut self.comp_stack);
-        let section = comp_type_section.as_mut().unwrap();
-        if frame_for_comp_ty(ty).is_some() {
-            match self.type_stack.pop().unwrap() {
-                TypeFrame::Comp { ty } => {
-                    if let Some(parent) = self.type_stack.last_mut() {
-                        parent.attach_component_type(&ty);
-                    } else {
-                        section.component(&ty);
-                    }
-                }
-                TypeFrame::Inst { ty } => {
-                    if let Some(parent) = self.type_stack.last_mut() {
-                        parent.attach_instance_type(&ty);
-                    } else {
-                        // top-level type, attach to comp_type_section
-                        section.instance(&ty);
-                    }
-                }
-                TypeFrame::Mod { .. } => unreachable!(),
-            }
-        }
-
-        if self.type_stack.is_empty() {
-            component.section(section);
-            *comp_type_section = None;
         }
     }
     fn visit_comp_instance(&mut self, cx: &VisitCtx<'_>, _: u32, instance: &ComponentInstance<'_>) {
@@ -412,7 +468,7 @@ impl ComponentVisitor<'_> for Encoder<'_> {
         component.section(section);
         *core_type_section = None;
     }
-    fn enter_core_type(&mut self, cx: &VisitCtx<'_>, _id: u32, ty: &CoreType<'_>) {
+    fn enter_core_module_type(&mut self, cx: &VisitCtx<'_>, _id: u32, ty: &CoreType<'_>) {
         // always make sure the core type section exists!
         curr_core_ty_sect_mut(&mut self.comp_stack);
         match self.type_stack.last_mut() {
@@ -442,7 +498,7 @@ impl ComponentVisitor<'_> for Encoder<'_> {
     }
     fn visit_module_type_decl(
         &mut self,
-        cx: &ScopedVisitCtx<'_>,
+        cx: &VisitCtx<'_>,
         _decl_idx: usize,
         _id: u32,
         _parent: &CoreType<'_>,
@@ -455,7 +511,7 @@ impl ComponentVisitor<'_> for Encoder<'_> {
             TypeFrame::Comp { .. } | TypeFrame::Inst { .. } => unreachable!(),
         }
     }
-    fn exit_core_type(&mut self, _cx: &VisitCtx<'_>, _id: u32, ty: &CoreType<'_>) {
+    fn exit_core_module_type(&mut self, _cx: &VisitCtx<'_>, _id: u32, ty: &CoreType<'_>) {
         let CompFrame {
             core_type_section,
             component,

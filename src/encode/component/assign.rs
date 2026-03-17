@@ -2,7 +2,7 @@ use crate::ir::component::idx_spaces::{IndexSpaceOf, ScopeId, Space};
 use crate::ir::component::refs::{Depth, IndexedRef};
 use crate::ir::component::visitor::driver::{drive_event, VisitEvent};
 use crate::ir::component::visitor::utils::VisitCtxInner;
-use crate::ir::component::visitor::{ComponentVisitor, ItemKind, ScopedVisitCtx, VisitCtx};
+use crate::ir::component::visitor::{ComponentVisitor, ItemKind, VisitCtx};
 use crate::{Component, Module};
 use std::collections::HashMap;
 use wasmparser::{
@@ -56,7 +56,7 @@ impl ComponentVisitor<'_> for Assigner {
     }
     fn visit_comp_type_decl(
         &mut self,
-        cx: &ScopedVisitCtx<'_>,
+        cx: &VisitCtx<'_>,
         _decl_idx: usize,
         id: u32,
         _parent: &ComponentType<'_>,
@@ -73,7 +73,7 @@ impl ComponentVisitor<'_> for Assigner {
     }
     fn visit_inst_type_decl(
         &mut self,
-        cx: &ScopedVisitCtx<'_>,
+        cx: &VisitCtx<'_>,
         _decl_idx: usize,
         id: u32,
         _parent: &ComponentType<'_>,
@@ -89,8 +89,16 @@ impl ComponentVisitor<'_> for Assigner {
 
         self.assign_actual_id(&cx.inner, true, &decl.index_space_of(), id)
     }
-    fn exit_comp_type(&mut self, cx: &VisitCtx<'_>, id: u32, ty: &ComponentType<'_>) {
-        // This node COULD have a nested scope (so pass false to is_inner_node)
+    fn visit_comp_type(&mut self, cx: &VisitCtx<'_>, id: u32, ty: &ComponentType<'_>) {
+        // Leaf types have no nested scope
+        self.assign_actual_id(&cx.inner, true, &ty.index_space_of(), id)
+    }
+    fn exit_comp_instance_type(&mut self, cx: &VisitCtx<'_>, id: u32, ty: &ComponentType<'_>) {
+        // Body types have a nested scope (so pass false to is_inner_node)
+        self.assign_actual_id(&cx.inner, false, &ty.index_space_of(), id)
+    }
+    fn exit_comp_component_type(&mut self, cx: &VisitCtx<'_>, id: u32, ty: &ComponentType<'_>) {
+        // Body types have a nested scope (so pass false to is_inner_node)
         self.assign_actual_id(&cx.inner, false, &ty.index_space_of(), id)
     }
     fn visit_comp_instance(
@@ -139,7 +147,7 @@ impl ComponentVisitor<'_> for Assigner {
     }
     fn visit_module_type_decl(
         &mut self,
-        cx: &ScopedVisitCtx<'_>,
+        cx: &VisitCtx<'_>,
         _decl_idx: usize,
         id: u32,
         _parent: &CoreType<'_>,
@@ -160,8 +168,8 @@ impl ComponentVisitor<'_> for Assigner {
     fn visit_core_subtype(&mut self, cx: &VisitCtx<'_>, id: u32, subtype: &SubType) {
         self.assign_actual_id(&cx.inner, true, &subtype.index_space_of(), id)
     }
-    fn exit_core_type(&mut self, cx: &VisitCtx<'_>, id: u32, core_type: &CoreType<'_>) {
-        // This node COULD have a nested scope (so pass false to is_inner_node)
+    fn exit_core_module_type(&mut self, cx: &VisitCtx<'_>, id: u32, core_type: &CoreType<'_>) {
+        // Module types have a nested scope (so pass false to is_inner_node)
         self.assign_actual_id(&cx.inner, false, &core_type.index_space_of(), id)
     }
     fn visit_core_instance(&mut self, cx: &VisitCtx<'_>, id: u32, inst: &Instance<'_>) {

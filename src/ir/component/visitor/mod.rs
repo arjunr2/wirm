@@ -156,19 +156,64 @@ pub trait ComponentVisitor<'a> {
     // Component-level items
     // ------------------------
 
-    /// Invoked when entering a component-level type definition.
-    ///
-    /// This includes all variants of `ComponentType`, such as defined,
-    /// function, component, instance, and resource types.
+    /// Invoked for each leaf component type (`Defined`, `Func`, `Resource`).
     ///
     /// The `id` corresponds to the resolved type index within the
     /// component type namespace.
     ///
-    /// This callback is paired with `exit_comp_type`, and any nested
-    /// declarations (e.g. `ComponentTypeDeclaration` or
-    /// `InstanceTypeDeclaration`) will be reported between the enter/exit
-    /// calls.
-    fn enter_comp_type(&mut self, _cx: &VisitCtx<'a>, _id: u32, _comp_type: &ComponentType<'a>) {}
+    /// For `Instance` and `Component` types, which carry inner declaration
+    /// bodies, use [`ComponentVisitor::enter_comp_instance_type`] /
+    /// [`ComponentVisitor::enter_comp_component_type`] instead.
+    fn visit_comp_type(&mut self, _cx: &VisitCtx<'a>, _id: u32, _comp_type: &ComponentType<'a>) {}
+
+    /// Invoked when entering an instance type (`ComponentType::Instance`).
+    ///
+    /// The `id` is the resolved type index.  Instance type declarations
+    /// are reported via [`ComponentVisitor::visit_inst_type_decl`] between
+    /// this call and [`ComponentVisitor::exit_comp_instance_type`].
+    fn enter_comp_instance_type(
+        &mut self,
+        _cx: &VisitCtx<'a>,
+        _id: u32,
+        _comp_type: &ComponentType<'a>,
+    ) {
+    }
+
+    /// Invoked after all declarations within an instance type have been
+    /// visited.  Always paired with
+    /// [`ComponentVisitor::enter_comp_instance_type`].
+    fn exit_comp_instance_type(
+        &mut self,
+        _cx: &VisitCtx<'a>,
+        _id: u32,
+        _comp_type: &ComponentType<'a>,
+    ) {
+    }
+
+    /// Invoked when entering a component type body
+    /// (`ComponentType::Component`).
+    ///
+    /// The `id` is the resolved type index.  Component type declarations
+    /// are reported via [`ComponentVisitor::visit_comp_type_decl`] between
+    /// this call and [`ComponentVisitor::exit_comp_component_type`].
+    fn enter_comp_component_type(
+        &mut self,
+        _cx: &VisitCtx<'a>,
+        _id: u32,
+        _comp_type: &ComponentType<'a>,
+    ) {
+    }
+
+    /// Invoked after all declarations within a component type body have
+    /// been visited.  Always paired with
+    /// [`ComponentVisitor::enter_comp_component_type`].
+    fn exit_comp_component_type(
+        &mut self,
+        _cx: &VisitCtx<'a>,
+        _id: u32,
+        _comp_type: &ComponentType<'a>,
+    ) {
+    }
 
     /// Invoked for each declaration within a `ComponentType::Component`.
     ///
@@ -180,7 +225,7 @@ pub trait ComponentVisitor<'a> {
     /// `exit_comp_type` for the enclosing type.
     fn visit_comp_type_decl(
         &mut self,
-        _cx: &ScopedVisitCtx<'a>,
+        _cx: &VisitCtx<'a>,
         _decl_idx: usize,
         _id: u32,
         _parent: &ComponentType<'a>,
@@ -199,7 +244,7 @@ pub trait ComponentVisitor<'a> {
     /// `exit_comp_type` for the enclosing type.
     fn visit_inst_type_decl(
         &mut self,
-        _cx: &ScopedVisitCtx<'a>,
+        _cx: &VisitCtx<'a>,
         _decl_idx: usize,
         _id: u32,
         _parent: &ComponentType<'a>,
@@ -207,11 +252,6 @@ pub trait ComponentVisitor<'a> {
     ) {
     }
 
-    /// Invoked after all nested declarations within a component-level
-    /// type have been visited.
-    ///
-    /// Always paired with a prior `enter_comp_type` call for the same `id`.
-    fn exit_comp_type(&mut self, _cx: &VisitCtx<'a>, _id: u32, _comp_type: &ComponentType<'a>) {}
 
     /// Invoked for each component instance.
     ///
@@ -354,23 +394,19 @@ pub trait ComponentVisitor<'a> {
     // Core Type Definitions
     // ============================================================
 
-    /// Called when entering a core type definition.
+    /// Called when entering a core module type (`CoreType::Module`).
     ///
-    /// This corresponds to a type allocated in the core type namespace
-    /// (e.g., a module type). The `id` is the resolved index within that
-    /// namespace.
-    ///
-    /// This callback forms a structured pair with `exit_core_type`.
-    /// Any nested structure associated with this type (such as module
-    /// type declarations) will be reported between these two calls.
-    ///
-    /// Ordering guarantees:
-    /// `enter_core_type(id, ...)`
-    ///   → zero or more `visit_module_type_decl(...)`
-    ///   → `exit_core_type(id, ...)`
-    ///
-    /// The same `id` is passed to both enter and exit.
-    fn enter_core_type(&mut self, _cx: &VisitCtx<'a>, _id: u32, _core_type: &CoreType<'a>) {}
+    /// The `id` is the resolved index in the core type namespace.
+    /// Module type declarations are reported via
+    /// [`ComponentVisitor::visit_module_type_decl`] between this call and
+    /// [`ComponentVisitor::exit_core_module_type`].
+    fn enter_core_module_type(
+        &mut self,
+        _cx: &VisitCtx<'a>,
+        _id: u32,
+        _core_type: &CoreType<'a>,
+    ) {
+    }
 
     /// Called for each declaration inside a core module type.
     ///
@@ -394,7 +430,7 @@ pub trait ComponentVisitor<'a> {
     ///   to a global index space.
     fn visit_module_type_decl(
         &mut self,
-        _cx: &ScopedVisitCtx<'a>,
+        _cx: &VisitCtx<'a>,
         _decl_idx: usize,
         _id: u32,
         _parent: &CoreType<'a>,
@@ -402,16 +438,16 @@ pub trait ComponentVisitor<'a> {
     ) {
     }
 
-    /// Called after all nested declarations for a core type
-    /// have been visited.
-    ///
-    /// Always paired with a prior `enter_core_type` for the same `id`.
-    /// No additional callbacks related to this type will occur after
-    /// this point.
-    ///
-    /// Implementations may use this as a finalization hook once the
-    /// full structural contents of the type are known.
-    fn exit_core_type(&mut self, _cx: &VisitCtx<'a>, _id: u32, _core_type: &CoreType<'a>) {}
+    /// Called after all declarations within a core module type have been
+    /// visited.  Always paired with
+    /// [`ComponentVisitor::enter_core_module_type`].
+    fn exit_core_module_type(
+        &mut self,
+        _cx: &VisitCtx<'a>,
+        _id: u32,
+        _core_type: &CoreType<'a>,
+    ) {
+    }
 
     /// Invoked for each core WebAssembly instance.
     ///
@@ -474,116 +510,6 @@ impl From<Space> for ItemKind {
     }
 }
 
-/// The active type scope held by a [`ScopedVisitCtx`].
-///
-/// Either a component-model type ([`ComponentType`]) or a core WebAssembly type
-/// ([`CoreType`]).  This is private to the visitor module — callers obtain a
-/// `ScopedVisitCtx` via [`VisitCtx::enter_comp_ty_scope`] or
-/// [`VisitCtx::enter_core_ty_scope`] and never inspect the inner type directly.
-#[derive(Clone)]
-enum ScopedTy<'a> {
-    Comp(&'a ComponentType<'a>),
-    Core(&'a CoreType<'a>),
-}
-
-/// A context for resolving references that live **inside** a [`ComponentType::Instance`],
-/// [`ComponentType::Component`], or [`CoreType::Module`] body.
-///
-/// Obtain one by calling [`VisitCtx::enter_comp_ty_scope`] or
-/// [`VisitCtx::enter_core_ty_scope`].  Never construct this directly.
-///
-/// # Why this exists
-///
-/// References declared inside a `ComponentType::Instance(decls)` body are stored in
-/// that type's declaration subvec, not in the parent component's main item vectors.
-/// A plain [`VisitCtx::resolve`] call cannot reach them.  `ScopedVisitCtx` fixes this
-/// by holding a reference to the active type and dispatching into the correct
-/// subvec automatically whenever `ref_.depth.is_curr()`.
-///
-/// # Discovery
-///
-/// If you call [`VisitCtx::resolve`] with a ref that belongs to an inner scope and the
-/// lookup panics, the error message will tell you to call [`VisitCtx::enter_comp_ty_scope`].
-#[derive(Clone)]
-pub struct ScopedVisitCtx<'a> {
-    pub(crate) inner: VisitCtxInner<'a>,
-    /// The type whose inner scope has been entered.
-    ty: ScopedTy<'a>,
-}
-
-impl<'a> ScopedVisitCtx<'a> {
-    /// Resolve a reference within this scope.
-    ///
-    /// Automatically dispatches into the active type's declaration subvec
-    /// for current-depth refs; outer-depth refs fall through to normal resolution.
-    pub fn resolve(&self, ref_: &IndexedRef) -> ResolvedItem<'a, 'a> {
-        if ref_.depth.is_curr() {
-            match &self.ty {
-                ScopedTy::Comp(comp_ty) => match comp_ty {
-                    ComponentType::Instance(decls) => {
-                        return self.inner.resolve_maybe_from_subvec(ref_, decls);
-                    }
-                    ComponentType::Component(decls) => {
-                        return self.inner.resolve_maybe_from_subvec(ref_, decls);
-                    }
-                    _ => {}
-                },
-                ScopedTy::Core(core_ty) => {
-                    if let CoreType::Module(decls) = core_ty {
-                        return self.inner.resolve_maybe_from_subvec(ref_, decls);
-                    }
-                }
-            }
-        }
-        self.inner.resolve(ref_)
-    }
-
-    /// Enter a nested component-type scope, returning a new `ScopedVisitCtx` for that
-    /// inner scope.
-    pub fn enter_comp_ty_scope(&self, ty: &'a ComponentType<'a>) -> ScopedVisitCtx<'a> {
-        let mut inner = self.inner.clone();
-        inner.maybe_enter_scope(ty);
-        ScopedVisitCtx {
-            inner,
-            ty: ScopedTy::Comp(ty),
-        }
-    }
-
-    /// Enter a nested core-type scope, returning a new `ScopedVisitCtx` for that
-    /// inner scope.
-    pub fn enter_core_ty_scope(&self, ty: &'a CoreType<'a>) -> ScopedVisitCtx<'a> {
-        let mut inner = self.inner.clone();
-        inner.maybe_enter_scope(ty);
-        ScopedVisitCtx {
-            inner,
-            ty: ScopedTy::Core(ty),
-        }
-    }
-
-    /// Wrap an already-entered component-type scope.
-    ///
-    /// Used by the driver when firing `visit_comp_type_decl` /
-    /// `visit_inst_type_decl`: the type scope is already on the stack, so we
-    /// must not push it again.
-    pub(crate) fn wrap_comp_ty(inner: VisitCtxInner<'a>, ty: &'a ComponentType<'a>) -> Self {
-        ScopedVisitCtx {
-            inner,
-            ty: ScopedTy::Comp(ty),
-        }
-    }
-
-    /// Wrap an already-entered core-type scope.
-    ///
-    /// Used by the driver when firing `visit_module_type_decl`: the type scope
-    /// is already on the stack.
-    pub(crate) fn wrap_core_ty(inner: VisitCtxInner<'a>, ty: &'a CoreType<'a>) -> Self {
-        ScopedVisitCtx {
-            inner,
-            ty: ScopedTy::Core(ty),
-        }
-    }
-}
-
 /// Context provided during component traversal.
 ///
 /// `VisitCtx` allows resolution of referenced indices (such as type,
@@ -642,51 +568,6 @@ impl<'a> VisitCtx<'a> {
     /// - [`crate::ir::component::refs::GetDescribesRefs`]: to pull refs of describes
     pub fn resolve(&self, ref_: &IndexedRef) -> ResolvedItem<'a, 'a> {
         self.inner.resolve(ref_)
-    }
-
-    /// Enter a [`ComponentType`]'s inner scope, returning a [`ScopedVisitCtx`] for
-    /// resolving references declared within that type's body.
-    ///
-    /// # When to use
-    ///
-    /// Call this whenever you hold a [`ComponentType::Instance`] or
-    /// [`ComponentType::Component`] and need to resolve refs that appear inside its
-    /// declaration list.  Pass the returned [`ScopedVisitCtx`] — instead of this
-    /// `VisitCtx` — to any code that operates within that scope.
-    ///
-    /// For [`CoreType::Module`] bodies, use [`VisitCtx::enter_core_ty_scope`] instead.
-    ///
-    /// If you accidentally call [`VisitCtx::resolve`] with a ref that belongs to an
-    /// inner scope, the resulting panic message will point you here.
-    pub fn enter_comp_ty_scope(&self, ty: &'a ComponentType<'a>) -> ScopedVisitCtx<'a> {
-        let mut inner = self.inner.clone();
-        inner.maybe_enter_scope(ty);
-        ScopedVisitCtx {
-            inner,
-            ty: ScopedTy::Comp(ty),
-        }
-    }
-
-    /// Enter a [`CoreType`]'s inner scope, returning a [`ScopedVisitCtx`] for
-    /// resolving references declared within that type's body.
-    ///
-    /// # When to use
-    ///
-    /// Call this whenever you hold a [`CoreType::Module`] and need to resolve refs
-    /// that appear inside its declaration list.  Pass the returned [`ScopedVisitCtx`]
-    /// — instead of this `VisitCtx` — to any code that operates within that scope.
-    ///
-    /// For [`ComponentType`] bodies, use [`VisitCtx::enter_comp_ty_scope`] instead.
-    ///
-    /// If you accidentally call [`VisitCtx::resolve`] with a ref that belongs to an
-    /// inner scope, the resulting panic message will point you here.
-    pub fn enter_core_ty_scope(&self, ty: &'a CoreType<'a>) -> ScopedVisitCtx<'a> {
-        let mut inner = self.inner.clone();
-        inner.maybe_enter_scope(ty);
-        ScopedVisitCtx {
-            inner,
-            ty: ScopedTy::Core(ty),
-        }
     }
 
     /// Resolves a collection of [`RefKind`] values into their semantic targets.
