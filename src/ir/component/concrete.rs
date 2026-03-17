@@ -32,7 +32,7 @@
 
 use crate::ir::component::idx_spaces::Space;
 use crate::ir::component::refs::{Depth, GetCompRefs, GetItemRef, GetTypeRefs, IndexedRef};
-use crate::ir::component::visitor::utils::VisitCtxInner;
+use crate::ir::component::visitor::utils::{TypeBodyDecls, VisitCtxInner};
 use crate::ir::component::visitor::{ResolvedItem, VisitCtx};
 use crate::Component;
 use wasmparser::{
@@ -135,6 +135,14 @@ impl<'a> Component<'a> {
         let mut inner = VisitCtxInner::new(self);
         inner.push_component(self);
         inner.maybe_enter_scope(ty);
+        // Mirror what the visitor driver does: push the type body's decl slice so
+        // that `resolve()` dispatches body-relative refs into the right namespace
+        // rather than falling through to the component's main type index space.
+        match ty {
+            ComponentType::Instance(decls) => inner.push_type_body(TypeBodyDecls::Inst(decls)),
+            ComponentType::Component(decls) => inner.push_type_body(TypeBodyDecls::Comp(decls)),
+            _ => {}
+        }
         VisitCtx { inner }
     }
 }

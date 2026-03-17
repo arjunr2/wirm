@@ -1,5 +1,6 @@
 //! Tests for `Component::resolve` and `Component::get_type_of_exported_lift_func`.
 
+use crate::ir::component::concrete::ConcreteType;
 use crate::ir::component::refs::GetItemRef;
 use crate::ir::component::visitor::ResolvedItem;
 use crate::Component;
@@ -192,5 +193,40 @@ fn test_get_type_of_exported_lift_func() {
     assert!(
         matches!(ty.unwrap(), wasmparser::ComponentType::Func(_)),
         "resolved type should be ComponentType::Func"
+    );
+}
+
+// ============================================================
+// concretize_import — instance type body resolution
+// ============================================================
+
+/// `concretize_import` must resolve type refs inside an instance-type body against
+/// the body's own declaration namespace, not the component's main type namespace.
+///
+/// Regression test: before the fix, `VisitCtxInner::resolve()` fell through to the
+/// component's main type index space for body-relative refs when called from
+/// `concretize_instance_decls`, causing an out-of-bounds panic whenever the
+/// body-local type index exceeded the component's main type count.
+#[test]
+fn test_concretize_import_resolves_body_types() {
+    // The component has only 1 type in its main namespace (the instance type at index 0).
+    // The instance body defines two types (body-index 0 and 1) and exports a function
+    // whose type is body-index 1. Without the fix, resolving body-index 1 against the
+    // main namespace (len=1) panics with "index out of bounds".
+    let b = bytes(
+        r#"(component
+      (type (instance
+        (type $elem u32)
+        (type $fn-type (func (param "x" 0)))
+        (export "my-func" (func (type 1)))
+      ))
+      (import "my-iface" (instance (type 0)))
+    )"#,
+    );
+    let comp = parsed(&b);
+    let result = comp.concretize_import("my-iface");
+    assert!(
+        matches!(result, Some(ConcreteType::Instance(_))),
+        "expected Some(Instance), got {result:?}"
     );
 }

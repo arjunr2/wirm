@@ -41,7 +41,7 @@ use wasmparser::{
 
 mod alias;
 mod canons;
-mod concrete;
+pub mod concrete;
 pub(crate) mod idx_spaces;
 pub mod refs;
 pub(crate) mod scopes;
