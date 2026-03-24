@@ -190,6 +190,15 @@ impl<'a> Component<'a> {
         (AliasFuncId(id as u32), alias_id)
     }
 
+    /// Add an Aliased core memory to this Component.
+    pub fn add_alias_core_memory(&mut self, alias: ComponentAlias<'a>) -> (u32, AliasId) {
+        let space = alias.index_space_of();
+        let (_item_id, alias_id) = self.alias.add(alias);
+        let id = self.add_section_and_get_id(space, ComponentSection::Alias, *alias_id as usize);
+
+        (id as u32, alias_id)
+    }
+
     /// Add a Canonical Function to this Component.
     pub fn add_canon_func(&mut self, canon: CanonicalFunction) -> CanonicalFuncId {
         let space = canon.index_space_of();
